@@ -5,7 +5,7 @@
 ## Issues Resolved
 
 ### Cross-directory module resolution (single-file compilation gap)
-The xiomc compiler cannot resolve `use` declarations across different directories within the same package when compiling single files. This is documented in `ecosystem/COMPILER_GAPS.md` under "Methodology".
+The xiom compiler cannot resolve `use` declarations across different directories within the same package when compiling single files. This is documented in `ecosystem/COMPILER_GAPS.md` under "Methodology".
 
 **Workaround applied: Monolithic consolidation**
 All interdependent modules were merged into a single `src/engine.xi` module:

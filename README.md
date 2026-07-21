@@ -114,7 +114,7 @@ See [ROADMAP.md](ROADMAP.md) for the honest, phased plan.
 
 ## Build & Run
 ```bash
-xiomc --run myprogram.xi
+xiom --run myprogram.xi
 ```
 
 ## Dependencies: `xiom-core`, `xiom-std`
