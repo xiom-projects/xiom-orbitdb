@@ -159,7 +159,7 @@ Public operations return `Bool` / `Option[T]`; fallible internal operations retu
 ## File Layout
 
 ```
-ecosystem/xiom-db/
+packages/xiom-db/
 ├── package.xi           # Manifest (depends on xiom-core)
 ├── README.md
 ├── ARCHITECTURE.md
