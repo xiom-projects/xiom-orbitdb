@@ -1,7 +1,7 @@
 module xiom.db.txn.transaction
 
 // Transaction identity and lifecycle. A `Transaction` accumulates the logical
-// operations it intends to perform and moves through a strict Active → Committed
+// operations it intends to perform and moves through a strict Active -> Committed
 // / Aborted state machine (see docs/transaction-model.md). This phase provides
 // the state bookkeeping only; MVCC isolation and lock management arrive in
 // Phase 3. `WALOp` is the coarse operation tag recorded per transaction.

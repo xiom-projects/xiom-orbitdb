@@ -1,4 +1,4 @@
-# AUDIT.md — xiom-db
+# AUDIT.md -- xiom-db
 
 ## Compilation Status: 23/23 files OK
 
@@ -38,6 +38,6 @@ Functions imported from xiom-core via `use xiom.core.*` do not resolve at call s
 ## Pre-existing Issues
 
 ### E001 borrow errors (non-fatal)
-The consolidated engine.xi retains 32 E001 borrow errors from the original B-tree implementation (`index/btree.xi`). These are "use of moved value" errors on loop index variables in `split_root`, `insert_nonfull`, `split_child`, `delete_from_node`, etc. The compiler emits `{"status":"ok"}` despite these errors, so they are non-fatal. The B-tree functions are functionally correct — the borrow checker is overly conservative with mutable loop variables in complex branching functions.
+The consolidated engine.xi retains 32 E001 borrow errors from the original B-tree implementation (`index/btree.xi`). These are "use of moved value" errors on loop index variables in `split_root`, `insert_nonfull`, `split_child`, `delete_from_node`, etc. The compiler emits `{"status":"ok"}` despite these errors, so they are non-fatal. The B-tree functions are functionally correct -- the borrow checker is overly conservative with mutable loop variables in complex branching functions.
 
 **Recommendation**: The compiler team should investigate E001 false positives on mutable loop counters that are reassigned after each iteration. The pattern `var i = 0; while i < n { ... use i ...; i = i + 1; }` should not produce "use of moved value" errors.

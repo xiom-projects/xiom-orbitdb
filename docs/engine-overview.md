@@ -1,6 +1,6 @@
 # Engine Overview
 
-`xiom.db.engine` (`src/engine.xi`) is the internal coordinator that turns the independent subsystems — index, WAL, query — into a single coherent store. It is deliberately thin: it owns write ordering and timestamps, and delegates everything else.
+`xiom.db.engine` (`src/engine.xi`) is the internal coordinator that turns the independent subsystems -- index, WAL, query -- into a single coherent store. It is deliberately thin: it owns write ordering and timestamps, and delegates everything else.
 
 ## The `Engine` value
 
@@ -31,10 +31,10 @@ engine_insert(key, value):
 
 ## The read path
 
-- `engine_get(key)` → `btree_search` (O(log n)), returns `Option[Int]`.
-- `engine_range_query(low, high)` (`requires: low <= high`) → `btree_range_query`.
-- `engine_query(query)` → delegates to `query_execute` (see [query-pipeline.md](query-pipeline.md)).
-- `engine_size()` → `btree_size`.
+- `engine_get(key)` -> `btree_search` (O(log n)), returns `Option[Int]`.
+- `engine_range_query(low, high)` (`requires: low <= high`) -> `btree_range_query`.
+- `engine_query(query)` -> delegates to `query_execute` (see [query-pipeline.md](query-pipeline.md)).
+- `engine_size()` -> `btree_size`.
 
 Reads never touch the WAL and never mutate state.
 
@@ -49,4 +49,4 @@ Reads never touch the WAL and never mutate state.
 
 ## Relationship to the facade
 
-`xiom.db.api.database` wraps `Engine` and is the intended entry point for applications. It adds an `open` flag (a closed database rejects operations) and a stable verb-first API, but contains no logic of its own — each `db_*` function delegates to the matching `engine_*` function. Keeping the engine free of lifecycle concerns keeps it easy to test and reuse.
+`xiom.db.api.database` wraps `Engine` and is the intended entry point for applications. It adds an `open` flag (a closed database rejects operations) and a stable verb-first API, but contains no logic of its own -- each `db_*` function delegates to the matching `engine_*` function. Keeping the engine free of lifecycle concerns keeps it easy to test and reuse.

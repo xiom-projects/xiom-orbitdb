@@ -1,7 +1,7 @@
 module xiom.db.catalog.schema_validator
 use xiom.db.catalog.schema;
 
-// Local error type for schema validation — mirrors xiom.db.error.DbError.
+// Local error type for schema validation -- mirrors xiom.db.error.DbError.
 enum DbError {
   NotFound,
   DuplicateKey,

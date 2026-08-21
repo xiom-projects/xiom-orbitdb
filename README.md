@@ -1,13 +1,13 @@
 # xiom-db
 
-> Embedded database engine for XIOM — layered architecture: B-Tree index, WAL, query engine, crash recovery. Built on the `xiom-core` durable-systems substrate.
+> Embedded database engine for XIOM -- layered architecture: B-Tree index, WAL, query engine, crash recovery. Built on the `xiom-core` durable-systems substrate.
 
 [![XIOM](https://img.shields.io/badge/XIOM-v0.22.1-blue)](https://github.com/XIOM-lang/XIOM.git )
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
 
 ## Overview
 
-xiom-db is an embedded database engine in pure XIOM. It provides a B-Tree storage index, a write-ahead log (WAL) for crash recovery, and a query engine with filtering / pagination — all with contract-guaranteed integrity. As of `0.2.0` the package is organized as a **layered architecture** and depends on `xiom-core` for shared IDs, errors, config, contracts, and metrics.
+xiom-db is an embedded database engine in pure XIOM. It provides a B-Tree storage index, a write-ahead log (WAL) for crash recovery, and a query engine with filtering / pagination -- all with contract-guaranteed integrity. As of `0.2.0` the package is organized as a **layered architecture** and depends on `xiom-core` for shared IDs, errors, config, contracts, and metrics.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the module tree and ownership rules, [ROADMAP.md](ROADMAP.md) for the phased plan, and [`docs/`](docs/) for subsystem deep-dives.
 
@@ -42,30 +42,30 @@ The lower-level `xiom.db.engine` API (`engine_new`, `engine_insert`, ...) remain
 
 ```
 src/
-├── error.xi                     xiom.db.error            — DbError, DbResult
-├── ids.xi                       xiom.db.ids              — RowId, TableId
-├── config.xi                    xiom.db.config           — DatabaseConfig
-├── contracts.xi                 xiom.db.contracts        — valid_key, sorted_keys, ...
-├── storage/
-│   ├── page.xi                  xiom.db.storage.page     — Page, BufferPool, StorageEngine
-│   ├── tuple.xi                 xiom.db.storage.tuple    — Row, ResultSet, tuple codec
-│   └── free_space_map.xi        xiom.db.storage.free_space_map  (scaffold, Phase 1)
-├── catalog/
-│   ├── schema.xi                xiom.db.catalog.schema           — Schema, ColumnDef, IndexDef
-│   └── schema_validator.xi      xiom.db.catalog.schema_validator — validation
-├── wal/
-│   ├── wal_record.xi            xiom.db.wal.wal_record   — WALEntry, WALOpType
-│   └── wal.xi                   xiom.db.wal.wal          — WAL, append/replay/truncate
-├── txn/
-│   └── transaction.xi           xiom.db.txn.transaction  — Transaction, TxState
-├── index/
-│   └── btree.xi                 xiom.db.index.btree      — flat-array B-tree (canonical)
-├── query/
-│   ├── query.xi                 xiom.db.query.query      — Query builder + execution
-│   └── planner.xi               xiom.db.query.planner    (scaffold, Phase 3)
-├── engine.xi                    xiom.db.engine           — internal coordinator
-└── api/
-    └── database.xi              xiom.db.api.database     — public Database facade
+|-- error.xi                     xiom.db.error            -- DbError, DbResult
+|-- ids.xi                       xiom.db.ids              -- RowId, TableId
+|-- config.xi                    xiom.db.config           -- DatabaseConfig
+|-- contracts.xi                 xiom.db.contracts        -- valid_key, sorted_keys, ...
+|-- storage/
+|   |-- page.xi                  xiom.db.storage.page     -- Page, BufferPool, StorageEngine
+|   |-- tuple.xi                 xiom.db.storage.tuple    -- Row, ResultSet, tuple codec
+|   `-- free_space_map.xi        xiom.db.storage.free_space_map  (scaffold, Phase 1)
+|-- catalog/
+|   |-- schema.xi                xiom.db.catalog.schema           -- Schema, ColumnDef, IndexDef
+|   `-- schema_validator.xi      xiom.db.catalog.schema_validator -- validation
+|-- wal/
+|   |-- wal_record.xi            xiom.db.wal.wal_record   -- WALEntry, WALOpType
+|   `-- wal.xi                   xiom.db.wal.wal          -- WAL, append/replay/truncate
+|-- txn/
+|   `-- transaction.xi           xiom.db.txn.transaction  -- Transaction, TxState
+|-- index/
+|   `-- btree.xi                 xiom.db.index.btree      -- flat-array B-tree (canonical)
+|-- query/
+|   |-- query.xi                 xiom.db.query.query      -- Query builder + execution
+|   `-- planner.xi               xiom.db.query.planner    (scaffold, Phase 3)
+|-- engine.xi                    xiom.db.engine           -- internal coordinator
+`-- api/
+    `-- database.xi              xiom.db.api.database     -- public Database facade
 ```
 
 ## API Reference
@@ -98,17 +98,17 @@ src/
 ## Production Readiness
 | Feature | Status |
 |---------|--------|
-| Layered architecture | ✅ Complete (0.2.0) |
-| B-Tree (insert/search/delete/range) | ✅ Complete |
-| WAL (write-ahead log) | ✅ Complete (in-memory) |
-| Crash recovery (WAL replay) | ✅ Complete (in-memory) |
-| Query engine (filter/limit/offset) | ✅ Complete |
-| Public Database facade | ✅ Complete |
-| Schema catalog + validation | ✅ Types + validation |
-| Transactions (isolation/MVCC) | ⚠️ State machine only |
-| Query planner (index-aware) | ⏳ Scaffolded (Phase 3) |
-| Free-space map | ⏳ Scaffolded (Phase 1) |
-| Disk persistence (real pager) | ❌ Phase 1–2 |
+| Layered architecture | [OK] Complete (0.2.0) |
+| B-Tree (insert/search/delete/range) | [OK] Complete |
+| WAL (write-ahead log) | [OK] Complete (in-memory) |
+| Crash recovery (WAL replay) | [OK] Complete (in-memory) |
+| Query engine (filter/limit/offset) | [OK] Complete |
+| Public Database facade | [OK] Complete |
+| Schema catalog + validation | [OK] Types + validation |
+| Transactions (isolation/MVCC) | [WARN] State machine only |
+| Query planner (index-aware) | [WIP] Scaffolded (Phase 3) |
+| Free-space map | [WIP] Scaffolded (Phase 1) |
+| Disk persistence (real pager) | [FAIL] Phase 1-2 |
 
 See [ROADMAP.md](ROADMAP.md) for the honest, phased plan.
 

@@ -2,7 +2,7 @@ module xiom.db.error
 use xiom.core.error;
 
 // Typed error domain for xiom-db. Every fallible database operation returns a
-// `DbResult[T]` so there are no hidden failure channels — callers must discharge
+// `DbResult[T]` so there are no hidden failure channels -- callers must discharge
 // the failure explicitly. `DbError` is intentionally coarse-grained and stable;
 // richer diagnostics travel in the message-carrying `xiom.core.error.CoreError`
 // that lower layers raise and that `db_error_from_core` folds into this domain.

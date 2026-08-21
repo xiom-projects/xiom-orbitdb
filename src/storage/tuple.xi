@@ -1,6 +1,6 @@
 module xiom.db.storage.tuple
 
-// Local error type for tuple encoding — mirrors xiom.db.error.DbError.
+// Local error type for tuple encoding -- mirrors xiom.db.error.DbError.
 enum DbError {
   NotFound,
   DuplicateKey,

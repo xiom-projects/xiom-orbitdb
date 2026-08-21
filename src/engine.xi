@@ -1,7 +1,7 @@
 module xiom.db.engine
 
 // ============================================================================
-// XIOM-DB: Consolidated Engine — B-Tree + WAL + Query + Engine + Database API
+// XIOM-DB: Consolidated Engine -- B-Tree + WAL + Query + Engine + Database API
 // ============================================================================
 // The single-file engine merges the interdependent modules (index/btree,
 // wal/wal_record, wal/wal, query/query, query/planner, engine, api/database)

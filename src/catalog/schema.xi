@@ -1,6 +1,6 @@
 module xiom.db.catalog.schema
 
-// Table and index definitions — the database's data dictionary. A `Schema`
+// Table and index definitions -- the database's data dictionary. A `Schema`
 // names a table's ordered columns and designates one of them as the primary
 // key; an `IndexDef` describes a secondary access path. This module is pure
 // metadata: it holds no rows and performs no validation (see schema_validator).

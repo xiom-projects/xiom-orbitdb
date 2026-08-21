@@ -10,37 +10,37 @@ xiom-db is a **layered** embedded database. Each layer owns exactly one concern 
 
 ```
 src/
-├── error.xi         xiom.db.error             DbError enum, DbResult convention, CoreError bridge
-├── ids.xi           xiom.db.ids               RowId / TableId wrappers; bridge to core PageId
-├── config.xi        xiom.db.config            DatabaseConfig, validation, CoreConfig projection
-├── contracts.xi     xiom.db.contracts         valid_key, sorted_keys, valid_range, order checks
-│
-├── storage/
-│   ├── page.xi              xiom.db.storage.page            Page, checksum, BufferPool, StorageEngine
-│   ├── tuple.xi             xiom.db.storage.tuple           Row, ResultSet, tuple_encode/decode
-│   └── free_space_map.xi    xiom.db.storage.free_space_map  FreeSpaceMap (scaffold, Phase 1)
-│
-├── catalog/
-│   ├── schema.xi            xiom.db.catalog.schema           ColumnDef, Schema, IndexDef
-│   └── schema_validator.xi  xiom.db.catalog.schema_validator validate_schema/column/index
-│
-├── wal/
-│   ├── wal_record.xi        xiom.db.wal.wal_record   WALEntry, WALOpType
-│   └── wal.xi               xiom.db.wal.wal          WAL, append/replay/truncate/clear
-│
-├── txn/
-│   └── transaction.xi       xiom.db.txn.transaction  Transaction, TxState, WALOp
-│
-├── index/
-│   └── btree.xi             xiom.db.index.btree      Flat-array B-tree (CANONICAL, working)
-│
-├── query/
-│   ├── query.xi             xiom.db.query.query      Query builder + scan execution
-│   └── planner.xi           xiom.db.query.planner    QueryPlan (scaffold, Phase 3)
-│
-├── engine.xi                xiom.db.engine           Engine: WAL-before-data coordinator
-└── api/
-    └── database.xi          xiom.db.api.database     Database public facade
+|-- error.xi         xiom.db.error             DbError enum, DbResult convention, CoreError bridge
+|-- ids.xi           xiom.db.ids               RowId / TableId wrappers; bridge to core PageId
+|-- config.xi        xiom.db.config            DatabaseConfig, validation, CoreConfig projection
+|-- contracts.xi     xiom.db.contracts         valid_key, sorted_keys, valid_range, order checks
+|
+|-- storage/
+|   |-- page.xi              xiom.db.storage.page            Page, checksum, BufferPool, StorageEngine
+|   |-- tuple.xi             xiom.db.storage.tuple           Row, ResultSet, tuple_encode/decode
+|   `-- free_space_map.xi    xiom.db.storage.free_space_map  FreeSpaceMap (scaffold, Phase 1)
+|
+|-- catalog/
+|   |-- schema.xi            xiom.db.catalog.schema           ColumnDef, Schema, IndexDef
+|   `-- schema_validator.xi  xiom.db.catalog.schema_validator validate_schema/column/index
+|
+|-- wal/
+|   |-- wal_record.xi        xiom.db.wal.wal_record   WALEntry, WALOpType
+|   `-- wal.xi               xiom.db.wal.wal          WAL, append/replay/truncate/clear
+|
+|-- txn/
+|   `-- transaction.xi       xiom.db.txn.transaction  Transaction, TxState, WALOp
+|
+|-- index/
+|   `-- btree.xi             xiom.db.index.btree      Flat-array B-tree (CANONICAL, working)
+|
+|-- query/
+|   |-- query.xi             xiom.db.query.query      Query builder + scan execution
+|   `-- planner.xi           xiom.db.query.planner    QueryPlan (scaffold, Phase 3)
+|
+|-- engine.xi                xiom.db.engine           Engine: WAL-before-data coordinator
+`-- api/
+    `-- database.xi          xiom.db.api.database     Database public facade
 ```
 
 ### Layering rule
@@ -50,7 +50,7 @@ A module may `use` only modules **below** it in this list (plus `xiom.core.*`). 
 
 ## 2. Ownership Rules
 
-Ownership answers "who is allowed to mutate this state?" — the single most important property for a storage engine.
+Ownership answers "who is allowed to mutate this state?" -- the single most important property for a storage engine.
 
 | State | Owner | Notes |
 |-------|-------|-------|
@@ -102,10 +102,10 @@ DbError = NotFound | DuplicateKey | ConstraintViolation
 - Public facade methods use `Bool` / `Option[T]` for the common success-or-absence cases; richer failures surface through `DbResult` in the codec/catalog paths.
 
 **Failure domains** (where each class of failure is detected and handled):
-- *Input/logic* — `ConstraintViolation`, `DuplicateKey`, `SchemaMismatch`: detected at the catalog/query/index boundary, never retried.
-- *Integrity* — `Corruption`: detected by `Page.is_valid()` and `tuple_decode`; fatal, never retried.
-- *Storage* — `StorageError`: the only retryable class (transient IO); today a placeholder since storage is in-memory.
-- *Absence* — `NotFound`: normal control flow, expressed as `Option::None` in the hot path.
+- *Input/logic* -- `ConstraintViolation`, `DuplicateKey`, `SchemaMismatch`: detected at the catalog/query/index boundary, never retried.
+- *Integrity* -- `Corruption`: detected by `Page.is_valid()` and `tuple_decode`; fatal, never retried.
+- *Storage* -- `StorageError`: the only retryable class (transient IO); today a placeholder since storage is in-memory.
+- *Absence* -- `NotFound`: normal control flow, expressed as `Option::None` in the hot path.
 
 Full mapping in [docs/error-catalog.md](docs/error-catalog.md).
 
@@ -115,7 +115,7 @@ Full mapping in [docs/error-catalog.md](docs/error-catalog.md).
 
 > **Status:** Phase 0 is fully in-memory. There is no file format yet. This section states the *intended* layout so the seams are visible.
 
-| Concept | Now (Phase 0) | Target (Phase 1–2) |
+| Concept | Now (Phase 0) | Target (Phase 1-2) |
 |---------|---------------|--------------------|
 | Page | `Page{ data: Vec[UInt8], checksum }` in a `BufferPool` slot | Fixed 4 KiB block on disk via `xiom.core.storage.pager`, CRC32C footer |
 | Tuple | `Vec[Int]` in memory, `tuple_encode` = `[id, len, cols...]` | Length-prefixed byte record inside a heap page, placed via the free-space map |
@@ -123,30 +123,30 @@ Full mapping in [docs/error-catalog.md](docs/error-catalog.md).
 | WAL | `Vec[WALEntry]` in RAM | Append-only segment file, fsync on commit, via `xiom.core.wal.wal_writer` |
 | Catalog | `Schema` structs in RAM | Serialized system table |
 
-The module seams (`storage/page`, `storage/tuple`, `storage/free_space_map`, `wal/wal`) are exactly the points where the in-memory implementation is swapped for the durable one — no higher layer changes.
+The module seams (`storage/page`, `storage/tuple`, `storage/free_space_map`, `wal/wal`) are exactly the points where the in-memory implementation is swapped for the durable one -- no higher layer changes.
 
 ---
 
 ## 6. Recovery Lifecycle
 
 ```
-                 ┌─────────────┐
-   normal write  │ engine_insert│
-   ───────────►  │   1. next_ts │
-                 │   2. wal_append (WAL-before-data)
-                 │   3. btree_insert
-                 └─────────────┘
+                 +-------------+
+   normal write  | engine_insert|
+   ----------->  |   1. next_ts |
+                 |   2. wal_append (WAL-before-data)
+                 |   3. btree_insert
+                 `-------------+
 
    crash / restart
-   ───────────►  db_recover / engine_recover
-                 ┌───────────────────────────────┐
-                 │ 1. fresh tree = btree_new(order)
-                 │ 2. wal_replay(wal, &mut tree)   │  in log (timestamp) order
-                 │    · InsertOp → btree_insert    │
-                 │    · UpdateOp → delete + insert  │
-                 │    · DeleteOp → btree_delete     │
-                 │ 3. timestamp_counter = 0        │
-                 └───────────────────────────────┘
+   ----------->  db_recover / engine_recover
+                 +-------------------------------+
+                 | 1. fresh tree = btree_new(order)
+                 | 2. wal_replay(wal, &mut tree)   |  in log (timestamp) order
+                 |    - InsertOp -> btree_insert    |
+                 |    - UpdateOp -> delete + insert  |
+                 |    - DeleteOp -> btree_delete     |
+                 | 3. timestamp_counter = 0        |
+                 `-------------------------------+
                  returns false if ANY record failed
                  (partial recovery still applied)
 
@@ -164,7 +164,7 @@ Because writes are logged before they are applied, the WAL is a complete, ordere
 | Real disk pager | `storage/page.xi` behind `StorageEngine`, using `xiom.core.storage.pager` |
 | Durable WAL + fsync | `wal/wal.xi`, using `xiom.core.wal.wal_writer` |
 | Free-space placement | `storage/free_space_map.xi` |
-| Index-aware planning | `query/planner.xi` → `btree_range_query` |
+| Index-aware planning | `query/planner.xi` -> `btree_range_query` |
 | MVCC / isolation | `txn/transaction.xi` + a version-aware index read path |
 | SQL front-end | a new `sql/` layer above `api/database.xi` |
 

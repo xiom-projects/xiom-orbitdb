@@ -1,8 +1,8 @@
 # Transaction Model
 
-> **Status:** Phase 0 — `xiom.db.txn.transaction` implements the transaction **state machine** and operation accumulation only. There is no isolation, locking, or MVCC yet; those arrive in Phase 3.
+> **Status:** Phase 0 -- `xiom.db.txn.transaction` implements the transaction **state machine** and operation accumulation only. There is no isolation, locking, or MVCC yet; those arrive in Phase 3.
 
-## Types — `txn/transaction.xi`
+## Types -- `txn/transaction.xi`
 
 ```
 WALOp   = Insert | Update | Delete            // coarse operation tag
@@ -14,23 +14,23 @@ Transaction = { id: UInt64, state: TxState, operations: Vec[WALOp] }
 
 ```
         Transaction.new(id)
-              │
-              ▼
-        ┌──────────┐   commit()   ┌────────────┐
-        │  Active  │─────────────►│ Committed  │  (terminal)
-        └──────────┘              └────────────┘
-              │ abort()
-              ▼
-        ┌──────────┐
-        │ Aborted  │  (terminal)
-        └──────────┘
+              |
+              v
+        +----------+   commit()   +------------+
+        |  Active  |------------->| Committed  |  (terminal)
+        `----------+              `------------+
+              | abort()
+              v
+        +----------+
+        | Aborted  |  (terminal)
+        `----------+
 ```
 
-- `Transaction.new(id)` — starts in `Active` with no operations.
-- `Transaction.add_op(op)` — records intent; returns a new `Transaction` with the op appended (values are immutable, so mutators return a fresh value).
-- `Transaction.commit()` — transitions to `Committed`, preserving the operation list.
-- `Transaction.abort()` — transitions to `Aborted`, preserving the operation list.
-- `Transaction.is_active()` — `state == Active`.
+- `Transaction.new(id)` -- starts in `Active` with no operations.
+- `Transaction.add_op(op)` -- records intent; returns a new `Transaction` with the op appended (values are immutable, so mutators return a fresh value).
+- `Transaction.commit()` -- transitions to `Committed`, preserving the operation list.
+- `Transaction.abort()` -- transitions to `Aborted`, preserving the operation list.
+- `Transaction.is_active()` -- `state == Active`.
 
 **Invariant:** `Committed` and `Aborted` are terminal. Once a transaction leaves `Active` it must not transition again. In this phase the type does not enforce that at compile time; call sites must treat the terminal states as final. Enforcement (and rejection of `add_op` after commit) is a Phase 3 hardening item.
 
