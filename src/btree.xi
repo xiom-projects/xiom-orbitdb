@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module xiom.db.legacy.btree
 // SUPERSEDED -- this file is dead and should be deleted.
 // The canonical flat-array B-tree MOVED to src/index/btree.xi

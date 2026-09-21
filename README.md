@@ -1,3 +1,8 @@
+<!--
+Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+
 # xiom-db
 
 > Embedded database engine for XIOM -- layered architecture: B-Tree index, WAL, query engine, crash recovery. Built on the `xiom-core` durable-systems substrate.

@@ -1,3 +1,8 @@
+<!--
+Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+
 # XiomDB Architecture
 
 > The internal design of xiom-db 0.2.0: module tree, ownership rules, contract hotspots, typed error domains, on-disk layout, and the recovery lifecycle.

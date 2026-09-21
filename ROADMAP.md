@@ -1,3 +1,8 @@
+<!--
+Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+
 # XiomDB Roadmap
 
 > An honest, phased plan. Status is reported per-item; nothing is marked complete that is not actually implemented and working.

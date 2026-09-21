@@ -1,6 +1,6 @@
 // XIOM -- xiom-db Conformance Tests
 // Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //
 // Comprehensive conformance suite for xiom-db pure-XIOM components.
 // Tests: types (RowId, TableId, PageId), error domain, config validation,

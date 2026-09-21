@@ -1,3 +1,8 @@
+<!--
+Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+
 # Transaction Model
 
 > **Status:** Phase 0 -- `xiom.db.txn.transaction` implements the transaction **state machine** and operation accumulation only. There is no isolation, locking, or MVCC yet; those arrive in Phase 3.

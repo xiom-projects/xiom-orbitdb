@@ -1,3 +1,8 @@
+<!--
+Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+
 # WAL & Recovery
 
 The write-ahead log makes xiom-db recoverable. It is the ordered history of every mutation, written **before** the change reaches the index. Recovery replays that history onto an empty tree to reconstruct exact state.

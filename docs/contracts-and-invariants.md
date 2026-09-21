@@ -1,3 +1,8 @@
+<!--
+Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+
 # Contracts & Invariants
 
 Every correctness rule in xiom-db is expressed either as a `requires:` / `ensures:` clause on a function or as an invariant maintained by a module. This document is the exhaustive catalog. Shared predicates live in `xiom.db.contracts` and `xiom.core.contracts` so the same rule is used at both the contract site and any runtime check.

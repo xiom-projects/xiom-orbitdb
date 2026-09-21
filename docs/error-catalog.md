@@ -1,3 +1,8 @@
+<!--
+Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+
 # Error Catalog
 
 xiom-db exposes exactly one public error type, `DbError` (`xiom.db.error`). Every fallible internal operation returns `DbResult[T] = Result[T, DbError]`. Lower layers may raise `xiom.core.error.CoreError`; `db_error_from_core` folds those into `DbError` at the boundary so callers never juggle two vocabularies.

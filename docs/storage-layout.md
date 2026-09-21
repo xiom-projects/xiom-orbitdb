@@ -1,3 +1,8 @@
+<!--
+Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+
 # Storage Layout
 
 > **Status:** Phase 0 -- entirely in-memory. This document describes the current in-memory representation and the intended on-disk layout it is designed to become. No file format exists yet.

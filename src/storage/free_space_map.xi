@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module xiom.db.storage.free_space_map
 
 // SCAFFOLD (Phase 1). The free-space map tracks how many free bytes remain on

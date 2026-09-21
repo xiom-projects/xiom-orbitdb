@@ -1,3 +1,8 @@
+<!--
+Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+
 # Query Pipeline
 
 The query subsystem turns a declarative `Query` into a set of matching values. In Phase 0 it always runs a full in-order scan; the `planner` scaffold marks where index-aware execution lands in Phase 3.
