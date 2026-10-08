@@ -68,7 +68,7 @@ fn run_row_id_construction() -> Int {
   return 0;
 }
 
-fn test_row_id_construction() -> TestCase {
+fn test_row_id_construction() -> TestResult {
   let rc = run_row_id_construction();
   if rc == 0 { return assert(true, "types: RowId construction + value accessor"); }
   return assert(false, "types: RowId construction failed");
@@ -83,7 +83,7 @@ fn run_row_id_eq() -> Int {
   return 0;
 }
 
-fn test_row_id_eq() -> TestCase {
+fn test_row_id_eq() -> TestResult {
   let rc = run_row_id_eq();
   if rc == 0 { return assert(true, "types: RowId equality + inequality"); }
   return assert(false, "types: RowId eq failed");
@@ -97,7 +97,7 @@ fn run_row_id_next() -> Int {
   return 0;
 }
 
-fn test_row_id_next() -> TestCase {
+fn test_row_id_next() -> TestResult {
   let rc = run_row_id_next();
   if rc == 0 { return assert(true, "types: RowId next() increments correctly"); }
   return assert(false, "types: RowId next failed");
@@ -110,7 +110,7 @@ fn run_table_id_construction() -> Int {
   return 0;
 }
 
-fn test_table_id_construction() -> TestCase {
+fn test_table_id_construction() -> TestResult {
   let rc = run_table_id_construction();
   if rc == 0 { return assert(true, "types: TableId construction + value accessor"); }
   return assert(false, "types: TableId construction failed");
@@ -125,7 +125,7 @@ fn run_table_id_eq() -> Int {
   return 0;
 }
 
-fn test_table_id_eq() -> TestCase {
+fn test_table_id_eq() -> TestResult {
   let rc = run_table_id_eq();
   if rc == 0 { return assert(true, "types: TableId equality + inequality"); }
   return assert(false, "types: TableId eq failed");
@@ -138,7 +138,7 @@ fn run_row_id_to_page_id() -> Int {
   return 0;
 }
 
-fn test_row_id_to_page_id() -> TestCase {
+fn test_row_id_to_page_id() -> TestResult {
   let rc = run_row_id_to_page_id();
   if rc == 0 { return assert(true, "types: row_id_to_page_id bridge"); }
   return assert(false, "types: row_id_to_page_id failed");
@@ -152,7 +152,7 @@ fn run_page_id_zero() -> Int {
   return 0;
 }
 
-fn test_page_id_zero() -> TestCase {
+fn test_page_id_zero() -> TestResult {
   let rc = run_page_id_zero();
   if rc == 0 { return assert(true, "types: PageId zero construction"); }
   return assert(false, "types: PageId zero failed");
@@ -172,7 +172,7 @@ fn run_error_to_string() -> Int {
   return 0;
 }
 
-fn test_error_to_string() -> TestCase {
+fn test_error_to_string() -> TestResult {
   let rc = run_error_to_string();
   if rc == 0 { return assert(true, "error: all 6 DbError.to_string mappings"); }
   return assert(false, "error: to_string mapping wrong");
@@ -188,7 +188,7 @@ fn run_error_is_retryable() -> Int {
   return 0;
 }
 
-fn test_error_is_retryable() -> TestCase {
+fn test_error_is_retryable() -> TestResult {
   let rc = run_error_is_retryable();
   if rc == 0 { return assert(true, "error: only StorageError is retryable"); }
   return assert(false, "error: retryable mapping wrong");
@@ -202,7 +202,7 @@ fn run_error_db_result_ok() -> Int {
   }
 }
 
-fn test_error_db_result_ok() -> TestCase {
+fn test_error_db_result_ok() -> TestResult {
   let rc = run_error_db_result_ok();
   if rc == 0 { return assert(true, "error: DbResult[Int] Ok variant"); }
   return assert(false, "error: DbResult Ok failed");
@@ -219,7 +219,7 @@ fn run_error_db_result_err() -> Int {
   }
 }
 
-fn test_error_db_result_err() -> TestCase {
+fn test_error_db_result_err() -> TestResult {
   let rc = run_error_db_result_err();
   if rc == 0 { return assert(true, "error: DbResult[Int] Err variant carries error"); }
   return assert(false, "error: DbResult Err failed");
@@ -238,7 +238,7 @@ fn run_config_default() -> Int {
   return 0;
 }
 
-fn test_config_default() -> TestCase {
+fn test_config_default() -> TestResult {
   let rc = run_config_default();
   if rc == 0 { return assert(true, "config: default values (4096/64/true/4)"); }
   return assert(false, "config: default values wrong");
@@ -250,7 +250,7 @@ fn run_config_validate_valid() -> Int {
   return 0;
 }
 
-fn test_config_validate_valid() -> TestCase {
+fn test_config_validate_valid() -> TestResult {
   let rc = run_config_validate_valid();
   if rc == 0 { return assert(true, "config: default config passes validation"); }
   return assert(false, "config: default config rejected");
@@ -263,7 +263,7 @@ fn run_config_validate_bad_page_size() -> Int {
   return 0;
 }
 
-fn test_config_validate_bad_page_size() -> TestCase {
+fn test_config_validate_bad_page_size() -> TestResult {
   let rc = run_config_validate_bad_page_size();
   if rc == 0 { return assert(true, "config: non-power-of-two page size rejected"); }
   return assert(false, "config: bad page size accepted");
@@ -276,7 +276,7 @@ fn run_config_validate_page_too_small() -> Int {
   return 0;
 }
 
-fn test_config_validate_page_too_small() -> TestCase {
+fn test_config_validate_page_too_small() -> TestResult {
   let rc = run_config_validate_page_too_small();
   if rc == 0 { return assert(true, "config: page_size < 512 rejected"); }
   return assert(false, "config: tiny page size accepted");
@@ -289,7 +289,7 @@ fn run_config_validate_zero_capacity() -> Int {
   return 0;
 }
 
-fn test_config_validate_zero_capacity() -> TestCase {
+fn test_config_validate_zero_capacity() -> TestResult {
   let rc = run_config_validate_zero_capacity();
   if rc == 0 { return assert(true, "config: buffer_pool_capacity < 1 rejected"); }
   return assert(false, "config: zero capacity accepted");
@@ -302,7 +302,7 @@ fn run_config_validate_bad_btree_order() -> Int {
   return 0;
 }
 
-fn test_config_validate_bad_btree_order() -> TestCase {
+fn test_config_validate_bad_btree_order() -> TestResult {
   let rc = run_config_validate_bad_btree_order();
   if rc == 0 { return assert(true, "config: btree_order < 3 rejected"); }
   return assert(false, "config: bad btree order accepted");
@@ -339,7 +339,7 @@ fn run_is_power_of_two() -> Int {
   return 0;
 }
 
-fn test_is_power_of_two() -> TestCase {
+fn test_is_power_of_two() -> TestResult {
   let rc = run_is_power_of_two();
   if rc == 0 { return assert(true, "contracts: is_power_of_two all cases"); }
   return assert(false, "contracts: is_power_of_two failed");
@@ -360,7 +360,7 @@ fn run_is_valid_page_size() -> Int {
   return 0;
 }
 
-fn test_is_valid_page_size() -> TestCase {
+fn test_is_valid_page_size() -> TestResult {
   let rc = run_is_valid_page_size();
   if rc == 0 { return assert(true, "contracts: is_valid_page_size boundaries"); }
   return assert(false, "contracts: is_valid_page_size failed");
@@ -377,7 +377,7 @@ fn run_valid_btree_order() -> Int {
   return 0;
 }
 
-fn test_valid_btree_order() -> TestCase {
+fn test_valid_btree_order() -> TestResult {
   let rc = run_valid_btree_order();
   if rc == 0 { return assert(true, "contracts: valid_btree_order >= 3"); }
   return assert(false, "contracts: valid_btree_order failed");
@@ -390,7 +390,7 @@ fn run_valid_key() -> Int {
   return 0;
 }
 
-fn test_valid_key() -> TestCase {
+fn test_valid_key() -> TestResult {
   let rc = run_valid_key();
   if rc == 0 { return assert(true, "contracts: valid_key accepts all ints"); }
   return assert(false, "contracts: valid_key failed");
@@ -416,7 +416,7 @@ fn run_sorted_keys() -> Int {
   return 0;
 }
 
-fn test_sorted_keys() -> TestCase {
+fn test_sorted_keys() -> TestResult {
   let rc = run_sorted_keys();
   if rc == 0 { return assert(true, "contracts: sorted_keys strict ascending"); }
   return assert(false, "contracts: sorted_keys failed");
@@ -430,7 +430,7 @@ fn run_valid_range() -> Int {
   return 0;
 }
 
-fn test_valid_range() -> TestCase {
+fn test_valid_range() -> TestResult {
   let rc = run_valid_range();
   if rc == 0 { return assert(true, "contracts: valid_range low <= high"); }
   return assert(false, "contracts: valid_range failed");
@@ -448,7 +448,7 @@ fn run_non_decreasing() -> Int {
   return 0;
 }
 
-fn test_non_decreasing() -> TestCase {
+fn test_non_decreasing() -> TestResult {
   let rc = run_non_decreasing();
   if rc == 0 { return assert(true, "contracts: non_decreasing allows duplicates"); }
   return assert(false, "contracts: non_decreasing failed");
@@ -470,7 +470,7 @@ fn run_page_construction() -> Int {
   return 0;
 }
 
-fn test_page_construction() -> TestCase {
+fn test_page_construction() -> TestResult {
   let rc = run_page_construction();
   if rc == 0 { return assert(true, "page: construction + id/checksum store"); }
   return assert(false, "page: construction failed");
@@ -487,7 +487,7 @@ fn run_page_is_valid() -> Int {
   return 0;
 }
 
-fn test_page_is_valid() -> TestCase {
+fn test_page_is_valid() -> TestResult {
   let rc = run_page_is_valid();
   if rc == 0 { return assert(true, "page: is_valid true with correct checksum"); }
   return assert(false, "page: is_valid failed");
@@ -502,7 +502,7 @@ fn run_page_is_valid_corrupt() -> Int {
   return 0;
 }
 
-fn test_page_is_valid_corrupt() -> TestCase {
+fn test_page_is_valid_corrupt() -> TestResult {
   let rc = run_page_is_valid_corrupt();
   if rc == 0 { return assert(true, "page: is_valid false with wrong checksum"); }
   return assert(false, "page: corrupt page accepted");
@@ -517,7 +517,7 @@ fn run_page_empty() -> Int {
   return 0;
 }
 
-fn test_page_empty() -> TestCase {
+fn test_page_empty() -> TestResult {
   let rc = run_page_empty();
   if rc == 0 { return assert(true, "page: empty page checksum() == 0"); }
   return assert(false, "page: empty page failed");
@@ -542,7 +542,7 @@ fn run_checksum_determinism() -> Int {
   return 0;
 }
 
-fn test_checksum_determinism() -> TestCase {
+fn test_checksum_determinism() -> TestResult {
   let rc = run_checksum_determinism();
   if rc == 0 { return assert(true, "checksum: deterministic for same data"); }
   return assert(false, "checksum: non-deterministic");
@@ -561,7 +561,7 @@ fn run_checksum_different_data() -> Int {
   return 0;
 }
 
-fn test_checksum_different_data() -> TestCase {
+fn test_checksum_different_data() -> TestResult {
   let rc = run_checksum_different_data();
   if rc == 0 { return assert(true, "checksum: different data produces different hash"); }
   return assert(false, "checksum: collision on different data");
@@ -579,7 +579,7 @@ fn run_buffer_pool_new() -> Int {
   return 0;
 }
 
-fn test_buffer_pool_new() -> TestCase {
+fn test_buffer_pool_new() -> TestResult {
   let rc = run_buffer_pool_new();
   if rc == 0 { return assert(true, "buffer_pool: construction with capacity 4"); }
   return assert(false, "buffer_pool: construction failed");
@@ -600,7 +600,7 @@ fn run_buffer_pool_put_get() -> Int {
   return 0;
 }
 
-fn test_buffer_pool_put_get() -> TestCase {
+fn test_buffer_pool_put_get() -> TestResult {
   let rc = run_buffer_pool_put_get();
   if rc == 0 { return assert(true, "buffer_pool: put then get returns same page"); }
   return assert(false, "buffer_pool: put/get failed");
@@ -615,7 +615,7 @@ fn run_buffer_pool_miss() -> Int {
   }
 }
 
-fn test_buffer_pool_miss() -> TestCase {
+fn test_buffer_pool_miss() -> TestResult {
   let rc = run_buffer_pool_miss();
   if rc == 0 { return assert(true, "buffer_pool: get on empty pool returns None"); }
   return assert(false, "buffer_pool: miss failed");
@@ -635,7 +635,7 @@ fn run_buffer_pool_hit_ratio() -> Int {
   return 0;
 }
 
-fn test_buffer_pool_hit_ratio() -> TestCase {
+fn test_buffer_pool_hit_ratio() -> TestResult {
   let rc = run_buffer_pool_hit_ratio();
   if rc == 0 { return assert(true, "buffer_pool: hit_ratio on empty is 0.0"); }
   return assert(false, "buffer_pool: hit_ratio failed");
@@ -647,7 +647,7 @@ fn run_storage_engine_new() -> Int {
   return 0;
 }
 
-fn test_storage_engine_new() -> TestCase {
+fn test_storage_engine_new() -> TestResult {
   let rc = run_storage_engine_new();
   if rc == 0 { return assert(true, "storage_engine: construction succeeds"); }
   return assert(false, "storage_engine: construction failed");
@@ -669,7 +669,7 @@ fn run_storage_engine_cache_lookup() -> Int {
   return 0;
 }
 
-fn test_storage_engine_cache_lookup() -> TestCase {
+fn test_storage_engine_cache_lookup() -> TestResult {
   let rc = run_storage_engine_cache_lookup();
   if rc == 0 { return assert(true, "storage_engine: cache_page then lookup_page"); }
   return assert(false, "storage_engine: cache/lookup failed");
@@ -687,7 +687,7 @@ fn run_wal_entry_new() -> Int {
   return 0;
 }
 
-fn test_wal_entry_new() -> TestCase {
+fn test_wal_entry_new() -> TestResult {
   let rc = run_wal_entry_new();
   if rc == 0 { return assert(true, "wal: WALEntry construction fields correct"); }
   return assert(false, "wal: WALEntry construction failed");
@@ -707,7 +707,7 @@ fn run_wal_new_and_append() -> Int {
   return 0;
 }
 
-fn test_wal_new_and_append() -> TestCase {
+fn test_wal_new_and_append() -> TestResult {
   let rc = run_wal_new_and_append();
   if rc == 0 { return assert(true, "wal: new/is_empty/len append grows"); }
   return assert(false, "wal: append/len failed");
@@ -728,7 +728,7 @@ fn run_wal_entry_count_filter() -> Int {
   return 0;
 }
 
-fn test_wal_entry_count_filter() -> TestCase {
+fn test_wal_entry_count_filter() -> TestResult {
   let rc = run_wal_entry_count_filter();
   if rc == 0 { return assert(true, "wal: entry_count by op type filter"); }
   return assert(false, "wal: entry_count filter wrong");
@@ -744,7 +744,7 @@ fn run_wal_clear() -> Int {
   return 0;
 }
 
-fn test_wal_clear() -> TestCase {
+fn test_wal_clear() -> TestResult {
   let rc = run_wal_clear();
   if rc == 0 { return assert(true, "wal: clear empties all entries"); }
   return assert(false, "wal: clear failed");
@@ -762,7 +762,7 @@ fn run_wal_truncate() -> Int {
   return 0;
 }
 
-fn test_wal_truncate() -> TestCase {
+fn test_wal_truncate() -> TestResult {
   let rc = run_wal_truncate();
   if rc == 0 { return assert(true, "wal: truncate keeps entries >= timestamp"); }
   return assert(false, "wal: truncate failed");
@@ -785,7 +785,7 @@ fn run_wal_replay_insert() -> Int {
   return 0;
 }
 
-fn test_wal_replay_insert() -> TestCase {
+fn test_wal_replay_insert() -> TestResult {
   let rc = run_wal_replay_insert();
   if rc == 0 { return assert(true, "wal: replay inserts into fresh BTree"); }
   return assert(false, "wal: replay insert failed");
@@ -806,7 +806,7 @@ fn run_wal_replay_delete() -> Int {
   return 0;
 }
 
-fn test_wal_replay_delete() -> TestCase {
+fn test_wal_replay_delete() -> TestResult {
   let rc = run_wal_replay_delete();
   if rc == 0 { return assert(true, "wal: replay deletes existing key"); }
   return assert(false, "wal: replay delete failed");
@@ -822,7 +822,7 @@ fn run_txn_new_is_active() -> Int {
   return 0;
 }
 
-fn test_txn_new_is_active() -> TestCase {
+fn test_txn_new_is_active() -> TestResult {
   let rc = run_txn_new_is_active();
   if rc == 0 { return assert(true, "txn: new transaction is Active"); }
   return assert(false, "txn: new not active");
@@ -835,7 +835,7 @@ fn run_txn_commit() -> Int {
   return 0;
 }
 
-fn test_txn_commit() -> TestCase {
+fn test_txn_commit() -> TestResult {
   let rc = run_txn_commit();
   if rc == 0 { return assert(true, "txn: commit moves to Committed (not active)"); }
   return assert(false, "txn: commit failed");
@@ -848,7 +848,7 @@ fn run_txn_abort() -> Int {
   return 0;
 }
 
-fn test_txn_abort() -> TestCase {
+fn test_txn_abort() -> TestResult {
   let rc = run_txn_abort();
   if rc == 0 { return assert(true, "txn: abort moves to Aborted (not active)"); }
   return assert(false, "txn: abort failed");
@@ -861,7 +861,7 @@ fn run_txn_add_op() -> Int {
   return 0;
 }
 
-fn test_txn_add_op() -> TestCase {
+fn test_txn_add_op() -> TestResult {
   let rc = run_txn_add_op();
   if rc == 0 { return assert(true, "txn: add_op on active transaction succeeds"); }
   return assert(false, "txn: add_op failed");
@@ -876,7 +876,7 @@ fn run_txn_full_lifecycle() -> Int {
   return 0;
 }
 
-fn test_txn_full_lifecycle() -> TestCase {
+fn test_txn_full_lifecycle() -> TestResult {
   let rc = run_txn_full_lifecycle();
   if rc == 0 { return assert(true, "txn: active->add->add->commit lifecycle"); }
   return assert(false, "txn: lifecycle failed");
@@ -890,7 +890,7 @@ fn run_txn_abort_lifecycle() -> Int {
   return 0;
 }
 
-fn test_txn_abort_lifecycle() -> TestCase {
+fn test_txn_abort_lifecycle() -> TestResult {
   let rc = run_txn_abort_lifecycle();
   if rc == 0 { return assert(true, "txn: active->add->abort lifecycle"); }
   return assert(false, "txn: abort lifecycle failed");
@@ -906,7 +906,7 @@ fn run_schema_column_def_new() -> Int {
   return 0;
 }
 
-fn test_schema_column_def_new() -> TestCase {
+fn test_schema_column_def_new() -> TestResult {
   let rc = run_schema_column_def_new();
   if rc == 0 { return assert(true, "schema: ColumnDef.new stores name+type"); }
   return assert(false, "schema: ColumnDef.new failed");
@@ -919,7 +919,7 @@ fn run_schema_column_def_optional() -> Int {
   return 0;
 }
 
-fn test_schema_column_def_optional() -> TestCase {
+fn test_schema_column_def_optional() -> TestResult {
   let rc = run_schema_column_def_optional();
   if rc == 0 { return assert(true, "schema: ColumnDef.optional sets nullable=true"); }
   return assert(false, "schema: ColumnDef.optional failed");
@@ -936,7 +936,7 @@ fn run_schema_new_and_accessors() -> Int {
   return 0;
 }
 
-fn test_schema_new_and_accessors() -> TestCase {
+fn test_schema_new_and_accessors() -> TestResult {
   let rc = run_schema_new_and_accessors();
   if rc == 0 { return assert(true, "schema: Schema.new stores table + columns"); }
   return assert(false, "schema: Schema.new failed");
@@ -954,7 +954,7 @@ fn run_schema_column_index() -> Int {
   return 0;
 }
 
-fn test_schema_column_index() -> TestCase {
+fn test_schema_column_index() -> TestResult {
   let rc = run_schema_column_index();
   if rc == 0 { return assert(true, "schema: column_index find + not-found"); }
   return assert(false, "schema: column_index failed");
@@ -969,7 +969,7 @@ fn run_index_def_new() -> Int {
   return 0;
 }
 
-fn test_index_def_new() -> TestCase {
+fn test_index_def_new() -> TestResult {
   let rc = run_index_def_new();
   if rc == 0 { return assert(true, "schema: IndexDef.new fields correct"); }
   return assert(false, "schema: IndexDef.new failed");
@@ -986,7 +986,7 @@ fn run_validate_schema_valid() -> Int {
   }
 }
 
-fn test_validate_schema_valid() -> TestCase {
+fn test_validate_schema_valid() -> TestResult {
   let rc = run_validate_schema_valid();
   if rc == 0 { return assert(true, "schema_validator: valid schema passes"); }
   return assert(false, "schema_validator: valid schema rejected");
@@ -1002,7 +1002,7 @@ fn run_validate_schema_no_columns() -> Int {
   }
 }
 
-fn test_validate_schema_no_columns() -> TestCase {
+fn test_validate_schema_no_columns() -> TestResult {
   let rc = run_validate_schema_no_columns();
   if rc == 0 { return assert(true, "schema_validator: zero columns rejected"); }
   return assert(false, "schema_validator: zero columns accepted");
@@ -1019,7 +1019,7 @@ fn run_validate_schema_pk_out_of_range() -> Int {
   }
 }
 
-fn test_validate_schema_pk_out_of_range() -> TestCase {
+fn test_validate_schema_pk_out_of_range() -> TestResult {
   let rc = run_validate_schema_pk_out_of_range();
   if rc == 0 { return assert(true, "schema_validator: out-of-range PK rejected"); }
   return assert(false, "schema_validator: bad PK accepted");
@@ -1034,7 +1034,7 @@ fn run_validate_column_valid() -> Int {
   }
 }
 
-fn test_validate_column_valid() -> TestCase {
+fn test_validate_column_valid() -> TestResult {
   let rc = run_validate_column_valid();
   if rc == 0 { return assert(true, "schema_validator: named column passes"); }
   return assert(false, "schema_validator: named column rejected");
@@ -1053,7 +1053,7 @@ fn run_validate_index_valid() -> Int {
   }
 }
 
-fn test_validate_index_valid() -> TestCase {
+fn test_validate_index_valid() -> TestResult {
   let rc = run_validate_index_valid();
   if rc == 0 { return assert(true, "schema_validator: valid index passes"); }
   return assert(false, "schema_validator: valid index rejected");
@@ -1071,7 +1071,7 @@ fn run_validate_index_wrong_table() -> Int {
   }
 }
 
-fn test_validate_index_wrong_table() -> TestCase {
+fn test_validate_index_wrong_table() -> TestResult {
   let rc = run_validate_index_wrong_table();
   if rc == 0 { return assert(true, "schema_validator: mismatched table rejected"); }
   return assert(false, "schema_validator: wrong table accepted");
@@ -1083,13 +1083,13 @@ fn test_validate_index_wrong_table() -> TestCase {
 
 fn run_query_new() -> Int {
   let q = query_new();
-  if q.condition_count() != 0 { return 1; }
-  if q.has_limit() { return 1; }
-  if q.has_offset() { return 1; }
+  if query_condition_count(&q) != 0 { return 1; }
+  if query_has_limit(&q) { return 1; }
+  if query_has_offset(&q) { return 1; }
   return 0;
 }
 
-fn test_query_new() -> TestCase {
+fn test_query_new() -> TestResult {
   let rc = run_query_new();
   if rc == 0 { return assert(true, "query: query_new has zero conditions/limit/offset"); }
   return assert(false, "query: query_new failed");
@@ -1097,17 +1097,17 @@ fn test_query_new() -> TestCase {
 
 fn run_query_where_limit_offset() -> Int {
   var q = query_new();
-  q.where(QueryOp.Eq, 42);
-  q.where(QueryOp.Gt, 0);
-  q.limit(10);
-  q.offset(5);
-  if q.condition_count() != 2 { return 1; }
-  if !q.has_limit() { return 1; }
-  if !q.has_offset() { return 1; }
+  query_where(&mut q, QueryOp.Eq, 42);
+  query_where(&mut q, QueryOp.Gt, 0);
+  query_limit(&mut q, 10);
+  query_offset(&mut q, 5);
+  if query_condition_count(&q) != 2 { return 1; }
+  if !query_has_limit(&q) { return 1; }
+  if !query_has_offset(&q) { return 1; }
   return 0;
 }
 
-fn test_query_where_limit_offset() -> TestCase {
+fn test_query_where_limit_offset() -> TestResult {
   let rc = run_query_where_limit_offset();
   if rc == 0 { return assert(true, "query: where/limit/offset builder"); }
   return assert(false, "query: query builder failed");
@@ -1115,17 +1115,17 @@ fn test_query_where_limit_offset() -> TestCase {
 
 fn run_query_reset() -> Int {
   var q = query_new();
-  q.where(QueryOp.Eq, 1);
-  q.limit(5);
-  q.offset(3);
-  q.reset();
-  if q.condition_count() != 0 { return 1; }
-  if q.has_limit() { return 1; }
-  if q.has_offset() { return 1; }
+  query_where(&mut q, QueryOp.Eq, 1);
+  query_limit(&mut q, 5);
+  query_offset(&mut q, 3);
+  query_reset(&mut q);
+  if query_condition_count(&q) != 0 { return 1; }
+  if query_has_limit(&q) { return 1; }
+  if query_has_offset(&q) { return 1; }
   return 0;
 }
 
-fn test_query_reset() -> TestCase {
+fn test_query_reset() -> TestResult {
   let rc = run_query_reset();
   if rc == 0 { return assert(true, "query: reset clears conditions/limit/offset"); }
   return assert(false, "query: reset failed");
@@ -1137,13 +1137,15 @@ fn run_query_execute_simple() -> Int {
   btree_insert(&mut tree, 20, 200);
   btree_insert(&mut tree, 30, 300);
   var q = query_new();
-  q.where(QueryOp.Gte, 15);
+  // Phase 0 semantics: conditions filter VALUES, not keys (docs/query-pipeline.md).
+  // Values are [100,200,300]; Gte 150 must yield [200,300].
+  query_where(&mut q, QueryOp.Gte, 150);
   let results = query_execute(&q, &tree);
   if results.len() != 2 { return 1; }
   return 0;
 }
 
-fn test_query_execute_simple() -> TestCase {
+fn test_query_execute_simple() -> TestResult {
   let rc = run_query_execute_simple();
   if rc == 0 { return assert(true, "query: execute applies filter condition"); }
   return assert(false, "query: execute failed");
@@ -1159,7 +1161,7 @@ fn run_plan_query_defaults_to_full_scan() -> Int {
   return 0;
 }
 
-fn test_plan_query_defaults_to_full_scan() -> TestCase {
+fn test_plan_query_defaults_to_full_scan() -> TestResult {
   let rc = run_plan_query_defaults_to_full_scan();
   if rc == 0 { return assert(true, "planner: plan_query sets estimated_rows"); }
   return assert(false, "planner: plan_query failed");
@@ -1171,14 +1173,14 @@ fn run_execute_plan_full_scan() -> Int {
   btree_insert(&mut tree, 2, 22);
   btree_insert(&mut tree, 3, 33);
   var q = query_new();
-  q.where(QueryOp.Gt, 0);
+  query_where(&mut q, QueryOp.Gt, 0);
   let plan = plan_query(&q, &tree);
   let results = execute_plan(&plan, &q, &tree);
   if results.len() != 3 { return 1; }
   return 0;
 }
 
-fn test_execute_plan_full_scan() -> TestCase {
+fn test_execute_plan_full_scan() -> TestResult {
   let rc = run_execute_plan_full_scan();
   if rc == 0 { return assert(true, "planner: execute_plan runs full scan"); }
   return assert(false, "planner: execute_plan failed");
@@ -1194,7 +1196,7 @@ fn run_btree_new() -> Int {
   return 0;
 }
 
-fn test_btree_new() -> TestCase {
+fn test_btree_new() -> TestResult {
   let rc = run_btree_new();
   if rc == 0 { return assert(true, "btree: new tree has size 0"); }
   return assert(false, "btree: new failed");
@@ -1209,7 +1211,7 @@ fn run_btree_insert_search() -> Int {
   return 0;
 }
 
-fn test_btree_insert_search() -> TestCase {
+fn test_btree_insert_search() -> TestResult {
   let rc = run_btree_insert_search();
   if rc == 0 { return assert(true, "btree: insert then search returns value"); }
   return assert(false, "btree: insert/search failed");
@@ -1228,7 +1230,7 @@ fn run_btree_delete() -> Int {
   return 0;
 }
 
-fn test_btree_delete() -> TestCase {
+fn test_btree_delete() -> TestResult {
   let rc = run_btree_delete();
   if rc == 0 { return assert(true, "btree: delete removes key, size decreases"); }
   return assert(false, "btree: delete failed");
@@ -1246,7 +1248,7 @@ fn run_btree_min_max() -> Int {
   return 0;
 }
 
-fn test_btree_min_max() -> TestCase {
+fn test_btree_min_max() -> TestResult {
   let rc = run_btree_min_max();
   if rc == 0 { return assert(true, "btree: min/max returns correct extremes"); }
   return assert(false, "btree: min/max failed");
@@ -1264,7 +1266,7 @@ fn run_btree_range_query() -> Int {
   return 0;
 }
 
-fn test_btree_range_query() -> TestCase {
+fn test_btree_range_query() -> TestResult {
   let rc = run_btree_range_query();
   if rc == 0 { return assert(true, "btree: range_query [20,40] returns 3 values"); }
   return assert(false, "btree: range_query failed");
@@ -1280,7 +1282,7 @@ fn run_btree_to_vec() -> Int {
   return 0;
 }
 
-fn test_btree_to_vec() -> TestCase {
+fn test_btree_to_vec() -> TestResult {
   let rc = run_btree_to_vec();
   if rc == 0 { return assert(true, "btree: to_vec returns all values"); }
   return assert(false, "btree: to_vec failed");
@@ -1301,7 +1303,7 @@ fn run_btree_large_insert() -> Int {
   return 0;
 }
 
-fn test_btree_large_insert() -> TestCase {
+fn test_btree_large_insert() -> TestResult {
   let rc = run_btree_large_insert();
   if rc == 0 { return assert(true, "btree: 100 inserts with splits, all searchable"); }
   return assert(false, "btree: large insert failed");
@@ -1318,7 +1320,7 @@ fn run_engine_new() -> Int {
   return 0;
 }
 
-fn test_engine_new() -> TestCase {
+fn test_engine_new() -> TestResult {
   let rc = run_engine_new();
   if rc == 0 { return assert(true, "engine: engine_new starts empty"); }
   return assert(false, "engine: new failed");
@@ -1333,7 +1335,7 @@ fn run_engine_insert_get() -> Int {
   return 0;
 }
 
-fn test_engine_insert_get() -> TestCase {
+fn test_engine_insert_get() -> TestResult {
   let rc = run_engine_insert_get();
   if rc == 0 { return assert(true, "engine: insert then get returns value"); }
   return assert(false, "engine: insert/get failed");
@@ -1349,7 +1351,7 @@ fn run_engine_delete() -> Int {
   return 0;
 }
 
-fn test_engine_delete() -> TestCase {
+fn test_engine_delete() -> TestResult {
   let rc = run_engine_delete();
   if rc == 0 { return assert(true, "engine: delete removes existing key"); }
   return assert(false, "engine: delete failed");
@@ -1365,7 +1367,7 @@ fn run_engine_update() -> Int {
   return 0;
 }
 
-fn test_engine_update() -> TestCase {
+fn test_engine_update() -> TestResult {
   let rc = run_engine_update();
   if rc == 0 { return assert(true, "engine: update changes existing value"); }
   return assert(false, "engine: update failed");
@@ -1384,7 +1386,7 @@ fn run_engine_recover() -> Int {
   return 0;
 }
 
-fn test_engine_recover() -> TestCase {
+fn test_engine_recover() -> TestResult {
   let rc = run_engine_recover();
   if rc == 0 { return assert(true, "engine: recover replays WAL, restores state"); }
   return assert(false, "engine: recover failed");
@@ -1401,7 +1403,7 @@ fn run_engine_range_query() -> Int {
   return 0;
 }
 
-fn test_engine_range_query() -> TestCase {
+fn test_engine_range_query() -> TestResult {
   let rc = run_engine_range_query();
   if rc == 0 { return assert(true, "engine: range_query returns correct subset"); }
   return assert(false, "engine: range_query failed");
@@ -1417,7 +1419,7 @@ fn run_engine_flush_wal() -> Int {
   return 0;
 }
 
-fn test_engine_flush_wal() -> TestCase {
+fn test_engine_flush_wal() -> TestResult {
   let rc = run_engine_flush_wal();
   if rc == 0 { return assert(true, "engine: flush_wal zeros WAL, data persists"); }
   return assert(false, "engine: flush_wal failed");
@@ -1430,11 +1432,11 @@ fn run_db_open_and_operations() -> Int {
   if !ok { return 1; }
   let v = db_get(&db, 1);
   match v { None => return 1; Some(val) => { if val != 100 { return 1; } } }
-  if db.size() != 1 { return 1; }
+  if db_size(&db) != 1 { return 1; }
   return 0;
 }
 
-fn test_db_open_and_operations() -> TestCase {
+fn test_db_open_and_operations() -> TestResult {
   let rc = run_db_open_and_operations();
   if rc == 0 { return assert(true, "database: open/insert/get/size workflow"); }
   return assert(false, "database: workflow failed");
@@ -1443,15 +1445,15 @@ fn test_db_open_and_operations() -> TestCase {
 fn run_db_closed_rejects_ops() -> Int {
   var db = db_open(4);
   db_insert(&mut db, 1, 100);
-  db.close();
-  let v = db.get(&db, 1);
+  db_close(&mut db);
+  let v = db_get(&db, 1);
   match v { Some(_) => return 1; None => {} }
   let ok = db_insert(&mut db, 2, 200);
   if ok { return 1; }
   return 0;
 }
 
-fn test_db_closed_rejects_ops() -> TestCase {
+fn test_db_closed_rejects_ops() -> TestResult {
   let rc = run_db_closed_rejects_ops();
   if rc == 0 { return assert(true, "database: closed handle rejects get+insert"); }
   return assert(false, "database: closed rejection failed");
@@ -1471,7 +1473,7 @@ fn run_db_update_delete() -> Int {
   return 0;
 }
 
-fn test_db_update_delete() -> TestCase {
+fn test_db_update_delete() -> TestResult {
   let rc = run_db_update_delete();
   if rc == 0 { return assert(true, "database: update then delete full cycle"); }
   return assert(false, "database: update/delete failed");
@@ -1488,7 +1490,7 @@ fn run_db_range() -> Int {
   return 0;
 }
 
-fn test_db_range() -> TestCase {
+fn test_db_range() -> TestResult {
   let rc = run_db_range();
   if rc == 0 { return assert(true, "database: db_range returns correct subset"); }
   return assert(false, "database: db_range failed");
@@ -1500,11 +1502,11 @@ fn run_db_recover() -> Int {
   db_insert(&mut db, 2, 20);
   let ok = db_recover(&mut db);
   if !ok { return 1; }
-  if db.size() != 2 { return 1; }
+  if db_size(&db) != 2 { return 1; }
   return 0;
 }
 
-fn test_db_recover() -> TestCase {
+fn test_db_recover() -> TestResult {
   let rc = run_db_recover();
   if rc == 0 { return assert(true, "database: db_recover rebuilds from WAL"); }
   return assert(false, "database: db_recover failed");
@@ -1516,13 +1518,15 @@ fn run_db_query() -> Int {
   db_insert(&mut db, 20, 200);
   db_insert(&mut db, 30, 300);
   var q = query_new();
-  q.where(QueryOp.Gte, 20);
+  // Value semantics (docs/query-pipeline.md): values are [100,200,300];
+  // Gte 250 must yield exactly [300] (key semantics would yield none).
+  query_where(&mut q, QueryOp.Gte, 250);
   let results = db_query(&db, &q);
-  if results.len() != 2 { return 1; }
+  if results.len() != 1 { return 1; }
   return 0;
 }
 
-fn test_db_query() -> TestCase {
+fn test_db_query() -> TestResult {
   let rc = run_db_query();
   if rc == 0 { return assert(true, "database: db_query applies filter"); }
   return assert(false, "database: db_query failed");
@@ -1538,7 +1542,7 @@ fn run_fsm_new() -> Int {
   return 0;
 }
 
-fn test_fsm_new() -> TestCase {
+fn test_fsm_new() -> TestResult {
   let rc = run_fsm_new();
   if rc == 0 { return assert(true, "fsm: free_space_map_new has 0 pages"); }
   return assert(false, "fsm: fsm new failed");
@@ -1556,7 +1560,7 @@ fn run_fsm_register_and_find() -> Int {
   return 0;
 }
 
-fn test_fsm_register_and_find() -> TestCase {
+fn test_fsm_register_and_find() -> TestResult {
   let rc = run_fsm_register_and_find();
   if rc == 0 { return assert(true, "fsm: register pages, find by free bytes"); }
   return assert(false, "fsm: register/find failed");
@@ -1573,7 +1577,7 @@ fn run_fsm_record_used() -> Int {
   return 0;
 }
 
-fn test_fsm_record_used() -> TestCase {
+fn test_fsm_record_used() -> TestResult {
   let rc = run_fsm_record_used();
   if rc == 0 { return assert(true, "fsm: record_used reduces free bytes"); }
   return assert(false, "fsm: record_used failed");
@@ -1599,7 +1603,7 @@ fn run_row_new_and_access() -> Int {
   return 0;
 }
 
-fn test_row_new_and_access() -> TestCase {
+fn test_row_new_and_access() -> TestResult {
   let rc = run_row_new_and_access();
   if rc == 0 { return assert(true, "tuple: Row.new + get_column access"); }
   return assert(false, "tuple: row access failed");
@@ -1616,7 +1620,7 @@ fn run_row_set_column() -> Int {
   return 0;
 }
 
-fn test_row_set_column() -> TestCase {
+fn test_row_set_column() -> TestResult {
   let rc = run_row_set_column();
   if rc == 0 { return assert(true, "tuple: Row.set_column updates in place"); }
   return assert(false, "tuple: set_column failed");
@@ -1632,18 +1636,24 @@ fn run_tuple_encode_decode() -> Int {
   match r {
     Err(_) => return 1,
     Ok(decoded) => {
-      if decoded.id != 7 { return 1; }
-      if decoded.column_count() != 2 { return 1; }
-      let c0 = decoded.get_column(0);
+      // C-ORBIT-01 workaround: on v0.64.0 the cross-module generic alias
+      // `DbResult[T]` is not resolved for a match-bound Ok payload (receiver
+      // dropped at the checker; "unknown type 'DbResult' defaulting to i64"
+      // + unresolved `column_count` at codegen). Rebind through an
+      // explicitly typed local; evidence in docs/repro/ok-method-receiver/.
+      let d: Row = decoded;
+      if d.id != 7 { return 1; }
+      if d.column_count() != 2 { return 1; }
+      let c0 = d.get_column(0);
       match c0 { None => return 1; Some(v) => { if v != 42 { return 1; } } }
-      let c1 = decoded.get_column(1);
+      let c1 = d.get_column(1);
       match c1 { None => return 1; Some(v) => { if v != 99 { return 1; } } }
     }
   }
   return 0;
 }
 
-fn test_tuple_encode_decode() -> TestCase {
+fn test_tuple_encode_decode() -> TestResult {
   let rc = run_tuple_encode_decode();
   if rc == 0 { return assert(true, "tuple: encode then decode roundtrip"); }
   return assert(false, "tuple: encode/decode failed");
@@ -1672,7 +1682,7 @@ fn run_result_set_ops() -> Int {
   return 0;
 }
 
-fn test_result_set_ops() -> TestCase {
+fn test_result_set_ops() -> TestResult {
   let rc = run_result_set_ops();
   if rc == 0 { return assert(true, "tuple: ResultSet add/row_count/get_row"); }
   return assert(false, "tuple: ResultSet ops failed");

@@ -72,7 +72,23 @@ pub fn BufferPool.put(pool: &mut BufferPool, page: Page) {
     None => { pool.misses = pool.misses + 1; }
     Some(_) => { pool.hits = pool.hits + 1; }
   }
-  pool.pages[idx] = Some(page);
+  // C-ORBIT-02 workaround: assigning an Option into a Vec[Option[T]] element
+  // poisons the slot on v0.64.0 -- the value then matches NEITHER `None` nor
+  // `Some(_)` and every match over it silently runs no arm (repro:
+  // docs/repro/option-vec-assign/). Rebuild the slot instead of assigning.
+  // Revisit when the compiler fix lands; Phase 1 replaces this pool with the
+  // xiom-core pager regardless.
+  var rebuilt = Vec[Option[Page]].new();
+  var i = 0;
+  while i < pool.pages.len() {
+    if i == idx {
+      rebuilt.push(Some(page));
+    } else {
+      rebuilt.push(pool.pages[i]);
+    }
+    i = i + 1;
+  }
+  pool.pages = rebuilt;
 }
 
 // Direct-mapped slot selection: page id modulo capacity. O(1) but collision
@@ -113,9 +129,17 @@ pub fn StorageEngine.new(config: DatabaseConfig) -> StorageEngine {
 }
 
 pub fn StorageEngine.cache_page(eng: &mut StorageEngine, page: Page) {
-  eng.buffer_pool.put(page);
+  // C-ORBIT-04 workaround: a method call on a nested field receiver
+  // (eng.buffer_pool.put(page)) mutates a temporary copy on v0.64.0; copy
+  // the field out, mutate it, and write it back. Repro:
+  // docs/repro/nested-field-mut/probe.xi (A/C lose the write, B/D keep it).
+  var bp = eng.buffer_pool;
+  bp.put(page);
+  eng.buffer_pool = bp;
 }
 
 pub fn StorageEngine.lookup_page(eng: &StorageEngine, page_id: Int) -> Option[Page] {
-  return eng.buffer_pool.get(page_id);
+  // Read-only nested receiver: bind to a local first (same class).
+  var bp = eng.buffer_pool;
+  return bp.get(page_id);
 }

@@ -7,6 +7,13 @@ SPDX-License-Identifier: MIT OR Apache-2.0
 
 The query subsystem turns a declarative `Query` into a set of matching values. In Phase 0 it always runs a full in-order scan; the `planner` scaffold marks where index-aware execution lands in Phase 3.
 
+> **Semantics decision (Phase 0):** `QueryCondition` filters **values**, not keys.
+> `query_where(q, Gt, 150)` over values `[100,200,300]` returns `[200,300]`.
+> Key-range access is `db_range(low, high)` / `btree_range_query`.
+> The Phase 3 plan below says "conditions on the key column" -- that requires a
+> deliberate semantics extension (per-condition key/value selector) before the
+> planner can push predicates into the index. Do not silently flip this.
+
 ## Building a query -- `query/query.xi`
 
 ```
