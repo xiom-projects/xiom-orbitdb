@@ -219,8 +219,8 @@ fn split_child(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
   // Insert the new sibling pointer at child_pos+1. The parent's child list
   // must be SHIFTED right first: a plain index assignment past the end is a
   // silent no-op, which orphaned the new sibling and corrupted the tree at
-  // the first internal split (C-ORBIT-03; probe_core_diag: insert failed
-  // from key 8, size=6 of 100).
+  // the first internal split (product defect found by probe_core_diag:
+  // insert failed from key 8, size=6 of 100).
   var parent = tree.nodes[parent_idx];
   parent.children.push(0);
   var j = parent.children.len() - 1;
