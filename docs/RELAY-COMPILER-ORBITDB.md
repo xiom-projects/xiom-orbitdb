@@ -82,3 +82,16 @@ C-ORBIT-04: same clang mismatch (IR line 71079) with the qualification
 workaround reverted. Lane regression on v0.64.1 is clean otherwise
 (conformance 104/104, WAL/page/DB crash tests GREEN), and the false W004
 "unreachable match arm" from v0.64.0 no longer appears -- thanks for that.
+
+**New finding on v0.64.1 -- C-ORBIT-05 (process abort, access violation):**
+a nested loop over a `Vec` of structs with Vec fields (`Vec[Page]`) aborts
+with exit `0xC0000005` when the outer loop also pushes elements into another
+`Vec[Page]`. The same nested loop over `Vec[Int]`, a single push loop over
+`Vec[Page]`, and the nested loop over `Vec[Page]` without a push are all
+green. Repro: `docs/repro/vec-push-nested/probe.xi` (variant D aborts; the
+marker file `vec-push-nested.mark` names the last completed variant).
+Production hit: a page-log dedup over a 418-entry snapshot crashed a soak at
+reopen (N>=400). Workaround: keep-set over a parallel `Vec[Int]` + a single
+non-nested push pass. This one aborts the process rather than miscompiling a
+value, so it is the highest-severity shape we have seen from the collection
+family. Details in `docs/COMPILER-FINDINGS-ORBITDB.md` (C-ORBIT-05).

@@ -15,7 +15,7 @@ located while triaging and are evidence, not patches.
 | compiler | v0.64.0 (`%LOCALAPPDATA%\xiom.new\bin\xiom.exe`; Linux WSL same release) |
 | compiler (re-test) | **v0.64.1** (2026-10-08; installed in place, WSL updated too) |
 | stdlib | `E:\xiom-lang\stdlib` @ `a677338` (2026-10-08) |
-| compiler lane | `0c5337e0` (2026-10-08; m216 alias fix + lazy builtin probe -- likely touches C-ORBIT-01, re-test on next archive) |
+| compiler lane | `ba19be61` (2026-10-08; v0.64.2 lane sweep -- B-08, packages is-literal, m230; no v0.64.2 archive installed yet) |
 | env | `XIOM_STDLIB=E:\xiom-lang\stdlib`; `XIOM_RUNTIME_DIR` retired (env-free, installed R65 layout) |
 
 ## Re-test v0.64.1 (2026-10-08) -- all four findings still open; lane green
@@ -49,6 +49,7 @@ uses `Vec[Option[T]]` caches, cross-module `Result` aliases, nested-field
 | 2026-10-08 | **C-ORBIT-02: assigning an Option into a `Vec[Option[T]]` element poisons the slot.** After `v.push(None); v[0] = Some(x);` (or any Option-to-slot write: Some->Some, Option[Str], None->None) the element matches NEITHER `None` NOR `Some(_)`; every `match` over it silently runs no arm and execution falls through. No diagnostic. `Vec[Int]` writes, enum-vector writes and struct-field Option writes are all fine. | `docs/repro/option-vec-assign/probe.xi` (V1/V3 silent, V2/V4/V5 green); `probe2.xi` (V6 Some->Some silent, V8 Option[Str] silent, V9 None->None silent, V7 enum fine, V10 untouched slot fine). App: BufferPool.put corruption -> `buffer_pool` + `storage_engine` suite failures; `tests/probes/probe_write_drop2.xi`. | never index-assign an Option into a Vec element; rebuild the Vec and assign the Vec (`src/storage/page.xi BufferPool.put`); struct fields are safe | silent wrong behavior + broken exhaustiveness in caches/pools/option-vectors; would corrupt any `Vec[Option[T]]` structure |
 | 2026-10-08 | **C-ORBIT-03: a method call whose receiver is a nested field mutates a temporary copy.** `o.inner.bump()` inside a method, and `eng.buffer_pool.put(page)` anywhere, execute on a copy; the `&mut` write-back is lost. Explicit `Inner.bump(&mut o.inner)` and copy-mutate-writeback work. No diagnostic. | `docs/repro/nested-field-mut/probe.xi`: A=0 (lost), C=0 (lost), B=1, D=1 (green). App: `StorageEngine.cache_page` -> `storage_engine: cache/lookup` suite failure; `src/storage/page.xi`. | copy the field to a local, mutate, write it back (`var bp = eng.buffer_pool; bp.put(page); eng.buffer_pool = bp;`); or use the explicit receiver form with `&mut` on the field | silent data loss for every nested-field mutation, including struct-of-struct state machines and adapters |
 | 2026-10-08 | **C-ORBIT-04: unqualified enum-variant construction resolves against ANOTHER module's structurally identical enum.** With `xiom.db.txn.transaction`'s `pub enum WALOp { Insert, Update, Delete }` and `xiom.db.wal_file`'s `pub enum WALOpKind { Insert, Update, Delete, ... }` in one compilation unit, `return Update;` inside `wal_op_from_code` lowered as txn's `%struct.WALOp` while the function is declared `-> WALOpKind`; clang rejects the module. Variant patterns may silently compare equal tags instead of failing. | Hard failure with IR evidence (below); suite build broke only when engine imported wal_file AND the suite imported the txn module. | module-qualify variants everywhere (`return WALOpKind.Update;`, `match op { WALOpKind.Insert => ... }`) -- verified compiling and green | hard build failure today; potential silent wrong-enum construction/matching for any two enums sharing variant names (very common: Insert/Update/Delete) |
+| 2026-10-08 | **C-ORBIT-05: a nested loop over a `Vec` of structs with Vec fields (`Vec[Page]`) aborts with an access violation when the outer loop also pushes elements into another `Vec[Page]`.** No diagnostic; the process dies with `0xC0000005` (stdout buffered, prints lost). Each ingredient alone is green: the same nested loop over `Vec[Int]`, a single push loop over `Vec[Page]`, and the nested loop over `Vec[Page]` with no push. Observed at n=418; minimum not bisected. | `docs/repro/vec-push-nested/probe.xi` (A/B/C green, D aborts before its print; the marker file names the last variant); app context: `page_log_read_all` dedup aborted on a 418-entry snapshot log, so the policy soak crashed at reopen at N>=400 | rewrite the dedup as an Int-only keep-set pass (nested loop over `Vec[Int]`) + a single non-nested push pass (`src/storage/page_file.xi`); keep struct copies out of nested loops that push | process abort (access violation) in collection code that dedups/filters struct-with-Vec vectors -- looks like memory corruption, no diagnostic |
 
 ### Secondary observations (no repro bundle needed)
 
@@ -183,6 +184,31 @@ uses `Vec[Option[T]]` caches, cross-module `Result` aliases, nested-field
   current module's declarations first (and error on genuine ambiguity),
   the same way type names are; or intern enum variants by
   (module, name, tag) instead of name only.
+
+## C-ORBIT-05 -- details
+
+- **Symptom (exact):** exit code `0xC0000005` (access violation) with no
+  diagnostic and no output (stdout buffering swallows prints).
+- **Repro:** `docs/repro/vec-push-nested/probe.xi`, n=418:
+
+  | Variant | Shape | v0.64.1 |
+  |---|---|---|
+  | A | nested loop over `Vec[Int]`, push ints | ok |
+  | B | single loop over `Vec[Page]`, push pages | ok |
+  | C | nested loop over `Vec[Page]`, counter only (no push) | ok |
+  | D | nested loop over `Vec[Page]` + push `all[k]` into another `Vec[Page]` | **ABORT** |
+
+- **App-context evidence:** `page_log_read_all` (page-log dedup) aborted on a
+  418-entry (58 KB) snapshot log; a standalone diagnostic probe crashed on the
+  first `page_log_read_all` call after reading the file, while the identical
+  algorithm over `Vec[Int]` was green. Policy soaks with N >= 400 aborted on
+  reopen until the dedup was rewritten.
+- **Workaround (verified):** compute the keep-set over a parallel `Vec[Int]`
+  of ids (nested loop over ints), then select pages in a single non-nested
+  pass; see `src/storage/page_file.xi` `page_log_read_all`.
+- **Suggested direction:** `--emit-ir` diff of D vs C around the element copy
+  (struct containing Vec fields) inside the nested loop; the copy appears to
+  clobber a loop/allocator register at larger iteration counts.
 
 ## Bump procedure used by this lane
 

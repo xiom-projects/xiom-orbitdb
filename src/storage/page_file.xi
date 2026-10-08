@@ -360,17 +360,37 @@ pub fn page_log_read_all(pf: &PageFile) -> Vec[Page] {
     }
   }
 
-  var out = Vec[Page].new();
+  // Latest occurrence wins. The keep-set is computed on an Int-only copy of
+  // the ids and the pages are selected in a non-nested pass: v0.64.1 aborts
+  // (access violation) when a nested loop copies Vec[Page] elements while an
+  // outer loop pushes into another Vec[Page] -- C-ORBIT-05, repro
+  // docs/repro/vec-push-nested/. Both passes below are safe shapes.
+  var ids = Vec[Int].new();
+  var i2 = 0;
+  while i2 < all.len() {
+    let pg2 = all[i2];
+    ids.push(pg2.id);
+    i2 = i2 + 1;
+  }
+
+  var keep = Vec[Bool].new();
   var k = 0;
-  while k < all.len() {
+  while k < ids.len() {
     var superseded = false;
     var j = k + 1;
-    while j < all.len() && !superseded {
-      if all[j].id == all[k].id { superseded = true; }
+    while j < ids.len() && !superseded {
+      if ids[j] == ids[k] { superseded = true; }
       j = j + 1;
     }
-    if !superseded { out.push(all[k]); }
+    keep.push(!superseded);
     k = k + 1;
+  }
+
+  var out = Vec[Page].new();
+  var m = 0;
+  while m < all.len() {
+    if keep[m] { out.push(all[m]); }
+    m = m + 1;
   }
   return out;
 }
