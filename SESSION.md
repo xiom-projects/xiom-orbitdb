@@ -3,123 +3,180 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
-**Written:** 2026-10-07 (bootstrap by the PULSE lane, owner request).
+**Written:** 2026-10-08, by the ORBITDB lane (bootstrap completed).
 **Project:** embedded database engine for XIOM -- layered architecture:
-B-Tree index, WAL, query engine, crash recovery; built on the shared
-`xiom-core` durable-systems substrate per README/SPEC.
+B-Tree index, WAL, query engine, crash recovery; formerly `xiom-db`
+(renamed `xiom-orbitdb`).
 
-## 0. STATE (2026-10-07, BOOTSTRAP -- nothing verified yet)
+## 0. STATE (2026-10-08 -- bootstrap complete, suite green, WAL crash-probe green)
 
-- **Repo:** `E:\xiom-projects\xiom-orbitdb` (formerly xiom-db).
-  Identity `Lefteris Notas <lefterisnotas@gmail.com>`; repo stays
-  **PRIVATE**; do not push/create remotes without owner approval;
+- **Repo:** `E:\xiom-projects\xiom-orbitdb`. Stays **PRIVATE**; no push /
+  remote without owner approval. Commits this session: `f2dec60` (engine
+  fixes + suite migration, 93/93), `bc5ef2a` (lane scripts, WAL crash probe,
+  repro bundles, .gitignore), plus this docs wrap (relay docs + SESSION).
+  Identity used: `Lefteris Notas <lefterisnotas@gmail.com>` (repo history);
   conventional commits with DCO sign-off (`git commit -s`).
 - **VERSION POLICY (owner decision): track the LATEST compiler / stdlib /
-  packages** -- this lane exists to harden the ecosystem by real-world use.
-  Record exact versions and lane hashes in this file at every wrap.
-  - compiler: `%LOCALAPPDATA%\xiom.new\bin\xiom.exe` (**v0.64.0**)
-  - stdlib: `E:\xiom-lang\stdlib` (stdlib-lane checkout = latest)
-  - `XIOM_RUNTIME_DIR` is **retired** on v0.64.0 (release R65 links the
-    installed `lib\runtime` + `lib\xiom`; verified env-free by PULSE).
-  - registry: `%LOCALAPPDATA%\xiom\packages`; consumption needs
-    `xiom.toml` `[project].source-roots` per installed package src/ (open
-    compiler gap C-PULSE-02; see PULSE relay docs).
-- **First actions for the lane (Step 0, do in order):**
-  1. Read `README.md`, `SPEC.md`, `ARCHITECTURE.md`, `ROADMAP.md`,
-     `AUDIT.md`, `docs/` -- this SESSION.md only carries environment +
-     process, not the product design.
-  2. Create `scripts\dev-env.ps1` **and** `scripts\dev-env.sh` (owner
-     requirement: every script ships as both .ps1 and .sh for Linux
-     contributors). Set `XIOM_COMPILER`/`XIOM_STDLIB` as above; never rely
-     on PATH (a stale xiom staging dir shadows it).
-  3. Verify `xiom --version` = v0.64.0, `xiom doctor` clean, hello-world
-     probe x2, and a first probe of the project's critical primitive
-     (e.g. open a page file, append a WAL record, kill, reopen, verify --
-     mirror PULSE's `scripts\crash_test.ps1`/`store_soak.ps1` patterns).
-     Stage probes **in-repo** (never `%TEMP%\kilo`).
-  4. Create the three relay documents (pattern from PULSE,
-     `E:\xiom-projects\xiom-pulse\docs\`):
-     `docs/COMPILER-FINDINGS-ORBITDB.md` (one finding per defect + minimal
-     repro bundle under `docs/repro/<name>/`),
-     `docs/STDLIB-WISHLIST-ORBITDB.md`
-     (`| Need | Evidence | Workaround | Blocks |`),
-     `docs/PACKAGE-WISHLIST-ORBITDB.md`
-     (`| Proposed name | Purpose | Why not stdlib | Deps | Evidence |`).
-  5. Write the first real STATE block here + a fresh paste prompt.
+  packages** -- this lane hardens the ecosystem by real-world use. Record
+  exact versions and lane hashes here at every wrap.
+  - compiler: **v0.64.0** on Windows (`%LOCALAPPDATA%\xiom.new\bin\xiom.exe`)
+    and in WSL (`~/.local/bin/xiom`); `XIOM_RUNTIME_DIR` retired.
+  - stdlib: `E:\xiom-lang\stdlib` @ **`a677338`** (2026-10-08T12:27:20+03:00,
+    "docs: refresh handoff snapshot 20") = `/mnt/e/xiom-lang/stdlib` in WSL.
+  - compiler lane @ `0c5337e0` (2026-10-08, "fix(codegen): m216 alias Vec
+    elements resolve + lazy builtin probe (C-PULSE-11)") -- likely touches
+    C-ORBIT-01; re-test on the next archive.
+  - packages lane @ `bb286506` (batch #38, eco-v0.1.87). Registry ready;
+    ORBITDB has no registry deps yet (zero-dep Phase 0) and no `xiom.toml`.
+  - `xiom doctor` has 2 environment warnings (bundled stdlib v0.63.1 vs
+    compiler v0.64.0; a stale second xiom binary on PATH) -- lane noise only:
+    `scripts/dev-env.*` always sets `XIOM_COMPILER`/`XIOM_STDLIB` explicitly.
+- **Green evidence this session:**
+  - `scripts/run.ps1` + `scripts/run.sh` (watchdog + exit-code gate);
+    dev-env twins; hello probe x2 Windows + WSL.
+  - **Conformance suite: 93/93 passed, exit 0 -- x2 on Windows, x1 in WSL**
+    (`tests/test_conformance.xi` via `scripts/run.{ps1,sh}`).
+  - **WAL crash/reopen: GREEN x2 on Windows + x1 in WSL**
+    (`scripts/crash_test.{ps1,sh}`: writer 20 records -> hard kill -> torn
+    tail -> replay 20 -> heal append -> 21) and a **200-record soak** GREEN
+    (2,881 B segment; replay 200 -> heal 201).
+  - Diagnostics: `tests/probes/probe_core_diag.xi` (B-tree 100/100 after
+    fix), `probe_write_drop{,2}.xi` (write-path isolation).
+- **Product defects found & fixed (Phase 0 hardening):**
+  - B-tree `split_child` overwrote `children[child_pos+1]` past the end
+    (silent no-op) instead of shifting the parent child list -> first
+    internal split corrupted the tree (insert failed from key 8; size 6/100).
+    Fixed in `src/engine.xi`; `probe_core_diag` now 100/100.
+  - `BufferPool.put` / `StorageEngine.cache_page` worked around two v0.64.0
+    compiler defects (see C-ORBIT-02/03) in `src/storage/page.xi`.
+  - `tests/test_conformance.xi` migrated to the current stdlib test API
+    (`assert -> TestResult`, free-function query/db calls) + C-ORBIT-01
+    rebind workaround; query tests now assert the documented **value**
+    semantics (pinned in `docs/query-pipeline.md`).
+  - **Known Phase-1 debt:** B-tree delete/underflow invariants are suspect
+    for odd orders (max keys = order-1 vs min keys = (order+1)/2-1 leaves a
+    4-key node's right half with 1 key at order 5); large-delete coverage is
+    absent. Do not claim delete hardening until a churn test exists.
+- **Relay documents created (owner relays; keep updated every wrap):**
+  - `docs/COMPILER-FINDINGS-ORBITDB.md` -- **C-ORBIT-01** (cross-module
+    generic `Result` alias payload unresolved: receiver dropped, C001
+    unresolved symbol, "DbResult defaulting to i64"), **C-ORBIT-02**
+    (`Vec[Option[T]]` element assignment poisons the slot -- matches no
+    arm), **C-ORBIT-03** (nested-field `&mut` method receivers mutate a
+    copy), plus a W004 note. Repro bundles under `docs/repro/`.
+  - `docs/STDLIB-WISHLIST-ORBITDB.md` -- fsync/durability, truncate/
+    checkpoint, `read_file_lines` CR normalization, byte-level IO,
+    append-with-tail-repair; positive confirmations (`io.sleep` is
+    load-bearing, `crc32c` exists for Phase 1).
+  - `docs/PACKAGE-WISHLIST-ORBITDB.md` -- extraction candidates
+    `xiom.btree`/`xiom.wal`, `xiom.db` publish note, `xiom.kv` watch.
+  - `docs/RELAY-INTRO-ORBITDB.md` -- one-pager for packages/compiler/stdlib
+    (+ ops status note).
+- **Owner asks done this session:** wishlist docs (above), `images/` folder
+  created for the project icon (drop e.g. `images/orbitdb-icon.png`);
+  `.gitignore` extended (VS Code workspace/`.vscode`, `.kilo/`, probe logs,
+  build artifacts, CRLF rules in `.gitattributes`); scripts in both `.ps1`
+  and `.sh`.
+- **Next action:** Phase 1 -- durable pages/byte codec (byte-level IO row is
+  the dependency), CRC32C via `xiom.hash.crc.crc32c` once bytes exist,
+  free-space map, node-per-page B-tree; harden B-tree delete/underflow with
+  a churn soak; re-run conformance + crash probes on the next compiler
+  archive (watch C-ORBIT-01/02/03; C-ORBIT-01 may be fixed by `0c5337e0`).
+  Add `xiom.toml` + CI only when the repo goes public (owner gate; ops has
+  the mechanics per the PULSE ops relay). No VPS/DNS action requested.
 
 ## 1. Consumer-lane rules (non-negotiable)
 
 - **Never edit** `E:\xiom-lang\stdlib`, `E:\xiom-lang\xiom`,
   `E:\xiom-packages\packages`. Record their HEAD hashes each wrap:
   `git -C <lane> log -1 --format="%h %cI %s"`.
-- Report upstream only through the three relay docs + SESSION rows; the
-  owner relays to the stdlib/packages/compiler lanes.
+- Report upstream only through the relay docs + SESSION rows; the owner
+  relays to the stdlib/packages/compiler lanes. Read the PULSE lane's relay
+  docs before filing anything new (do not rediscover), and reference its
+  IDs where a finding matches (e.g. C-PULSE-11 ~ C-ORBIT-01 family).
 - Consume packages from the registry only; never vendor a package copy.
-  Reusable primitives this lane grows should be **proposed as packages**
-  in the package wishlist.
+  Reusable primitives this lane grows should be **proposed as packages** in
+  the package wishlist.
 
-## 2. Pin discipline that bites (v0.64.0, inherited from PULSE)
+## 2. Pin discipline that bites (v0.64.0)
 
 - Initialize every local at declaration (`var x: T = <default>;`); every
-  **struct literal must list every field** -- a missing field reads
-  uninitialized garbage and can crash (PULSE open finding C-PULSE-06).
-- Never initialize module-scope variables with **cross-package
-  constructor calls** -- accepted by the checker, emits an undefined call
-  or crashes at module init (C-PULSE-07). Keep package aggregates
-  caller-owned.
-- Never call `.to_str()` on a module-`const` receiver -- W005 stub; on
-  v0.64.0 it aborts (`convert.int_to_string` is the workaround,
-  C-PULSE-05). Explicit `*p` for every `&mut Int` read (C-PULSE-04).
-- Types are `Vec[T]` / `Result[T, Err]`; after every write run the
-  byte-level grep for `Vec<|Result<|Option<`.
-- Parenthesize every bitwise & additive mix; `fn`, `as`, `use` reserved;
-  no overloading; cross-module helpers need `pub`; submodule functions
-  need submodule imports (`xiom.string.slice.str_bytes`, etc.).
+  **struct literal must list every field** (C-PULSE-06).
+- Never init module-scope variables with cross-package constructor calls
+  (C-PULSE-07). Keep package aggregates caller-owned.
+- Never call `.to_str()` on a module-`const` receiver (C-PULSE-05; aborts on
+  v0.64.0) -- use `convert.int_to_string`.
+- Explicit `*p` for every `&mut Int` read (C-PULSE-04).
+- **New this session (C-ORBIT workarounds; keep until the compiler fixes):**
+  - Rebind a match-bound payload of a cross-module generic `Result` through
+    an explicitly typed local before any access:
+    `let d: Row = decoded;` (C-ORBIT-01). Applies to `io.read_file_lines`,
+    `tuple_decode`, and any aliased package return.
+  - Never index-assign an `Option` into a `Vec[Option[T]]` element; rebuild
+    the Vec and assign the Vec (C-ORBIT-02).
+  - Never call a `&mut` method on a nested field receiver; copy out, mutate,
+    write back (C-ORBIT-03).
+- Types are `Vec[T]` / `Result[T, Err]`; after every write run the byte-level
+  grep for `Vec<|Result<|Option<`.
+- Parenthesize every bitwise & additive mix; `fn`, `as`, `use` reserved; no
+  overloading; cross-module helpers need `pub`; submodule functions need
+  submodule imports (`xiom.string.split.str_split`, `xiom.convert.parse.parse_int`).
 - Durability reality check: the runtime has **no fsync/FlushFileBuffers
-  wrapper** (PULSE stdlib wishlist row) -- "durable" appends are OS
-  write-back today; document honestly and use newline/record healing.
+  wrapper** -- "durable" appends are OS write-back today; claim torn-tail
+  healing only, never power-loss durability. `io.append_line` does not add a
+  boundary newline before a torn tail -- `heal_tail` (probe_wal_file) does.
 - Keep a `-TimeoutSec` watchdog on every run/suite and gate on exit code;
-  run every green suite x2; soak anything long-running (WAL replay, B-Tree
-  churn).
-- Start long-running processes with output redirected to **files** (never
-  an undrained PowerShell pipe -- a chatty child holding inherited pipes
-  hangs the caller; PULSE lost hours to this).
+  run every green suite x2; soak anything long-running. Start long-running
+  processes with output redirected to **files** (never an undrained pipe),
+  and hang loops need a side-effecting call (`io.sleep`) -- an empty spin
+  loop is optimized away.
 
-## 3. Known ecosystem status (2026-10-07)
+## 3. Known ecosystem status (2026-10-08)
 
-- Fixed in v0.64.0: C-PULSE-01 (`read` method elision), runtime-link,
-  crypto-link (SHA-256/HMAC usable env-free).
-- Open: C-PULSE-02 (registry deps -> catalog roots; workaround
-  `source-roots`), C-PULSE-04, C-PULSE-05, C-PULSE-06, C-PULSE-07; the
-  `fsync`/durability gap (no `FlushFileBuffers` wrapper in the runtime).
-- Registry ready for consumers: `xiom.http` 0.1.1, `xiom.jwt` 0.2.0,
-  `xiom.rate` 0.2.0, `xiom.metrics` 0.2.0, `xiom.router` 0.1.0,
-  `xiom.http.middleware` 0.1.0, `xiom.session` 0.1.0, `xiom.static`
-  0.1.0, `xiom.kv` 0.1.0. PULSE may have newer findings -- read
-  `E:\xiom-projects\xiom-pulse\SESSION.md` + its three relay docs before
-  filing anything new (do not rediscover).
+- Compiler: v0.64.0; C-PULSE-01/read-hijack, runtime-link, crypto-link
+  resolved; C-PULSE-02 (registry source-roots) still open; C-PULSE-04/05/06/
+  07 still open (PULSE ledger). ORBITDB adds C-ORBIT-01/02/03.
+- Stdlib: latest lane checkout `a677338`; io/sleep/string/env all usable;
+  fsync/byte-IO/truncate gaps filed in ORBITDB's wishlist.
+- Registry: `xiom.http` 0.1.1, `xiom.jwt` 0.2.0, `xiom.rate` 0.2.0,
+  `xiom.metrics` 0.2.0, `xiom.router` 0.1.0, `xiom.http.middleware` 0.1.0,
+  `xiom.session` 0.1.0, `xiom.static` 0.1.0, `xiom.kv` 0.1.0 (PULSE ledger;
+  `xiom.kv` has the known-red C-PULSE-10 gate).
 
 ## 4. Paste prompt for the next ORBITDB session
 
 ```
 You are the ORBITDB session for E:\xiom-projects\xiom-orbitdb -- the
-embedded XIOM database engine (B-Tree, WAL, query engine, crash
-recovery). Read SESSION.md first, then README/SPEC/ARCHITECTURE/ROADMAP/
-AUDIT and docs/. Consumer lane: never edit E:\xiom-lang\stdlib,
-E:\xiom-lang\xiom, E:\xiom-packages\packages. Repo stays PRIVATE; no
-pushes without owner approval. Identity "Lefteris Notas
-<lefterisnotas@gmail.com>"; conventional commits, DCO -s.
+embedded XIOM database engine (B-Tree, WAL, query engine, crash recovery).
+Read SESSION.md first, then README/SPEC/ARCHITECTURE/ROADMAP/AUDIT and
+docs/ (relay docs included). Consumer lane: never edit E:\xiom-lang\stdlib,
+E:\xiom-lang\xiom, E:\xiom-packages\packages. Repo stays PRIVATE; no pushes
+without owner approval. Identity "Lefteris Notas <lefterisnotas@gmail.com>";
+conventional commits, DCO -s.
 
-Toolchain: latest-tracking -- compiler v0.64.0
-(%LOCALAPPDATA%\xiom.new\bin\xiom.exe), stdlib E:\xiom-lang\stdlib,
-XIOM_RUNTIME_DIR retired. Dot-source scripts\dev-env.ps1 (and its .sh
-twin). Registry consumption needs xiom.toml source-roots (C-PULSE-02).
+Toolchain: latest-tracking -- compiler v0.64.0 (Windows + WSL), stdlib
+E:\xiom-lang\stdlib, XIOM_RUNTIME_DIR retired. Dot-source
+scripts\dev-env.ps1 (or scripts/dev-env.sh). Run everything through
+scripts\run.ps1 / run.sh (watchdog + exit-code gate).
 
-Continue per SESSION.md: if the bootstrap steps are not done, do them
-(env scripts both languages, hello + first critical-primitive probe x2
-with watchdog, three relay docs). Then advance the product along
-ROADMAP phases: implement, prove with tests/probes x2 plus crash/reopen
-and a soak for WAL/B-Tree work, update SESSION.md STATE + relay rows,
-and commit signed at every step wrap. Keep every script as both .ps1
-and .sh.
+State (2026-10-08): bootstrap complete; conformance 93/93 x2 Windows + WSL;
+WAL crash/reopen GREEN x2 + 200-record soak. Compiler findings C-ORBIT-01/02/
+03 open with repro bundles (docs/repro/) and in-repo workarounds; re-test
+them on the next compiler archive (C-ORBIT-01 may be fixed by 0c5337e0).
+
+TASK ORDER:
+1. Phase 1: durable pages -- byte-level codec (stdlib byte-IO is the filed
+   dependency; until then keep Vec[Int] honest), CRC32C via
+   xiom.hash.crc.crc32c, free-space map hardening, node-per-page B-tree.
+2. Harden B-tree delete/underflow (odd-order min-key invariant debt) with a
+   churn soak; add delete-heavy probes.
+3. Keep SESSION.md STATE + the three relay docs + RELAY-INTRO updated at
+   every wrap; commit signed (DCO -s) at every logical step.
+
+Discipline: every struct literal lists every field; rebind match-bound
+cross-module Result payloads through an annotated local (C-ORBIT-01); never
+index-assign an Option into a Vec[Option[T]] element (C-ORBIT-02); no &mut
+method calls on nested field receivers (C-ORBIT-03); no const-receiver
+.to_str(); explicit *p for &mut Int; probes in-repo; suites x2; outputs to
+files, never inherited pipes; hang loops need io.sleep.
 ```
