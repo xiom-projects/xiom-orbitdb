@@ -61,6 +61,21 @@ Query         = { conditions: Vec[QueryCondition], limit: Int, offset: Int }
 
 **Complexity:** O(n) scan + O(n-c) filtering for `c` conditions. Fine for small/medium data; the planner removes the full scan when a condition constrains the key.
 
+## Durable handle -- `DBFile`
+
+`DBFile` (`src/engine.xi`) exposes the same read paths over its recovered tree:
+
+| Call | Semantics |
+|------|-----------|
+| `db_file_get(key)` | point lookup (`btree_search`) |
+| `db_file_range(low, high)` | keys in `[low, high]` inclusive, values in key order (`btree_range_query`) |
+| `db_file_query(query)` | value-filter query, identical to `db_query` / `query_execute` |
+
+The same value-vs-key split applies: `QueryCondition` filters **values**;
+`db_file_range` is the key-range access. Queries run against the state
+reconstructed from the checkpoint snapshot + WAL tail replay, so they are
+valid immediately after `db_file_open`.
+
 ## The planner -- `query/planner.xi` *(scaffold, Phase 3)*
 
 ```

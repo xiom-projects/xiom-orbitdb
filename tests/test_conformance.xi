@@ -2200,6 +2200,73 @@ fn test_db_file_checkpoint_churn() -> TestResult {
   return assert(false, "db_file: checkpoint churn failed");
 }
 
+fn run_db_file_query_range() -> Int {
+  let path = "orbitdb-suite-db-q.wal";
+  let snap = "orbitdb-suite-db-q.wal.snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+
+  var db = db_file_open(path, 4);
+  var i = 1;
+  while i <= 12 {
+    if !db_file_put(&mut db, i, i * 10) { return 1; }
+    i = i + 1;
+  }
+
+  // Live handle: key range in order, then a value-filter query with
+  // offset/limit (conditions filter VALUES -- pinned semantics).
+  let r = db_file_range(&db, 3, 6);
+  if r.len() != 4 { return 1; }
+  if r[0] != 30 { return 1; }
+  if r[1] != 40 { return 1; }
+  if r[2] != 50 { return 1; }
+  if r[3] != 60 { return 1; }
+
+  var q = query_new();
+  query_where(&mut q, QueryOp.Gte, 10);
+  query_offset(&mut q, 2);
+  query_limit(&mut q, 3);
+  let filtered = db_file_query(&db, &q);
+  if filtered.len() != 3 { return 1; }
+  if filtered[0] != 30 { return 1; }
+  if filtered[1] != 40 { return 1; }
+  if filtered[2] != 50 { return 1; }
+
+  var q2 = query_new();
+  query_where(&mut q2, QueryOp.Lt, 30);
+  let small = db_file_query(&db, &q2);
+  if small.len() != 2 { return 1; }
+  if small[0] != 10 { return 1; }
+  if small[1] != 20 { return 1; }
+
+  // Checkpoint, then a tail write: the reopened handle must answer queries
+  // from the snapshot + tail replay (not from a fresh empty tree).
+  if db_file_checkpoint(&mut db) < 0 { return 1; }
+  if !db_file_put(&mut db, 13, 130) { return 1; }
+
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 13 { return 1; }
+  let r2 = db_file_range(&db2, 12, 13);
+  if r2.len() != 2 { return 1; }
+  if r2[0] != 120 { return 1; }
+  if r2[1] != 130 { return 1; }
+  var q3 = query_new();
+  query_where(&mut q3, QueryOp.Eq, 130);
+  let eq = db_file_query(&db2, &q3);
+  if eq.len() != 1 { return 1; }
+  if eq[0] != 130 { return 1; }
+
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  return 0;
+}
+
+fn test_db_file_query_range() -> TestResult {
+  let rc = run_db_file_query_range();
+  if rc == 0 { return assert(true, "db_file: range + filtered query (live, snapshot + tail recovery)"); }
+  return assert(false, "db_file: query/range failed");
+}
+
 fn run_result_set_ops() -> Int {
   var cols = Vec[Str].new();
   cols.push("id");
@@ -2476,6 +2543,8 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r95a.passed, r95a.name);
   let r95b = test_db_file_checkpoint_churn();
   total = total + 1; failed = failed + report(r95b.passed, r95b.name);
+  let r96 = test_db_file_query_range();
+  total = total + 1; failed = failed + report(r96.passed, r96.name);
   let r93 = test_result_set_ops();
   total = total + 1; failed = failed + report(r93.passed, r93.name);
 

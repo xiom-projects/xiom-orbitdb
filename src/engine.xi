@@ -1185,6 +1185,22 @@ pub fn db_file_get(db: &DBFile, key: Int) -> Option[Int] {
   return btree_search(&db.tree, key);
 }
 
+// Key-range access on the live/recovered tree: values for keys in [low, high]
+// inclusive, in key order. Mirrors `db_range`; same contract as
+// `btree_range_query`.
+pub fn db_file_range(db: &DBFile, low: Int, high: Int) -> Vec[Int]
+  requires: low <= high
+{
+  return btree_range_query(&db.tree, low, high);
+}
+
+// Value-filter query on the live/recovered tree. Same semantics as
+// `db_query`/`query_execute`: conditions filter VALUES (not keys), the scan
+// is in key order, `offset` skips matching values then `limit` truncates.
+pub fn db_file_query(db: &DBFile, query: &Query) -> Vec[Int] {
+  return query_execute(query, &db.tree);
+}
+
 pub fn db_file_size(db: &DBFile) -> Int {
   return btree_size(&db.tree);
 }
