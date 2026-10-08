@@ -3,19 +3,22 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
-**Written:** 2026-10-08, by the ORBITDB lane (bootstrap completed).
+**Written:** 2026-10-08, by the ORBITDB lane (bootstrap completed; B-tree
+delete hardened after the packages-lane relay).
 **Project:** embedded database engine for XIOM -- layered architecture:
 B-Tree index, WAL, query engine, crash recovery; formerly `xiom-db`
 (renamed `xiom-orbitdb`).
 
-## 0. STATE (2026-10-08 -- bootstrap complete, suite green, WAL crash-probe green)
+## 0. STATE (2026-10-08 -- bootstrap + B-tree churn hardening; WAL crash-probe green)
 
 - **Repo:** `E:\xiom-projects\xiom-orbitdb`. Stays **PRIVATE**; no push /
   remote without owner approval. Commits this session: `f2dec60` (engine
-  fixes + suite migration, 93/93), `bc5ef2a` (lane scripts, WAL crash probe,
-  repro bundles, .gitignore), plus this docs wrap (relay docs + SESSION).
-  Identity used: `Lefteris Notas <lefterisnotas@gmail.com>` (repo history);
-  conventional commits with DCO sign-off (`git commit -s`).
+  fixes + suite migration, 93/93), `bc5ef2a` (scripts, WAL crash probe,
+  repro bundles), `8ea9bef`/`1988f8b` (line endings, comment), `54472d5` +
+  `0e02f4a` (relay docs + per-lane messages), `c7d4901` (B-tree delete
+  hardening, churn-proven; suite 95/95). Identity used: `Lefteris Notas
+  <lefterisnotas@gmail.com>` (repo history); conventional commits with DCO
+  sign-off (`git commit -s`).
 - **VERSION POLICY (owner decision): track the LATEST compiler / stdlib /
   packages** -- this lane hardens the ecosystem by real-world use. Record
   exact versions and lane hashes here at every wrap.
@@ -26,20 +29,35 @@ B-Tree index, WAL, query engine, crash recovery; formerly `xiom-db`
   - compiler lane @ `0c5337e0` (2026-10-08, "fix(codegen): m216 alias Vec
     elements resolve + lazy builtin probe (C-PULSE-11)") -- likely touches
     C-ORBIT-01; re-test on the next archive.
-  - packages lane @ `bb286506` (batch #38, eco-v0.1.87). Registry ready;
-    ORBITDB has no registry deps yet (zero-dep Phase 0) and no `xiom.toml`.
+  - packages lane @ `bb286506` (batch #38, eco-v0.1.87) + relay exchange:
+    `xiom.wal` ships **standalone** (3 users, one format), shaped from this
+    lane's crash-probe evidence; `xiom.btree` name held, extraction gate =
+    our churn soak (**now MET**); `xiom.durable` (in-repo, unpublished) has
+    `src/wal/*` + `src/txn/*` to reconcile into `xiom.wal`; C-PULSE-10
+    `xiom.kv` gate is Linux-only. ORBITDB has no registry deps yet
+    (zero-dep Phase 0) and no `xiom.toml`.
   - `xiom doctor` has 2 environment warnings (bundled stdlib v0.63.1 vs
     compiler v0.64.0; a stale second xiom binary on PATH) -- lane noise only:
     `scripts/dev-env.*` always sets `XIOM_COMPILER`/`XIOM_STDLIB` explicitly.
 - **Green evidence this session:**
   - `scripts/run.ps1` + `scripts/run.sh` (watchdog + exit-code gate);
     dev-env twins; hello probe x2 Windows + WSL.
-  - **Conformance suite: 93/93 passed, exit 0 -- x2 on Windows, x1 in WSL**
-    (`tests/test_conformance.xi` via `scripts/run.{ps1,sh}`).
-  - **WAL crash/reopen: GREEN x2 on Windows + x1 in WSL**
-    (`scripts/crash_test.{ps1,sh}`: writer 20 records -> hard kill -> torn
-    tail -> replay 20 -> heal append -> 21) and a **200-record soak** GREEN
-    (2,881 B segment; replay 200 -> heal 201).
+  - **Conformance suite: 95/95 passed, exit 0** (93 + 2 churn regressions)
+    -- x2 on Windows, x1 in WSL (`tests/test_conformance.xi`).
+  - **WAL crash/reopen: GREEN x2 on Windows + x1 in WSL** (re-verified after
+    the B-tree change, and again on the `src/wal_file.xi` module): writer 20
+    records -> hard kill -> torn tail -> replay 20 -> heal append -> 21;
+    **200-record soak** GREEN (3,081 B segment, module path). Truncate seam
+    smoke: keep lsn >= 15 -> replay 7 (torn line removed).
+  - **`xiom.wal` reference landed:** `src/wal_file.xi` -- durable-shaped
+    `WALRecord`/`WALOpKind`/lsn, open/append/flush/replay/truncate/heal,
+    text codec v1 (`lsn|op|key|value|timestamp[|payload_csv]`); acceptance =
+    `tests/probes/probe_wal_file.xi` + crash harness.
+  - **B-tree churn soak: GREEN** -- `tests/probes/probe_btree_churn.xi`
+    (randomized insert/delete/search vs a reference model + structural
+    validator): orders 4/5/6 x 20,000 ops at keyspace 4096 (~3-4s each),
+    seed matrix 4/5/6 x {2026, 777}, plus the in-suite 400-op order-4/5
+    regressions.
   - Diagnostics: `tests/probes/probe_core_diag.xi` (B-tree 100/100 after
     fix), `probe_write_drop{,2}.xi` (write-path isolation).
 - **Product defects found & fixed (Phase 0 hardening):**
@@ -49,14 +67,22 @@ B-Tree index, WAL, query engine, crash recovery; formerly `xiom-db`
     Fixed in `src/engine.xi`; `probe_core_diag` now 100/100.
   - `BufferPool.put` / `StorageEngine.cache_page` worked around two v0.64.0
     compiler defects (see C-ORBIT-02/03) in `src/storage/page.xi`.
+  - **B-tree delete hardened (churn-proven, 2026-10-08):** three defects
+    fixed -- (a) `fill_child` returned a child *position* where
+    `delete_from_node` expected a *node index* (after a merge it descended an
+    unrelated node; churn repro op=148: delete of an existing key returned
+    false), (b) `min_keys = (order-2)/2` is the true floor for this split
+    scheme (the old `(order+1)/2-1` left odd-order nodes under-filled),
+    (c) `borrow_from_left` pushed a placeholder child onto leaves. The churn
+    soak is the regression gate; extraction of `xiom.btree` is now unblocked
+    from our side (packages lane gate = this soak, MET).
+  - **Remaining index debt (honest):** node storage is append-only (no free
+    list / node reuse); `btree_to_vec` is O(n) value-only (no key iteration
+    API yet); planner-key semantics still open (Phase 3 decision).
   - `tests/test_conformance.xi` migrated to the current stdlib test API
     (`assert -> TestResult`, free-function query/db calls) + C-ORBIT-01
     rebind workaround; query tests now assert the documented **value**
     semantics (pinned in `docs/query-pipeline.md`).
-  - **Known Phase-1 debt:** B-tree delete/underflow invariants are suspect
-    for odd orders (max keys = order-1 vs min keys = (order+1)/2-1 leaves a
-    4-key node's right half with 1 key at order 5); large-delete coverage is
-    absent. Do not claim delete hardening until a churn test exists.
 - **Relay documents created (owner relays; keep updated every wrap):**
   - `docs/COMPILER-FINDINGS-ORBITDB.md` -- **C-ORBIT-01** (cross-module
     generic `Result` alias payload unresolved: receiver dropped, C001
@@ -69,21 +95,28 @@ B-Tree index, WAL, query engine, crash recovery; formerly `xiom-db`
     append-with-tail-repair; positive confirmations (`io.sleep` is
     load-bearing, `crc32c` exists for Phase 1).
   - `docs/PACKAGE-WISHLIST-ORBITDB.md` -- extraction candidates
-    `xiom.btree`/`xiom.wal`, `xiom.db` publish note, `xiom.kv` watch.
-  - `docs/RELAY-INTRO-ORBITDB.md` -- one-pager for packages/compiler/stdlib
-    (+ ops status note).
+    `xiom.btree`/`xiom.wal`, `xiom.db` publish note, `xiom.kv` watch, plus
+    the packages-lane delta (standalone `xiom.wal`, btree gate met).
+  - `docs/RELAY-INTRO-ORBITDB.md` + per-lane paste-ready messages
+    `docs/RELAY-{COMPILER,STDLIB,PACKAGES}-ORBITDB.md` + the packages-lane
+    response `docs/RELAY-PACKAGES-RESPONSE-ORBITDB.md` (WAL API proposal:
+    durable's LSN/record shape + our disk segment/heal/replay/crash harness).
 - **Owner asks done this session:** wishlist docs (above), `images/` folder
   created for the project icon (drop e.g. `images/orbitdb-icon.png`);
   `.gitignore` extended (VS Code workspace/`.vscode`, `.kilo/`, probe logs,
   build artifacts, CRLF rules in `.gitattributes`); scripts in both `.ps1`
   and `.sh`.
-- **Next action:** Phase 1 -- durable pages/byte codec (byte-level IO row is
-  the dependency), CRC32C via `xiom.hash.crc.crc32c` once bytes exist,
-  free-space map, node-per-page B-tree; harden B-tree delete/underflow with
-  a churn soak; re-run conformance + crash probes on the next compiler
-  archive (watch C-ORBIT-01/02/03; C-ORBIT-01 may be fixed by `0c5337e0`).
-  Add `xiom.toml` + CI only when the repo goes public (owner gate; ops has
-  the mechanics per the PULSE ops relay). No VPS/DNS action requested.
+- **Next action:** (1) `xiom.wal` reconciliation -- reference disk layer is
+  landed (`src/wal_file.xi`); when packages moves `xiom.durable`'s
+  `src/wal/*` under `xiom.wal`, port this codec/heal/replay + the crash
+  probe as the package acceptance test, keep durable's record shape, and
+  add per-record checksums when stdlib byte IO lands. (2) Phase 1 durable
+  pages: byte codec (stdlib byte-IO row is the dependency), CRC32C via
+  `xiom.hash.crc.crc32c`, free-space map, node-per-page B-tree. (3) Re-run
+  conformance + crash probes on the next compiler archive (watch
+  C-ORBIT-01/02/03; C-ORBIT-01 may be fixed by `0c5337e0`). Add `xiom.toml`
+  + CI only when the repo goes public (owner gate; ops has the mechanics per
+  the PULSE ops relay). No VPS/DNS action requested.
 
 ## 1. Consumer-lane rules (non-negotiable)
 

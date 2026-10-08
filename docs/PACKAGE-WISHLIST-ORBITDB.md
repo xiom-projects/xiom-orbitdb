@@ -52,3 +52,27 @@ they harden.
 2. `xiom.wal` extraction when stdlib lands fsync + append-tail-repair
    (ORBITDB Phase 2) -- the crash harness is the acceptance test.
 3. `xiom.db` publish when Phase 1-2 make durability honest (owner gate).
+
+## Delta 2026-10-08 (packages-lane answers + ORBITDB response)
+
+- **`xiom.btree`: name held; extraction gate = ORBITDB churn soak -- MET.**
+  Evidence: `tests/probes/probe_btree_churn.xi` randomized
+  insert/delete/search vs a reference model + structural validator, green at
+  orders 4/5/6 x 20,000 ops (keyspace 4096) plus a seed matrix, and two
+  in-suite churn regressions (**95/95 x2**). One contract to carry:
+  `min_keys = (order-2)/2` for this split scheme. Churn probe = acceptance
+  test.
+- **`xiom.wal`: ships standalone (3 users, one format), API shaped from
+  ORBITDB crash-probe evidence.** ORBITDB's response
+  (`docs/RELAY-PACKAGES-RESPONSE-ORBITDB.md`) proposes: keep
+  `xiom.durable`'s `WalOpKind` / `WalRecord { lsn, op, key, value,
+  payload, timestamp }` vocabulary, add the disk segment layer
+  (`wal_open/append/flush/replay/truncate/close`), torn-tail heal + the
+  crash harness as the acceptance test; `payload[0]` = subtype tag for
+  xvector/xiom.db extension.
+- **`xiom.durable` reconciliation:** `xiom.wal` becomes the single WAL home;
+  durable keeps `src/txn/*` and consumes it. ORBITDB will land the disk layer
+  against durable's record shape (reference implementation in
+  `src/wal_file.xi` + `probe_wal_file` acceptance).
+- **`xiom.kv` watch unchanged:** C-PULSE-10 is Linux-only; the fsync row is
+  filed in the stdlib wishlist.
