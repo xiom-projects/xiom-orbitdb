@@ -1694,6 +1694,53 @@ fn test_fsm_record_used() -> TestResult {
   return assert(false, "fsm: record_used failed");
 }
 
+// Best-fit placement: tightest page wins; lowest id breaks ties.
+fn run_fsm_best_fit() -> Int {
+  var fsm = free_space_map_new();
+  let p0 = fsm_register_page(&mut fsm, 100);
+  fsm_register_page(&mut fsm, 1000);
+  let p2 = fsm_register_page(&mut fsm, 500);
+  let f1 = fsm_find_page(&fsm, 60);
+  match f1 { None => return 1, Some(g) => { if g.value != 0 { return 1; } } }
+  if !fsm_record_used(&mut fsm, &p0, 100) { return 1; }
+  let f2 = fsm_find_page(&fsm, 60);
+  match f2 { None => return 1, Some(g) => { if g.value != 2 { return 1; } } }
+  // tie: a second 500-free page must not displace the lower id
+  fsm_register_page(&mut fsm, 500);
+  let f3 = fsm_find_page(&fsm, 60);
+  match f3 { None => return 1, Some(g) => { if g.value != 2 { return 1; } } }
+  if !fsm_validate(&fsm) { return 1; }
+  return 0;
+}
+
+fn test_fsm_best_fit() -> TestResult {
+  let rc = run_fsm_best_fit();
+  if rc == 0 { return assert(true, "fsm: best-fit placement (tightest, lowest id)"); }
+  return assert(false, "fsm: best-fit failed");
+}
+
+// Clamping and release invariants: over-use clamps at 0 and reports false;
+// negative args report false; release clamps at capacity.
+fn run_fsm_clamps_release() -> Int {
+  var fsm = free_space_map_new();
+  let p = fsm_register_page(&mut fsm, 100);
+  if fsm_record_used(&mut fsm, &p, 150) { return 1; }
+  if fsm_free_bytes(&fsm, &p) != 0 { return 1; }
+  if fsm_record_used(&mut fsm, &p, -1) { return 1; }
+  if !fsm_record_free(&mut fsm, &p, 40) { return 1; }
+  if fsm_free_bytes(&fsm, &p) != 40 { return 1; }
+  if !fsm_record_free(&mut fsm, &p, 1000) { return 1; }
+  if fsm_free_bytes(&fsm, &p) != 100 { return 1; }
+  if !fsm_validate(&fsm) { return 1; }
+  return 0;
+}
+
+fn test_fsm_clamps_release() -> TestResult {
+  let rc = run_fsm_clamps_release();
+  if rc == 0 { return assert(true, "fsm: clamps (over-use, negative, capacity)"); }
+  return assert(false, "fsm: clamps/release failed");
+}
+
 // ===========================================================================
 // Tuple codec tests
 // ===========================================================================
@@ -2161,6 +2208,10 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r88.passed, r88.name);
   let r89 = test_fsm_record_used();
   total = total + 1; failed = failed + report(r89.passed, r89.name);
+  let r89b = test_fsm_best_fit();
+  total = total + 1; failed = failed + report(r89b.passed, r89b.name);
+  let r89c = test_fsm_clamps_release();
+  total = total + 1; failed = failed + report(r89c.passed, r89c.name);
   let r90 = test_row_new_and_access();
   total = total + 1; failed = failed + report(r90.passed, r90.name);
   let r91 = test_row_set_column();
