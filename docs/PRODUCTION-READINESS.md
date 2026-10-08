@@ -29,13 +29,13 @@
 | A. Correctness & data structures | 20 | 16.0 | B-tree churn-proven; tuple codec v1 KAT-locked; FSM best-fit model-soaked; node-per-page durable pages done, paged access pending |
 | B. Durability & crash safety | 20 | 16.0 | Disk WAL segment + page file + engine WAL-before-ack + incremental generation-committed checkpoint crash-proven; fsync still pending |
 | C. Storage engine (pages/pager) | 15 | 8.0 | Codec + checksum + FSM + durable page file done; pager substrate/replacement policy pending |
-| D. Transactions & isolation | 10 | 1.0 | State machine only; no MVCC, no crash-safe redo/undo |
+| D. Transactions & isolation | 10 | 5.0 | Durable transactions: begin/commit/abort + committed/uncommitted recovery crash-proven; MVCC pending |
 | E. Query & schema | 10 | 3.0 | Value-filter query + DBFile range/query bindings done; planner scaffold; no secondary indexes/typed values |
 | F. Operations & tooling | 10 | 4.0 | ps1/sh runners, crash harness, probes; no CI/packaging/version stamp |
 | G. Performance & limits | 5 | 3.0 | Benchmarks published (v0.64.1); WAL segment size policy live (`maybe_checkpoint`); replay constrained by the filed stdlib `str_split` quadratic; page/cache bounds pending |
 | H. Security & integrity | 5 | 2.0 | Checksums + validation; no fuzz, no encryption, no supply-chain pinning |
 | I. Documentation & evidence | 5 | 4.0 | Full doc set + relay docs + repro bundles; public API reference pending |
-| **Total** | **100** | **57.0** | **~57% -- pre-alpha, durable log + pages + incremental checkpoints, benchmarks live** |
+| **Total** | **100** | **61.0** | **~61% -- alpha-track, durable log + pages + incremental checkpoints + transactions, benchmarks live** |
 
 Scoreboard changelog:
 - 2026-10-08: bootstrap complete (suite migrated, engine defects fixed, WAL
@@ -73,6 +73,12 @@ Scoreboard changelog:
   log past node_count + 64, the next checkpoint rewrites one version per page
   atomically, and writes/checkpoints continue afterwards; suite 112/112 x2
   Win + WSL. No score change (B2 evidence): 57.0.
+- 2026-10-08: durable transactions (D2) -- WAL Begin/Commit/Abort kinds,
+  DBFile txn API (log-then-buffer, apply at commit, abort discards), recovery
+  applies committed windows / drops unterminated ones and finalizes a dangling
+  window with an Abort record; guards: checkpoint and auto-commit rejected
+  mid-txn. Crash scenarios D/E (uncommitted discarded, committed recovered)
+  25/25 x2 Win + WSL; suite 115/115 x2. D2 4 pts -> D area 5.0: 61.0.
 
 ## A. Correctness & data structures (20)
 
@@ -111,7 +117,7 @@ Scoreboard changelog:
 | # | Item | Pts | Status | Evidence / gate |
 |---|---|---|---|---|
 | D1 | Txn state machine (active/committed/aborted, op list) | 2 | OK (state only) | suite txn tests |
-| D2 | Crash-safe redo/undo with committed/uncommitted classification | 4 | -- | needs WAL engine wiring (B4) |
+| D2 | Crash-safe redo/undo with committed/uncommitted classification | 4 | OK | WAL BeginTxn/CommitTxn/AbortTxn (codes 8/9/10) + `db_file_txn_*` (log as you go, apply at commit, abort discards); replay applies committed windows and drops unterminated ones, finalizing a dangling window with an Abort record; checkpoint + auto-commit rejected mid-txn; suite txn tests + `db_crash_test` scenarios D/E x2 Win + WSL |
 | D3 | MVCC snapshots / version-aware reads | 4 | -- | Phase 3 design |
 
 ## E. Query & schema (10)
@@ -174,7 +180,8 @@ Scoreboard changelog:
 - [ ] fsync wired (stdlib row) and power-loss matrix run.
 - [x] Engine on disk: WAL-before-ack, recovery from real files, checkpoint.
 - [ ] Durable page file + pager + replacement policy; torn-page detection.
-- [ ] Redo/undo with committed/uncommitted classification; MVCC story decided.
+- [x] Redo/undo with committed/uncommitted classification (crash scenarios D/E).
+- [ ] MVCC story decided.
 - [ ] Benchmarks with published numbers and no unbounded memory growth.
 - [ ] CI matrix green on Windows/Linux with pinned toolchain and SHA-pinned
       actions; release artifacts + SHA256SUMS; build-info/version stamp.

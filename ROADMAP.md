@@ -62,6 +62,7 @@ Make durability real.
 | fsync on commit | [FAIL] | Blocked on the stdlib fsync row; `wal_file_flush`/`page_file_sync` are the wired seams |
 | LSN-based ordering | [WIP] | `DBFile` orders by `wal_file` LSNs; the in-memory engine still uses integer timestamps |
 | Checkpointing | [OK] (2026-10-08) | Incremental generation-committed snapshot (`db_file_checkpoint`: only changed nodes, header page commits, compaction at node_count+64) + `db_file_maybe_checkpoint(limit)` policy; uncommitted-generation and torn-tail crash states in the suite; 2000-key policy soak (9 checkpoints) x2 Win + WSL |
+| Durable transactions (D2) | [OK] (2026-10-08) | WAL Begin/Commit/Abort kinds (8/9/10) + `db_file_txn_*` (log-then-buffer, apply at commit, abort discards); replay applies committed windows, drops unterminated ones and finalizes a dangling window with an Abort record; checkpoint + auto-commit rejected mid-txn; crash scenarios D/E x2 Win + WSL |
 | Torn-page / crash recovery test suite | [OK] (2026-10-08) | `crash_test.{ps1,sh}` (WAL), `page_crash_test.{ps1,sh}`, `db_crash_test.{ps1,sh}` -- GREEN x2 Windows + WSL; power-loss leg blocked on fsync |
 
 ---
