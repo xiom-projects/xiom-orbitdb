@@ -16,6 +16,7 @@ use xiom.db.ids;
 use xiom.db.config;
 use xiom.db.contracts;
 use xiom.db.storage.page;
+use xiom.db.storage.page_file;
 use xiom.db.storage.tuple;
 use xiom.db.storage.free_space_map;
 use xiom.db.catalog.schema;
@@ -1958,6 +1959,97 @@ fn test_tuple_codec_rejects() -> TestResult {
   return assert(false, "tuple: codec malformed rejection failed");
 }
 
+// ===========================================================================
+// Durable page file (text v1, CRC32C verified, atomic rewrite)
+// ===========================================================================
+
+fn run_page_file_roundtrip() -> Int {
+  let path = "orbitdb-suite-pages.tmp";
+  let _ = io.remove_file(path);
+  let pf = page_file_open(path);
+  var d1 = Vec[Int].new();
+  d1.push(1);
+  d1.push(2);
+  d1.push(3);
+  let p1 = Page.new(10, d1, page_compute_checksum(&d1));
+  if !page_file_write(&pf, p1) { return 1; }
+  var d2 = Vec[Int].new();
+  d2.push(200);
+  let p2 = Page.new(11, d2, page_compute_checksum(&d2));
+  if !page_file_write(&pf, p2) { return 1; }
+  if page_file_count(&pf) != 2 { return 1; }
+  let r1 = page_file_read(&pf, 10);
+  match r1 {
+    None => { return 1; }
+    Some(p) => {
+      let pg: Page = p;
+      if !pg.is_valid() { return 1; }
+      if pg.data.len() != 3 { return 1; }
+    }
+  }
+  // Upsert the same id: count unchanged, new bytes.
+  var d3 = Vec[Int].new();
+  d3.push(9);
+  let p3 = Page.new(10, d3, page_compute_checksum(&d3));
+  if !page_file_write(&pf, p3) { return 1; }
+  if page_file_count(&pf) != 2 { return 1; }
+  let r3 = page_file_read(&pf, 10);
+  match r3 {
+    None => { return 1; }
+    Some(p) => {
+      let pg: Page = p;
+      if !pg.is_valid() { return 1; }
+      if pg.data.len() != 1 { return 1; }
+      if pg.data[0] != 9 { return 1; }
+    }
+  }
+  let _ = io.remove_file(path);
+  return 0;
+}
+
+fn test_page_file_roundtrip() -> TestResult {
+  let rc = run_page_file_roundtrip();
+  if rc == 0 { return assert(true, "page_file: write/read/upsert/verify roundtrip"); }
+  return assert(false, "page_file: roundtrip failed");
+}
+
+fn run_page_file_corruption() -> Int {
+  let path = "orbitdb-suite-pages2.tmp";
+  let _ = io.remove_file(path);
+  let pf = page_file_open(path);
+  var d = Vec[Int].new();
+  d.push(5);
+  d.push(6);
+  let p = Page.new(1, d, page_compute_checksum(&d));
+  if !page_file_write(&pf, p) { return 1; }
+  // Malformed torn tail (no newline) must be skipped by count/read.
+  let app = io.append_file(path, "88|5|");
+  match app { Ok(_) => {}, Err(_) => { return 1; } }
+  if page_file_count(&pf) != 1 { return 1; }
+  let r = page_file_read(&pf, 1);
+  match r {
+    None => { return 1; }
+    Some(g) => {
+      let pg: Page = g;
+      if !pg.is_valid() { return 1; }
+    }
+  }
+  // Structurally valid but checksum-invalid line: not a page.
+  let app2 = io.append_file(path, "\n99|1|123|7\n");
+  match app2 { Ok(_) => {}, Err(_) => { return 1; } }
+  let r99 = page_file_read(&pf, 99);
+  match r99 { Some(_) => { return 1; }, None => {} }
+  if page_file_count(&pf) != 1 { return 1; }
+  let _ = io.remove_file(path);
+  return 0;
+}
+
+fn test_page_file_corruption() -> TestResult {
+  let rc = run_page_file_corruption();
+  if rc == 0 { return assert(true, "page_file: torn tail + bad checksum rejected"); }
+  return assert(false, "page_file: corruption handling failed");
+}
+
 fn run_result_set_ops() -> Int {
   var cols = Vec[Str].new();
   cols.push("id");
@@ -2224,6 +2316,10 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r92c.passed, r92c.name);
   let r92d = test_tuple_codec_rejects();
   total = total + 1; failed = failed + report(r92d.passed, r92d.name);
+  let r93a = test_page_file_roundtrip();
+  total = total + 1; failed = failed + report(r93a.passed, r93a.name);
+  let r93b = test_page_file_corruption();
+  total = total + 1; failed = failed + report(r93b.passed, r93b.name);
   let r93 = test_result_set_ops();
   total = total + 1; failed = failed + report(r93.passed, r93.name);
 

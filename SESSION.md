@@ -42,8 +42,18 @@ B-Tree index, WAL, query engine, crash recovery; formerly `xiom-db`
 - **Green evidence this session:**
   - `scripts/run.ps1` + `scripts/run.sh` (watchdog + exit-code gate);
     dev-env twins; hello probe x2 Windows + WSL.
-  - **Conformance suite: 101/101 passed, exit 0** (93 + 2 churn + CRC32C KAT
-    + 3 tuple-codec + 2 FSM tests) -- x2 on Windows, x1 in WSL.
+  - **Conformance suite: 103/103 passed, exit 0** (93 + 2 churn + CRC32C KAT
+    + 3 tuple-codec + 2 FSM + 2 page-file tests) -- x2 Windows + WSL.
+  - **Durable page file v1 landed:** `storage/page_file.xi` -- one line per
+    page (`id|len|crc|bytes`), CRC32C verified on read, upsert via
+    temp+rename (atomic replace), malformed torn tails skipped and
+    checksum-invalid survivors dropped on rewrite. Acceptance:
+    `tests/probes/probe_page_file.xi` + `scripts/page_crash_test.{ps1,sh}`
+    (writer 20 pages -> hard kill -> torn tail -> verify 20 checksums/bytes
+    -> upsert 9999 -> verify 21): GREEN x2 Windows + WSL. Suite locks
+    roundtrip/upsert and torn/bad-checksum rejection.
+  - **Readiness score: 50.5/100** (`docs/PRODUCTION-READINESS.md`; C2 done,
+    B6 partial credit, changelog updated).
   - **Free-space map hardened:** `storage/free_space_map.xi` now does
     best-fit placement (tightest page, lowest id on ties), `record_used`
     over-use/negative clamping with false returns, `record_free` with
@@ -133,11 +143,12 @@ B-Tree index, WAL, query engine, crash recovery; formerly `xiom-db`
   `src/wal/*` under `xiom.wal`, port this codec/heal/replay + the crash
   probe as the package acceptance test, keep durable's record shape, and
   add per-record checksums when stdlib byte IO lands. (2) Phase 1 durable
-  pages: **CRC32C, tuple codec v1 and the free-space map are done in-repo**;
-  remaining -- node-per-page B-tree (needs the pager seam), durable page
-  file (C2; text v1 feasible pre-byte-IO), real pager integration
-  (externally blocked: needs the `xiom.core.storage.pager` package substrate
-  / registry source-roots, C-PULSE-02). (3) Re-run
+  pages: **CRC32C, tuple codec v1, free-space map and the durable page file
+  are done in-repo**; remaining -- node-per-page B-tree (the page-file seam
+  now exists; flat-array nodes move into pages with FSM placement), engine
+  wired to the disk WAL + page file (B4), real pager integration
+  (externally blocked: `xiom.core.storage.pager` substrate / registry
+  source-roots, C-PULSE-02). (3) Re-run
   conformance + crash probes on the next compiler archive (watch
   C-ORBIT-01/02/03; C-ORBIT-01 may be fixed by `0c5337e0`). Add `xiom.toml`
   + CI only when the repo goes public (owner gate; ops has the mechanics per

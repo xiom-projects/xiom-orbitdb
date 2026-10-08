@@ -31,7 +31,7 @@ The working core. Everything here is implemented and exercised through the publi
 | Storage primitives (Page, BufferPool, tuple codec) | [OK] (in-memory) | `storage/page.xi`, `storage/tuple.xi` |
 | Transaction state machine | [OK] (state only) | `txn/transaction.xi` |
 | Dependency on `xiom-core` substrate | [OK] | `package.xi` |
-| Conformance test suite (101 tests) | [OK] | `tests/test_conformance.xi` |
+| Conformance test suite (103 tests) | [OK] | `tests/test_conformance.xi` |
 
 **Known limitation:** all state lives in RAM. "Durability" and "recovery" are correct with respect to the in-memory WAL but survive only process-lifetime, not a real crash.
 
@@ -46,6 +46,7 @@ Move storage from ad-hoc in-memory structures to the shared pager.
 | Free-space map | [OK] (2026-10-08) | `storage/free_space_map.xi` -- best-fit placement, use/release clamping, invariant checker; model-soaked (`probe_fsm`, 50k ops). FSM tree/bitmap + persistence land with the pager |
 | Byte-packed tuple codec | [OK] (2026-10-08) | `storage/tuple.xi` -- v1 record: magic/version/field_count + typed i64 LE fields; decode validates exact length/type; `tuple_fits_page` budget; byte-true in `Vec[Int]` until Vec[UInt8] conversion lands |
 | Real pager integration | [FAIL] | Route `StorageEngine` through `xiom.core.storage.pager` + `buffer_pool` |
+| Durable page file v1 (text codec) | [OK] (2026-10-08) | `storage/page_file.xi` -- one line per page `id\|len\|crc\|bytes`, CRC32C verified on read, upsert via temp+rename (atomic replace), torn/checksum-invalid lines rejected and healed on rewrite; crash harness `scripts/page_crash_test.{ps1,sh}` |
 | CRC32C checksums | [OK] (2026-10-08) | `storage/page.xi` -- bitwise Castagnoli, KAT-locked (0xE3069283); swap to `xiom.hash.crc` when byte packs land |
 | Node-per-page B-tree | [FAIL] | Store B-tree nodes in pages instead of a flat `Vec` |
 
