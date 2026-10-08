@@ -5,14 +5,15 @@
 # Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 # SPDX-License-Identifier: MIT OR Apache-2.0
 #
-# Mirrors scripts/db_crash_test.ps1:
-#   1. writer puts N keys through DBFile (append-then-apply), then hangs;
-#   2. hard-kill the writer process GROUP once N records are on disk;
-#   3. append a torn tail (no newline) -- crash mid-record;
-#   4. reopen: replay the segment, recover exactly N keys (torn skipped);
-#   5. put one more key (tail healed) and recover N+1.
+# Mirrors scripts/db_crash_test.ps1 (three crash scenarios per run):
+#   A. WAL-only: writer puts N keys, hard-kill the process GROUP, torn tail,
+#      reopen recovers N, heal + put one more -> N+1.
+#   B. snapshot-only: writer puts N keys + checkpoint, hard-kill before any
+#      tail write, torn tail, reopen recovers N from the snapshot alone.
+#   C. snapshot + tail: writer checkpoints after N, appends Tail more keys,
+#      hard-kill mid-tail, reopen recovers N+Tail (snapshot + tail replay).
 #
-# Usage: scripts/db_crash_test.sh [--keys N] [--timeout-sec S]
+# Usage: scripts/db_crash_test.sh [--keys N] [--tail T] [--timeout-sec S]
 # Exit:  0 = green, 1 = failed.
 # ============================================================================
 
@@ -25,12 +26,14 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$SCRIPT_DIR/dev-env.sh"
 
 KEYS=20
+TAIL=3
 TIMEOUT_SEC=90
 while [ $# -gt 0 ]; do
   case "$1" in
     --keys) KEYS=${2:?missing value}; shift 2 ;;
+    --tail) TAIL=${2:?missing value}; shift 2 ;;
     --timeout-sec) TIMEOUT_SEC=${2:?missing value}; shift 2 ;;
-    -h|--help) printf 'Usage: db_crash_test.sh [--keys N] [--timeout-sec S]\n'; exit 0 ;;
+    -h|--help) printf 'Usage: db_crash_test.sh [--keys N] [--tail T] [--timeout-sec S]\n'; exit 0 ;;
     *) printf 'unknown flag: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -44,7 +47,7 @@ PROBE="$REPO_ROOT/tests/probes/probe_db_file.xi"
 LOG_DIR="$REPO_ROOT/probe-logs"
 mkdir -p "$LOG_DIR"
 WAL_FILE="$LOG_DIR/crash-dbfile.wal"
-rm -f "$WAL_FILE"
+rm -f "$WAL_FILE" "$WAL_FILE.snap"
 
 PASS=0
 FAIL=0
@@ -53,9 +56,9 @@ check() {
   else printf '[FAIL] %s\n' "$1"; FAIL=$((FAIL + 1)); fi
 }
 
-invoke_mode() { # mode n [last_key last_val]
-  local mode=$1 n=$2 last_key=${3:-} last_val=${4:-}
-  export ORBITDB_DB_FILE="$WAL_FILE"
+invoke_mode() { # mode n [last_key last_val path]
+  local mode=$1 n=$2 last_key=${3:-} last_val=${4:-} path=${5:-$WAL_FILE}
+  export ORBITDB_DB_FILE="$path"
   export ORBITDB_DB_MODE="$mode"
   export ORBITDB_DB_N="$n"
   if [ -n "$last_key" ]; then export ORBITDB_DB_LAST_KEY="$last_key"; else unset ORBITDB_DB_LAST_KEY; fi
@@ -101,6 +104,74 @@ check "put after torn tail heals (put1 exit 0)" "$?"
 # --- phase 5: N+1 and last-key integrity ------------------------------------
 invoke_mode verify "$((KEYS + 1))" "9999" "99990" >/dev/null 2>&1
 check "reopen recovers $((KEYS + 1)) keys incl. healed put" "$?"
+
+# --- scenario B: checkpoint, kill before any tail (snapshot-only recovery) --
+CKPT_WAL="$LOG_DIR/crash-dbfile-ckpt.wal"
+CKPT_SNAP="$CKPT_WAL.snap"
+rm -f "$CKPT_WAL" "$CKPT_SNAP"
+export ORBITDB_DB_FILE="$CKPT_WAL"
+export ORBITDB_DB_MODE="ckpt"
+export ORBITDB_DB_N="$KEYS"
+export ORBITDB_DB_TAIL="0"
+setsid "$XIOM_COMPILER" --run "$PROBE" >"$LOG_DIR/dbfile-writer-ckpt.out" 2>&1 &
+WRITER_PID=$!
+
+DEADLINE=$(( $(date +%s) + TIMEOUT_SEC ))
+OBSERVED=-1
+while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+  if [ -f "$CKPT_SNAP" ] && [ -f "$CKPT_WAL" ]; then
+    OBSERVED=$(grep -c '|' "$CKPT_WAL" 2>/dev/null || true)
+    [ -n "$OBSERVED" ] || OBSERVED=0
+    [ "$OBSERVED" -eq 1 ] && break
+  fi
+  kill -0 "$WRITER_PID" 2>/dev/null || break
+  sleep 0.3
+done
+check "ckpt writer reached snapshot-only point (observed=$OBSERVED)" "$([ "$OBSERVED" -eq 1 ] && echo 0 || echo 1)"
+kill -9 -"$WRITER_PID" 2>/dev/null || kill -9 "$WRITER_PID" 2>/dev/null
+wait "$WRITER_PID" 2>/dev/null || true
+printf 'torn|' >> "$CKPT_WAL"
+
+invoke_mode verify "$KEYS" "" "" "$CKPT_WAL" >/dev/null 2>&1
+check "ckpt reopen recovers $KEYS keys from snapshot alone (torn ignored)" "$?"
+invoke_mode put1 "$KEYS" "" "" "$CKPT_WAL" >/dev/null 2>&1
+check "ckpt put after snapshot recovery heals tail (put1 exit 0)" "$?"
+invoke_mode verify "$((KEYS + 1))" "9999" "99990" "$CKPT_WAL" >/dev/null 2>&1
+check "ckpt reopen recovers $((KEYS + 1)) keys incl. healed put" "$?"
+
+# --- scenario C: checkpoint + tail, kill mid-tail (snapshot + tail replay) --
+TAIL_WAL="$LOG_DIR/crash-dbfile-tail.wal"
+TAIL_SNAP="$TAIL_WAL.snap"
+rm -f "$TAIL_WAL" "$TAIL_SNAP"
+export ORBITDB_DB_FILE="$TAIL_WAL"
+export ORBITDB_DB_MODE="ckpt"
+export ORBITDB_DB_N="$KEYS"
+export ORBITDB_DB_TAIL="$TAIL"
+setsid "$XIOM_COMPILER" --run "$PROBE" >"$LOG_DIR/dbfile-writer-tail.out" 2>&1 &
+WRITER_PID=$!
+
+DEADLINE=$(( $(date +%s) + TIMEOUT_SEC ))
+OBSERVED=-1
+while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+  if [ -f "$TAIL_SNAP" ] && [ -f "$TAIL_WAL" ]; then
+    OBSERVED=$(grep -c '|' "$TAIL_WAL" 2>/dev/null || true)
+    [ -n "$OBSERVED" ] || OBSERVED=0
+    [ "$OBSERVED" -eq "$((1 + TAIL))" ] && break
+  fi
+  kill -0 "$WRITER_PID" 2>/dev/null || break
+  sleep 0.3
+done
+check "ckpt+tail writer wrote snapshot + $TAIL tail keys (observed=$OBSERVED)" "$([ "$OBSERVED" -eq "$((1 + TAIL))" ] && echo 0 || echo 1)"
+kill -9 -"$WRITER_PID" 2>/dev/null || kill -9 "$WRITER_PID" 2>/dev/null
+wait "$WRITER_PID" 2>/dev/null || true
+printf 'torn|' >> "$TAIL_WAL"
+
+invoke_mode verify "$((KEYS + TAIL))" "" "" "$TAIL_WAL" >/dev/null 2>&1
+check "ckpt+tail reopen recovers $((KEYS + TAIL)) keys (snapshot + tail replay)" "$?"
+invoke_mode put1 "$((KEYS + TAIL))" "" "" "$TAIL_WAL" >/dev/null 2>&1
+check "ckpt+tail put after recovery heals tail (put1 exit 0)" "$?"
+invoke_mode verify "$((KEYS + TAIL + 1))" "9999" "99990" "$TAIL_WAL" >/dev/null 2>&1
+check "ckpt+tail reopen recovers $((KEYS + TAIL + 1)) keys incl. healed put" "$?"
 
 printf 'crash: pass=%s fail=%s\n' "$PASS" "$FAIL"
 if [ "$FAIL" -eq 0 ]; then printf 'db-crash: GREEN\n'; exit 0; fi

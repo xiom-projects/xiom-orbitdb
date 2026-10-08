@@ -9,8 +9,10 @@
 //
 // Env:
 //   ORBITDB_DB_FILE      WAL segment path (required)
-//   ORBITDB_DB_MODE      write | verify | put1          (default: verify)
-//   ORBITDB_DB_N         key count for write / verify   (default: 20)
+//   ORBITDB_DB_MODE      write | verify | put1 | ckpt | soak  (default: verify)
+//   ORBITDB_DB_N         key count for write / verify / ckpt   (default: 20)
+//   ORBITDB_DB_TAIL      ckpt mode: keys appended AFTER the checkpoint (default 0)
+//   ORBITDB_DB_CKPT_EVERY soak mode: checkpoint cadence (default 250)
 //   ORBITDB_DB_LAST_KEY  optional: key to assert after recovery
 //   ORBITDB_DB_LAST_VAL  optional: expected value for LAST_KEY
 //
@@ -88,6 +90,110 @@ fn run_verify(path: Str, n: Int) -> Int {
   return 0;
 }
 
+// Checkpoint scenario: put N keys, checkpoint (snapshot + anchor + truncate),
+// then optionally put `tail` more keys and hang for a hard kill. The harness
+// waits on the WAL line count / snapshot file, not on stdout.
+fn run_ckpt(path: Str, n: Int) -> Int {
+  var tail = 0;
+  match parse.parse_int(env.var_or("ORBITDB_DB_TAIL", "0")) {
+    Ok(v) => { tail = v; }
+    Err(_) => { tail = 0; }
+  }
+  var db = db_file_open(path, 4);
+  var i = 1;
+  while i <= n {
+    if !db_file_put(&mut db, i, i * 10) {
+      io.println("ckpt: put failed at " + convert.int_to_string(i));
+      return 1;
+    }
+    i = i + 1;
+  }
+  let anchor = db_file_checkpoint(&mut db);
+  if anchor < 0 { io.println("ckpt: checkpoint failed"); return 1; }
+  io.println("ckpt: snapshot done lsn=" + convert.int_to_string(anchor));
+
+  var j = n + 1;
+  while j <= n + tail {
+    if !db_file_put(&mut db, j, j * 10) {
+      io.println("ckpt: tail put failed at " + convert.int_to_string(j));
+      return 1;
+    }
+    j = j + 1;
+  }
+  if tail > 0 { io.println("ckpt: tail done"); }
+  let flushed = db_file_flush(&mut db);
+  if !flushed { io.println("ckpt: flush failed"); return 1; }
+
+  // Hang until the harness hard-kills us (crash simulation).
+  var alive = true;
+  while alive {
+    io.sleep(1000);
+  }
+  return 0;
+}
+
+// Soak scenario: N puts with a checkpoint every `every` writes, then a full
+// reopen + verify + one post-recovery write + reopen. Exercises repeated
+// snapshot install / truncate across a long run.
+fn run_soak(path: Str, n: Int) -> Int {
+  var every = 250;
+  match parse.parse_int(env.var_or("ORBITDB_DB_CKPT_EVERY", "250")) {
+    Ok(v) => { if v >= 1 { every = v; } }
+    Err(_) => { every = 250; }
+  }
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(path + ".snap");
+
+  var db = db_file_open(path, 4);
+  var checkpoints = 0;
+  var i = 1;
+  while i <= n {
+    if !db_file_put(&mut db, i, i * 10) {
+      io.println("soak: put failed at " + convert.int_to_string(i));
+      return 1;
+    }
+    if (i % every) == 0 {
+      let anchor = db_file_checkpoint(&mut db);
+      if anchor < 0 { io.println("soak: checkpoint failed"); return 1; }
+      checkpoints = checkpoints + 1;
+    }
+    i = i + 1;
+  }
+  let final = db_file_checkpoint(&mut db);
+  if final < 0 { io.println("soak: final checkpoint failed"); return 1; }
+
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != n {
+    io.println("soak: size mismatch got " + convert.int_to_string(db_file_size(&db2)));
+    return 1;
+  }
+  let mid = n / 2;
+  let spot = db_file_get(&db2, mid);
+  match spot {
+    None => { io.println("soak: mid key missing"); return 1; }
+    Some(x) => { if x != mid * 10 { io.println("soak: mid value wrong"); return 1; } }
+  }
+  let last = db_file_get(&db2, n);
+  match last {
+    None => { io.println("soak: last key missing"); return 1; }
+    Some(x) => { if x != n * 10 { io.println("soak: last value wrong"); return 1; } }
+  }
+
+  if !db_file_put(&mut db2, n + 1, (n + 1) * 10) {
+    io.println("soak: post-recovery put failed");
+    return 1;
+  }
+  var db3 = db_file_open(path, 4);
+  if db_file_size(&db3) != n + 1 {
+    io.println("soak: final size wrong");
+    return 1;
+  }
+
+  io.println("soak: OK n=" + convert.int_to_string(n) + " checkpoints="
+             + convert.int_to_string(checkpoints + 1));
+  return 0;
+}
+
 fn main() -> Int {
   let path = env.var_or("ORBITDB_DB_FILE", "");
   if path == "" {
@@ -103,6 +209,12 @@ fn main() -> Int {
 
   if mode == "write" {
     return run_write(path, n);
+  }
+  if mode == "ckpt" {
+    return run_ckpt(path, n);
+  }
+  if mode == "soak" {
+    return run_soak(path, n);
   }
   if mode == "put1" {
     var db = db_file_open(path, 4);
