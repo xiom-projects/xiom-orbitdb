@@ -66,6 +66,20 @@ page_id|len|checksum|b0,b1,...
 | `page_file_read_all(pf)` | Every valid page in file order from a single scan (whole-set loaders). |
 | `page_file_sync(pf)` | Durability seam; no-op until the stdlib fsync wrapper lands. |
 
+The same file doubles as an **append-only page log** for incremental writes:
+
+| Function | Semantics |
+|----------|-----------|
+| `page_log_append(pf, page)` | Append one page version (O(1)). Later entries for the same id are newer. |
+| `page_log_read_all(pf)` | Latest version per page id (last occurrence wins); malformed/checksum-invalid lines skipped. |
+| `page_log_len(pf)` | Raw well-formed entry count (compaction trigger measures physical growth). |
+| `page_log_heal_tail(pf)` | Terminate a torn trailing line so the next append cannot merge with it. |
+
+Commit rule: a writer appends new versions of only the pages that changed and
+then appends the header page **last**; a reader resolves the newest committed
+version (see the generation scheme under checkpoint snapshot layout).
+Compaction rewrites one version per page with `page_file_write_batch`.
+
 Integrity is CRC32C over the byte view (`Page.is_valid`); a structurally complete but checksum-invalid line is dropped on read. `tuple_push_int_le` / `tuple_read_int_le` (exported from `storage/tuple.xi`) are the shared little-endian integer helpers for every on-disk codec.
 
 ### Checkpoint snapshot layout (`db_file_checkpoint`)

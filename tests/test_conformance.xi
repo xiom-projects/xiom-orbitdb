@@ -2051,6 +2051,78 @@ fn test_page_file_corruption() -> TestResult {
   return assert(false, "page_file: corruption handling failed");
 }
 
+fn run_page_log() -> Int {
+  let path = "orbitdb-suite-pagelog.tmp";
+  let _ = io.remove_file(path);
+  let pf = page_file_open(path);
+
+  // Two pages; id 5 gets a newer version afterwards.
+  var d1 = Vec[Int].new();
+  d1.push(1);
+  d1.push(2);
+  if !page_log_append(&pf, Page.new(5, d1, page_compute_checksum(&d1))) { return 1; }
+  var d2 = Vec[Int].new();
+  d2.push(9);
+  if !page_log_append(&pf, Page.new(6, d2, page_compute_checksum(&d2))) { return 1; }
+  var d3 = Vec[Int].new();
+  d3.push(7);
+  d3.push(8);
+  if !page_log_append(&pf, Page.new(5, d3, page_compute_checksum(&d3))) { return 1; }
+  if page_log_len(&pf) != 3 { return 1; }
+
+  let latest = page_log_read_all(&pf);
+  if latest.len() != 2 { return 1; }
+  var found5 = false;
+  var found6 = false;
+  var i = 0;
+  while i < latest.len() {
+    let pg = latest[i];
+    if pg.id == 5 {
+      if pg.data.len() != 2 { return 1; }
+      if pg.data[0] != 7 { return 1; }
+      if pg.data[1] != 8 { return 1; }
+      found5 = true;
+    }
+    if pg.id == 6 { found6 = true; }
+    i = i + 1;
+  }
+  if !found5 { return 1; }
+  if !found6 { return 1; }
+
+  // Torn trailing line: skipped by readers, healed before the next append so
+  // the partial line cannot merge with the new entry.
+  let app = io.append_file(path, "77|3|");
+  match app { Ok(_) => {}, Err(_) => { return 1; } }
+  var d4 = Vec[Int].new();
+  d4.push(42);
+  if !page_log_heal_tail(&pf) { return 1; }
+  if !page_log_append(&pf, Page.new(7, d4, page_compute_checksum(&d4))) { return 1; }
+  if page_log_len(&pf) != 4 { return 1; }
+  let after = page_log_read_all(&pf);
+  if after.len() != 3 { return 1; }
+  var found7 = false;
+  var j = 0;
+  while j < after.len() {
+    let pg = after[j];
+    if pg.id == 7 {
+      if pg.data.len() != 1 { return 1; }
+      if pg.data[0] != 42 { return 1; }
+      found7 = true;
+    }
+    j = j + 1;
+  }
+  if !found7 { return 1; }
+
+  let _ = io.remove_file(path);
+  return 0;
+}
+
+fn test_page_log() -> TestResult {
+  let rc = run_page_log();
+  if rc == 0 { return assert(true, "page_log: append/latest-wins/torn-tail heal"); }
+  return assert(false, "page_log: append/latest/torn failed");
+}
+
 // ===========================================================================
 // File-backed database (WAL-before-ack + replay recovery)
 // ===========================================================================
@@ -2537,6 +2609,8 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r93a.passed, r93a.name);
   let r93b = test_page_file_corruption();
   total = total + 1; failed = failed + report(r93b.passed, r93b.name);
+  let r93c = test_page_log();
+  total = total + 1; failed = failed + report(r93c.passed, r93c.name);
   let r94 = test_db_file_roundtrip();
   total = total + 1; failed = failed + report(r94.passed, r94.name);
   let r95a = test_db_file_checkpoint();

@@ -266,3 +266,111 @@ pub fn page_file_sync(pf: &PageFile) -> Bool {
   let _ = pf;
   return true;
 }
+
+// ---------------------------------------------------------------------------
+// Append-only page log (incremental node-page persistence)
+// ---------------------------------------------------------------------------
+// Same line codec as above; a page id may appear many times -- later entries
+// are newer versions. A checkpoint appends new versions of only the pages
+// that changed and commits by appending the header page LAST; callers resolve
+// the newest committed version (see the snapshot loader in engine.xi).
+// Compaction rewrites one version per page via `page_file_write_batch`
+// (atomic replace).
+
+// Append one page version. O(1); a crash may leave a torn last line, which
+// readers skip -- call `page_log_heal_tail` before appending again so the
+// torn line cannot merge with the new one.
+pub fn page_log_append(pf: &PageFile, page: Page) -> Bool {
+  let line = format_page_line(&page);
+  let wrote = io.append_line(pf.path, line);
+  match wrote {
+    Ok(_) => { return true; }
+    Err(_) => { return false; }
+  }
+}
+
+// Heal a torn trailing line (crash mid-append): if the file does not end with
+// a newline, terminate the partial line so the next append starts clean.
+pub fn page_log_heal_tail(pf: &PageFile) -> Bool {
+  let r = io.read_file(pf.path);
+  match r {
+    Ok(content) => {
+      if content == "" { return true; }
+      if str_ends_with(content, "\n") { return true; }
+      let wrote = io.append_line(pf.path, "");
+      match wrote {
+        Ok(_) => { return true; }
+        Err(_) => { return false; }
+      }
+    }
+    Err(_) => { return true; } // missing file: nothing to heal
+  }
+}
+
+// Raw entry count -- well-formed lines, duplicates included. Compaction is
+// triggered on physical log growth, not on the unique-page count.
+pub fn page_log_len(pf: &PageFile) -> Int {
+  var count = 0;
+  let lines_r = io.read_file_lines(pf.path);
+  match lines_r {
+    Err(_) => { return 0; }
+    Ok(lines) => {
+      let all: Vec[Str] = lines;
+      var i = 0;
+      while i < all.len() {
+        let raw = trim.str_trim(all[i]);
+        if raw != "" {
+          match parse_page_line(raw) {
+            None => {}
+            Some(_) => { count = count + 1; }
+          }
+        }
+        i = i + 1;
+      }
+      return count;
+    }
+  }
+}
+
+// Latest version per page id (last occurrence in file order wins); malformed
+// and checksum-invalid lines are skipped. Deduplicated view for tests and
+// whole-set readers; the engine's generation-aware loader scans the raw list
+// instead so it can reason about generations.
+pub fn page_log_read_all(pf: &PageFile) -> Vec[Page] {
+  var all = Vec[Page].new();
+  let lines_r = io.read_file_lines(pf.path);
+  match lines_r {
+    Err(_) => { return all; }
+    Ok(lines) => {
+      let lines2: Vec[Str] = lines;
+      var i = 0;
+      while i < lines2.len() {
+        let raw = trim.str_trim(lines2[i]);
+        if raw != "" {
+          match parse_page_line(raw) {
+            None => {}
+            Some(p) => {
+              let pg: Page = p;
+              if pg.is_valid() { all.push(pg); }
+            }
+          }
+        }
+        i = i + 1;
+      }
+    }
+  }
+
+  var out = Vec[Page].new();
+  var k = 0;
+  while k < all.len() {
+    var superseded = false;
+    var j = k + 1;
+    while j < all.len() && !superseded {
+      if all[j].id == all[k].id { superseded = true; }
+      j = j + 1;
+    }
+    if !superseded { out.push(all[k]); }
+    k = k + 1;
+  }
+  return out;
+}
