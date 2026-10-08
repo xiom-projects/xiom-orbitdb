@@ -1099,12 +1099,28 @@ pub fn db_close(db: &mut Database) {
 // Durability honesty: `db_file_flush` is the wal_file flush seam (no-op until
 // the stdlib fsync wrapper lands) -- process-crash safe, not power-loss safe.
 
+// Transaction record codes (wal_file WALOpKind BeginTxn/CommitTxn/AbortTxn);
+// Int codes keep replay dispatch aligned with `db_file_apply_record`.
+const TXN_BEGIN_CODE: Int = 8;
+const TXN_COMMIT_CODE: Int = 9;
+const TXN_ABORT_CODE: Int = 10;
+
+// One buffered transaction operation: code 2 = upsert (delete+insert, the
+// same code the WAL uses for writes), code 3 = delete.
+type TxOp = {
+  code: Int;
+  key: Int;
+  value: Int;
+}
+
 pub type DBFile = {
   path: Str;
   order: Int;
   tree: BTree;
   wal: WALFile;
   records_since_ckpt: Int;
+  txn_active: Bool;
+  txn_ops: Vec[TxOp];
 }
 
 // Apply one replayed record. Maps by op code so cross-module enum patterns
@@ -1119,6 +1135,16 @@ fn db_file_apply_record(tree: &mut BTree, rec: WALRecord) {
   if code == 1 || code == 2 {
     let _ = btree_insert(tree, rec.key, rec.value);
   }
+}
+
+// Apply one buffered transaction op (see TxOp).
+fn db_file_apply_txop(tree: &mut BTree, op: TxOp) {
+  if op.code == 3 {
+    let _ = btree_delete(tree, op.key);
+    return;
+  }
+  let _ = btree_delete(tree, op.key);
+  let _ = btree_insert(tree, op.key, op.value);
 }
 
 // Open (or create) a file-backed database. Recovery: load the checkpoint
@@ -1143,23 +1169,62 @@ pub fn db_file_open(path: Str, order: Int) -> DBFile {
     }
   }
 
+  // Transaction-aware replay: writes between BeginTxn and CommitTxn are
+  // buffered and applied only at the commit record; an unterminated trailing
+  // transaction (crash before commit) is discarded -- committed/uncommitted
+  // classification without a physical undo pass.
   let records = wal_file_replay(path);
+  var pending = Vec[TxOp].new();
+  var in_txn = false;
   var i = 0;
   while i < records.len() {
     let rec = records[i];
     if rec.lsn > snap_lsn {
-      db_file_apply_record(&mut tree, rec);
+      let code = wal_op_code(rec.op);
+      if code == TXN_BEGIN_CODE {
+        in_txn = true;
+        pending = Vec[TxOp].new();
+      } else if code == TXN_COMMIT_CODE {
+        if in_txn {
+          var p = 0;
+          while p < pending.len() {
+            let op = pending[p];
+            db_file_apply_txop(&mut tree, op);
+            p = p + 1;
+          }
+        }
+        in_txn = false;
+        pending = Vec[TxOp].new();
+      } else if code == TXN_ABORT_CODE {
+        in_txn = false;
+        pending = Vec[TxOp].new();
+      } else if code == 1 || code == 2 || code == 3 {
+        if in_txn {
+          pending.push(TxOp{ code: code, key: rec.key, value: rec.value });
+        } else {
+          db_file_apply_record(&mut tree, rec);
+        }
+      }
     }
     i = i + 1;
   }
-  let w = wal_file_open(path);
-  return DBFile{ path: path, order: tree.order, tree: tree, wal: w,
-                 records_since_ckpt: 0 };
+  var wal = wal_file_open(path);
+  if in_txn {
+    // A dangling transaction window (crash before Commit/Abort) is finalized
+    // with an explicit Abort record: without it, writes made after this open
+    // would be replayed inside the stale window and silently discarded.
+    let _ = wal_file_append(&mut wal, WALOpKind.AbortTxn, 0, 0);
+  }
+  var ops = Vec[TxOp].new();
+  return DBFile{ path: path, order: tree.order, tree: tree, wal: wal,
+                 records_since_ckpt: 0, txn_active: false, txn_ops: ops };
 }
 
 // Upsert with WAL-before-ack: append (Insert for new keys, Update for
 // existing), then apply. Returns false when the log write fails.
 pub fn db_file_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
+  // Auto-commit writes are rejected while a transaction is open.
+  if db.txn_active { return false; }
   var op = WALOpKind.Insert;
   var is_update = false;
   let existing = btree_search(&db.tree, key);
@@ -1178,6 +1243,8 @@ pub fn db_file_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
 }
 
 pub fn db_file_delete(db: &mut DBFile, key: Int) -> Bool {
+  // Auto-commit writes are rejected while a transaction is open.
+  if db.txn_active { return false; }
   let existing = btree_search(&db.tree, key);
   match existing {
     None => { return false; }
@@ -1625,6 +1692,10 @@ fn snap_load(path: Str) -> Option[Snapshot] {
 // Returns the anchor LSN, or -1 when the snapshot could not be committed (the
 // WAL is untouched in that case).
 pub fn db_file_checkpoint(db: &mut DBFile) -> Int {
+  // A pending transaction's records must not be truncated: truncation keeps
+  // records >= the anchor, and the checkpoint_lsn gate would skip a later
+  // commit record's ops. Reject while a transaction is active.
+  if db.txn_active { return -1; }
   let snap_path = db.path + ".snap";
   let pf = page_file_open(snap_path);
   // A torn trailing append must not merge with this checkpoint's entries.
@@ -1658,4 +1729,75 @@ pub fn db_file_maybe_checkpoint(db: &mut DBFile, limit: Int) -> Int
 {
   if db.records_since_ckpt < limit { return -1; }
   return db_file_checkpoint(db);
+}
+
+// ===========================================================================
+// DURABLE TRANSACTIONS (D2): single-active-transaction API. Operations are
+// logged as they happen (WAL-before-ack) but applied to the tree only at
+// commit; abort -- or a crash before the commit record -- discards them.
+// Recovery classifies committed vs uncommitted at the Begin/Commit records
+// (see db_file_open), so no physical undo pass is needed.
+// ===========================================================================
+
+pub fn db_file_txn_active(db: &DBFile) -> Bool {
+  return db.txn_active;
+}
+
+pub fn db_file_txn_begin(db: &mut DBFile) -> Bool {
+  if db.txn_active { return false; }
+  let lsn = wal_file_append(&mut db.wal, WALOpKind.BeginTxn, 0, 0);
+  if lsn < 0 { return false; }
+  db.records_since_ckpt = db.records_since_ckpt + 1;
+  db.txn_active = true;
+  db.txn_ops = Vec[TxOp].new();
+  return true;
+}
+
+// Buffered upsert (applied as delete+insert on commit/replay; idempotent).
+pub fn db_file_txn_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
+  if !db.txn_active { return false; }
+  let lsn = wal_file_append(&mut db.wal, WALOpKind.Update, key, value);
+  if lsn < 0 { return false; }
+  db.records_since_ckpt = db.records_since_ckpt + 1;
+  db.txn_ops.push(TxOp{ code: 2, key: key, value: value });
+  return true;
+}
+
+// Buffered delete (idempotent: deleting a missing key is a no-op on apply).
+pub fn db_file_txn_delete(db: &mut DBFile, key: Int) -> Bool {
+  if !db.txn_active { return false; }
+  let lsn = wal_file_append(&mut db.wal, WALOpKind.Delete, key, 0);
+  if lsn < 0 { return false; }
+  db.records_since_ckpt = db.records_since_ckpt + 1;
+  db.txn_ops.push(TxOp{ code: 3, key: key, value: 0 });
+  return true;
+}
+
+// Commit: append the CommitTxn record FIRST (durability), then apply the
+// buffered ops to the in-memory tree.
+pub fn db_file_txn_commit(db: &mut DBFile) -> Bool {
+  if !db.txn_active { return false; }
+  let lsn = wal_file_append(&mut db.wal, WALOpKind.CommitTxn, 0, 0);
+  if lsn < 0 { return false; }
+  db.records_since_ckpt = db.records_since_ckpt + 1;
+  var k = 0;
+  while k < db.txn_ops.len() {
+    let op = db.txn_ops[k];
+    db_file_apply_txop(&mut db.tree, op);
+    k = k + 1;
+  }
+  db.txn_active = false;
+  db.txn_ops = Vec[TxOp].new();
+  return true;
+}
+
+// Abort: append the AbortTxn marker (audit trail) and discard the buffer.
+pub fn db_file_txn_abort(db: &mut DBFile) -> Bool {
+  if !db.txn_active { return false; }
+  let lsn = wal_file_append(&mut db.wal, WALOpKind.AbortTxn, 0, 0);
+  if lsn < 0 { return false; }
+  db.records_since_ckpt = db.records_since_ckpt + 1;
+  db.txn_active = false;
+  db.txn_ops = Vec[TxOp].new();
+  return true;
 }

@@ -2565,6 +2565,161 @@ fn test_db_file_compaction() -> TestResult {
   return assert(false, "db_file: compaction failed");
 }
 
+fn run_db_file_txn_commit() -> Int {
+  let path = "orbitdb-suite-db-txn.wal";
+  let snap = "orbitdb-suite-db-txn.wal.snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+
+  var db = db_file_open(path, 4);
+  var i = 1;
+  while i <= 3 {
+    if !db_file_put(&mut db, i, i * 10) { return 1; }
+    i = i + 1;
+  }
+
+  if !db_file_txn_begin(&mut db) { return 1; }
+  if !db_file_txn_active(&db) { return 1; }
+  // Buffered ops are NOT visible before the commit.
+  if !db_file_txn_put(&mut db, 10, 100) { return 1; }
+  if !db_file_txn_put(&mut db, 11, 110) { return 1; }
+  if !db_file_txn_delete(&mut db, 2) { return 1; }
+  let hidden = db_file_get(&db, 10);
+  match hidden { Some(_) => { return 1; }, None => {} }
+  if db_file_size(&db) != 3 { return 1; }
+
+  if !db_file_txn_commit(&mut db) { return 1; }
+  if db_file_txn_active(&db) { return 1; }
+  if db_file_size(&db) != 4 { return 1; } // 1, 3, 10, 11
+  let v10 = db_file_get(&db, 10);
+  match v10 {
+    None => { return 1; }
+    Some(x) => { if x != 100 { return 1; } }
+  }
+  let gone = db_file_get(&db, 2);
+  match gone { Some(_) => { return 1; }, None => {} }
+
+  // Reopen: the committed transaction replays as applied (durable path).
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 4 { return 1; }
+  let v11 = db_file_get(&db2, 11);
+  match v11 {
+    None => { return 1; }
+    Some(x) => { if x != 110 { return 1; } }
+  }
+  let v1 = db_file_get(&db2, 1);
+  match v1 {
+    None => { return 1; }
+    Some(x) => { if x != 10 { return 1; } }
+  }
+
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  return 0;
+}
+
+fn test_db_file_txn_commit() -> TestResult {
+  let rc = run_db_file_txn_commit();
+  if rc == 0 { return assert(true, "db_file: txn commit buffered -> applied -> replayed"); }
+  return assert(false, "db_file: txn commit failed");
+}
+
+fn run_db_file_txn_abort_guards() -> Int {
+  let path = "orbitdb-suite-db-txn2.wal";
+  let snap = "orbitdb-suite-db-txn2.wal.snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+
+  var db = db_file_open(path, 4);
+  var i = 1;
+  while i <= 3 {
+    if !db_file_put(&mut db, i, i * 10) { return 1; }
+    i = i + 1;
+  }
+  let c0 = db_file_checkpoint(&mut db);
+  if c0 < 0 { return 1; }
+
+  if !db_file_txn_begin(&mut db) { return 1; }
+  // Guards: checkpoint (explicit + threshold-reached) and auto-commit writes
+  // are all rejected while the transaction is active.
+  if db_file_checkpoint(&mut db) != -1 { return 1; }
+  if db_file_maybe_checkpoint(&mut db, 1) != -1 { return 1; }
+  if db_file_put(&mut db, 99, 990) { return 1; }
+  if db_file_delete(&mut db, 1) { return 1; }
+
+  if !db_file_txn_put(&mut db, 20, 200) { return 1; }
+  if !db_file_txn_abort(&mut db) { return 1; }
+  if db_file_txn_active(&db) { return 1; }
+  let v20 = db_file_get(&db, 20);
+  match v20 { Some(_) => { return 1; }, None => {} }
+  if db_file_size(&db) != 3 { return 1; }
+
+  // Reopen: the aborted transaction leaves no trace.
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 3 { return 1; }
+
+  // Double begin/commit/abort misuse is rejected; checkpoint works again.
+  if !db_file_txn_begin(&mut db2) { return 1; }
+  if db_file_txn_begin(&mut db2) { return 1; }
+  if !db_file_txn_commit(&mut db2) { return 1; }
+  if db_file_txn_commit(&mut db2) { return 1; }
+  if db_file_txn_abort(&mut db2) { return 1; }
+  if db_file_checkpoint(&mut db2) < 0 { return 1; }
+
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  return 0;
+}
+
+fn test_db_file_txn_abort_guards() -> TestResult {
+  let rc = run_db_file_txn_abort_guards();
+  if rc == 0 { return assert(true, "db_file: txn abort discards + checkpoint/auto-commit guards"); }
+  return assert(false, "db_file: txn abort/guards failed");
+}
+
+fn run_db_file_dangling_txn_abort() -> Int {
+  let path = "orbitdb-suite-db-txn3.wal";
+  let snap = "orbitdb-suite-db-txn3.wal.snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+
+  // A segment that looks like a crash mid-transaction: base write, BeginTxn,
+  // two ops, no Commit.
+  var w = wal_file_open(path);
+  let _ = wal_file_append(&mut w, WALOpKind.Insert, 1, 10);
+  let _ = wal_file_append(&mut w, WALOpKind.BeginTxn, 0, 0);
+  let _ = wal_file_append(&mut w, WALOpKind.Update, 2, 20);
+  let _ = wal_file_append(&mut w, WALOpKind.Update, 3, 30);
+
+  var db = db_file_open(path, 4);
+  if db_file_size(&db) != 1 { return 1; } // txn ops discarded
+  let v2 = db_file_get(&db, 2);
+  match v2 { Some(_) => { return 1; }, None => {} }
+
+  // Opening finalizes the dangling txn with an Abort record, so the next
+  // auto-commit write is NOT attributed to the stale window on replay.
+  if !db_file_put(&mut db, 4, 40) { return 1; }
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 2 { return 1; } // 1 and 4; txn ops stay out
+  let v4 = db_file_get(&db2, 4);
+  match v4 {
+    None => { return 1; }
+    Some(x) => { if x != 40 { return 1; } }
+  }
+  let v3 = db_file_get(&db2, 3);
+  match v3 { Some(_) => { return 1; }, None => {} }
+
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  return 0;
+}
+
+fn test_db_file_dangling_txn_abort() -> TestResult {
+  let rc = run_db_file_dangling_txn_abort();
+  if rc == 0 { return assert(true, "db_file: dangling txn finalized with Abort on open"); }
+  return assert(false, "db_file: dangling txn finalize failed");
+}
+
 fn run_result_set_ops() -> Int {
   var cols = Vec[Str].new();
   cols.push("id");
@@ -2853,6 +3008,12 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r97c.passed, r97c.name);
   let r97d = test_db_file_compaction();
   total = total + 1; failed = failed + report(r97d.passed, r97d.name);
+  let r98a = test_db_file_txn_commit();
+  total = total + 1; failed = failed + report(r98a.passed, r98a.name);
+  let r98b = test_db_file_txn_abort_guards();
+  total = total + 1; failed = failed + report(r98b.passed, r98b.name);
+  let r98c = test_db_file_dangling_txn_abort();
+  total = total + 1; failed = failed + report(r98c.passed, r98c.name);
   let r93 = test_result_set_ops();
   total = total + 1; failed = failed + report(r93.passed, r93.name);
 

@@ -123,6 +123,30 @@ never truncated to empty -- the LSN counter lives in the anchor record.
 at least `limit` records were appended since the last checkpoint (returns the
 anchor LSN), or returns -1 below the threshold.
 
+## Durable transactions (DBFile)
+
+`DBFile` supports one active transaction per handle:
+
+```
+db_file_txn_begin     -> BeginTxn record (code 8)
+db_file_txn_put/delete-> operation records (code 2 upsert / code 3 delete)
+db_file_txn_commit    -> CommitTxn record (code 9), then buffered ops apply
+db_file_txn_abort     -> AbortTxn record (code 10), buffer discarded
+```
+
+Operations are logged as they happen (WAL-before-ack) but touch the tree only
+at commit, so abort is a buffer discard -- no physical undo pass. Recovery
+classifies committed vs uncommitted at the Begin/Commit records: ops inside an
+unterminated window are dropped; a committed window applies at its commit
+record. Opening a segment with a dangling window appends an explicit
+`AbortTxn`, so writes made after recovery are not replayed inside the stale
+window. While a transaction is active, auto-commit `db_file_put` /
+`db_file_delete` and `db_file_checkpoint` / `db_file_maybe_checkpoint` are
+rejected -- a checkpoint must not truncate a pending transaction's records.
+
+Limits: single active transaction, no isolation/MVCC (readers see committed
+state), and no automatic retry on IO failure (returns `false` / `-1`).
+
 ## Phase 2 direction
 
 | Now | Phase 2 |

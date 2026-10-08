@@ -39,6 +39,9 @@ pub enum WALOpKind {
   ManifestUpdate,
   Checkpoint,
   SnapshotMarker,
+  BeginTxn,
+  CommitTxn,
+  AbortTxn,
 }
 
 pub type WALRecord = {
@@ -65,6 +68,9 @@ pub fn wal_op_code(op: WALOpKind) -> Int {
     WALOpKind.ManifestUpdate => { return 5; }
     WALOpKind.Checkpoint => { return 6; }
     WALOpKind.SnapshotMarker => { return 7; }
+    WALOpKind.BeginTxn => { return 8; }
+    WALOpKind.CommitTxn => { return 9; }
+    WALOpKind.AbortTxn => { return 10; }
   }
 }
 
@@ -79,6 +85,9 @@ pub fn wal_op_from_code(code: Int) -> WALOpKind {
   if code == 5 { return WALOpKind.ManifestUpdate; }
   if code == 6 { return WALOpKind.Checkpoint; }
   if code == 7 { return WALOpKind.SnapshotMarker; }
+  if code == 8 { return WALOpKind.BeginTxn; }
+  if code == 9 { return WALOpKind.CommitTxn; }
+  if code == 10 { return WALOpKind.AbortTxn; }
   return WALOpKind.Insert;
 }
 
@@ -92,6 +101,9 @@ pub fn wal_op_is_write(op: WALOpKind) -> Bool {
     WALOpKind.ManifestUpdate => { return false; }
     WALOpKind.Checkpoint => { return false; }
     WALOpKind.SnapshotMarker => { return false; }
+    WALOpKind.BeginTxn => { return false; }
+    WALOpKind.CommitTxn => { return false; }
+    WALOpKind.AbortTxn => { return false; }
   }
 }
 
