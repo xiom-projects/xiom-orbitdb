@@ -42,8 +42,13 @@ B-Tree index, WAL, query engine, crash recovery; formerly `xiom-db`
 - **Green evidence this session:**
   - `scripts/run.ps1` + `scripts/run.sh` (watchdog + exit-code gate);
     dev-env twins; hello probe x2 Windows + WSL.
-  - **Conformance suite: 95/95 passed, exit 0** (93 + 2 churn regressions)
+  - **Conformance suite: 96/96 passed, exit 0** (93 + 2 churn + CRC32C KAT)
     -- x2 on Windows, x1 in WSL (`tests/test_conformance.xi`).
+  - **CRC32C page checksum landed:** `page_compute_checksum` is now bitwise
+    Castagnoli (`0xE3069283` KAT; empty -> 0), locked by
+    `tests/probes/probe_crc32c.xi` (x2 Windows + WSL) and a suite test;
+    `Page.is_valid` uses it. Swap to `xiom.hash.crc.crc32c` when the byte
+    pack + Vec[UInt8] conversion land.
   - **WAL crash/reopen: GREEN x2 on Windows + x1 in WSL** (re-verified after
     the B-tree change, and again on the `src/wal_file.xi` module): writer 20
     records -> hard kill -> torn tail -> replay 20 -> heal append -> 21;
@@ -111,8 +116,10 @@ B-Tree index, WAL, query engine, crash recovery; formerly `xiom-db`
   `src/wal/*` under `xiom.wal`, port this codec/heal/replay + the crash
   probe as the package acceptance test, keep durable's record shape, and
   add per-record checksums when stdlib byte IO lands. (2) Phase 1 durable
-  pages: byte codec (stdlib byte-IO row is the dependency), CRC32C via
-  `xiom.hash.crc.crc32c`, free-space map, node-per-page B-tree. (3) Re-run
+  pages: byte codec (stdlib byte-IO row is the dependency), free-space map
+  hardening, node-per-page B-tree; CRC32C is **done in-repo**
+  (`page_compute_checksum`, KAT-locked) -- swap to `xiom.hash.crc` when the
+  byte pack + Vec[UInt8] conversion land. (3) Re-run
   conformance + crash probes on the next compiler archive (watch
   C-ORBIT-01/02/03; C-ORBIT-01 may be fixed by `0c5337e0`). Add `xiom.toml`
   + CI only when the repo goes public (owner gate; ops has the mechanics per

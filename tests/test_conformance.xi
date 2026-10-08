@@ -567,6 +567,27 @@ fn test_checksum_different_data() -> TestResult {
   return assert(false, "checksum: collision on different data");
 }
 
+// CRC32C (Castagnoli) KAT: page_compute_checksum must return the canonical
+// check value for "123456789" bytes and 0 for empty input.
+fn run_checksum_crc32c_kat() -> Int {
+  var kat = Vec[Int].new();
+  var c = 49;
+  while c <= 57 {
+    kat.push(c);
+    c = c + 1;
+  }
+  if page_compute_checksum(&kat) != 3808858755 { return 1; }
+  let empty = Vec[Int].new();
+  if page_compute_checksum(&empty) != 0 { return 1; }
+  return 0;
+}
+
+fn test_checksum_crc32c_kat() -> TestResult {
+  let rc = run_checksum_crc32c_kat();
+  if rc == 0 { return assert(true, "checksum: CRC32C KAT (0xE3069283, empty -> 0)"); }
+  return assert(false, "checksum: CRC32C KAT failed");
+}
+
 // ===========================================================================
 // 7. Buffer pool capacity checks
 // ===========================================================================
@@ -1859,6 +1880,8 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r29.passed, r29.name);
   let r30 = test_checksum_different_data();
   total = total + 1; failed = failed + report(r30.passed, r30.name);
+  let r30b = test_checksum_crc32c_kat();
+  total = total + 1; failed = failed + report(r30b.passed, r30b.name);
 
   // 7. Buffer pool
   let r31 = test_buffer_pool_new();

@@ -5,10 +5,11 @@ module xiom.db.storage.page
 use xiom.db.config;
 
 // Low-level buffered-storage primitives. A `Page` is a fixed-capacity byte
-// block guarded by a checksum; the `BufferPool` is a direct-mapped page cache;
-// the `StorageEngine` binds a configuration to a pool. This layer is currently
-// in-memory: pages live in the pool's slots, not on disk. Phase 1 replaces the
-// direct-mapped pool and hand-rolled checksum with the xiom-core pager/replacer.
+// block guarded by a CRC32C checksum; the `BufferPool` is a direct-mapped page
+// cache; the `StorageEngine` binds a configuration to a pool. This layer is
+// currently in-memory: pages live in the pool's slots, not on disk. Phase 1
+// replaces the direct-mapped pool with the pager/replacer and swaps this
+// checksum for xiom.hash.crc once byte packs land.
 
 pub type Page = {
   id: Int;
@@ -28,20 +29,34 @@ pub fn Page.is_valid() -> Bool {
   return checksum == page_checksum(data);
 }
 
-// Additive rolling checksum over the page bytes. Cheap and order-independent;
-// Phase 1 upgrades this to CRC32C for stronger torn-write detection.
+// CRC32C (Castagnoli, reflected poly 0x82F63B78) over the page's byte view:
+// each element contributes its low byte. Bitwise (no table, no module state);
+// canonical check value: CRC32C("123456789") == 0xE3069283. The stdlib
+// equivalent is xiom.hash.crc.crc32c(&Vec[UInt8]) -- adopted here once the
+// byte-packed codec lands (stdlib byte-IO row); this keeps the integrity gate
+// byte-true today without the Vec[UInt8] conversion gap.
 fn page_checksum(data: &Vec[Int]) -> Int {
-  var sum: Int = 0;
+  var crc = 0xFFFFFFFF;
   var i = 0;
   while i < data.len() {
-    sum = sum + data[i];
+    let byte = data[i] & 0xFF;
+    crc = crc ^ byte;
+    var b = 0;
+    while b < 8 {
+      if (crc & 1) == 1 {
+        crc = (crc >> 1) ^ 0x82F63B78;
+      } else {
+        crc = crc >> 1;
+      }
+      b = b + 1;
+    }
     i = i + 1;
   }
-  return sum;
+  return crc ^ 0xFFFFFFFF;
 }
 
-// Compute the canonical checksum for a byte buffer. Exposed so writers can seal
-// a page before caching it.
+// Compute the canonical CRC32C for a byte-valued buffer (empty -> 0). Exposed
+// so writers can seal a page before caching it.
 pub fn page_compute_checksum(data: &Vec[Int]) -> Int {
   return page_checksum(data);
 }

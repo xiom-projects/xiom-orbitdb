@@ -31,7 +31,7 @@ The working core. Everything here is implemented and exercised through the publi
 | Storage primitives (Page, BufferPool, tuple codec) | [OK] (in-memory) | `storage/page.xi`, `storage/tuple.xi` |
 | Transaction state machine | [OK] (state only) | `txn/transaction.xi` |
 | Dependency on `xiom-core` substrate | [OK] | `package.xi` |
-| Conformance test suite (95 tests) | [OK] | `tests/test_conformance.xi` |
+| Conformance test suite (96 tests) | [OK] | `tests/test_conformance.xi` |
 
 **Known limitation:** all state lives in RAM. "Durability" and "recovery" are correct with respect to the in-memory WAL but survive only process-lifetime, not a real crash.
 
@@ -46,7 +46,7 @@ Move storage from ad-hoc in-memory structures to the shared pager.
 | Free-space map | [WIP] | `storage/free_space_map.xi` -- replace linear scan with an FSM tree; place tuples by best-fit |
 | Byte-packed tuple codec | [WIP] | `storage/tuple.xi` -- `tuple_encode/decode` -> length-prefixed page records honoring `page_size` |
 | Real pager integration | [FAIL] | Route `StorageEngine` through `xiom.core.storage.pager` + `buffer_pool` |
-| CRC32C checksums | [FAIL] | Upgrade `page_compute_checksum` from additive sum to CRC32C |
+| CRC32C checksums | [OK] (2026-10-08) | `storage/page.xi` -- bitwise Castagnoli, KAT-locked (0xE3069283); swap to `xiom.hash.crc` when byte packs land |
 | Node-per-page B-tree | [FAIL] | Store B-tree nodes in pages instead of a flat `Vec` |
 
 ---
