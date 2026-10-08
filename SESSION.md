@@ -42,8 +42,15 @@ B-Tree index, WAL, query engine, crash recovery; formerly `xiom-db`
 - **Green evidence this session:**
   - `scripts/run.ps1` + `scripts/run.sh` (watchdog + exit-code gate);
     dev-env twins; hello probe x2 Windows + WSL.
-  - **Conformance suite: 96/96 passed, exit 0** (93 + 2 churn + CRC32C KAT)
-    -- x2 on Windows, x1 in WSL (`tests/test_conformance.xi`).
+  - **Conformance suite: 99/99 passed, exit 0** (93 + 2 churn + CRC32C KAT +
+    3 tuple-codec tests) -- x2 on Windows, x1 in WSL.
+  - **Byte-packed tuple codec v1 landed:** `storage/tuple.xi` records are
+    `magic 0xDB | version 1 | field_count | (type 0x01 + i64 LE)*` with exact
+    length/type validation on decode, `tuple_fits_page` budget, and
+    `tuple_encode_checked` for the >255-field refusal; locked by
+    `tests/probes/probe_tuple_codec.xi` (KAT byte-exact, extremes incl. i64
+    bounds, rejection matrix; x2 Windows + WSL) and suite tests. The C-ORBIT-01
+    repro bundle still runs unchanged.
   - **CRC32C page checksum landed:** `page_compute_checksum` is now bitwise
     Castagnoli (`0xE3069283` KAT; empty -> 0), locked by
     `tests/probes/probe_crc32c.xi` (x2 Windows + WSL) and a suite test;
@@ -116,10 +123,11 @@ B-Tree index, WAL, query engine, crash recovery; formerly `xiom-db`
   `src/wal/*` under `xiom.wal`, port this codec/heal/replay + the crash
   probe as the package acceptance test, keep durable's record shape, and
   add per-record checksums when stdlib byte IO lands. (2) Phase 1 durable
-  pages: byte codec (stdlib byte-IO row is the dependency), free-space map
-  hardening, node-per-page B-tree; CRC32C is **done in-repo**
-  (`page_compute_checksum`, KAT-locked) -- swap to `xiom.hash.crc` when the
-  byte pack + Vec[UInt8] conversion land. (3) Re-run
+  pages: **CRC32C and byte-packed tuple codec v1 are done in-repo**;
+  remaining -- free-space map hardening (best-fit/FSM tree), node-per-page
+  B-tree, real pager integration (externally blocked: needs the
+  `xiom.core.storage.pager` package substrate / registry source-roots,
+  C-PULSE-02). (3) Re-run
   conformance + crash probes on the next compiler archive (watch
   C-ORBIT-01/02/03; C-ORBIT-01 may be fixed by `0c5337e0`). Add `xiom.toml`
   + CI only when the repo goes public (owner gate; ops has the mechanics per

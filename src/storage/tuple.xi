@@ -13,10 +13,19 @@ enum DbError {
   Corruption,
 }
 
+pub type DbResult[T] = Result[T, DbError];
+
 // Row / tuple representation and the columnar `ResultSet` container. A `Row` is
-// an integer-valued record addressed by a monotonic id; the codec surface
-// (`tuple_encode` / `tuple_decode`) is where a byte-level on-disk layout will
-// land in Phase 1. Until then rows live in memory as `Vec[Int]`.
+// an integer-valued record addressed by a monotonic id. The codec is
+// byte-packed v1 (all buffer elements are byte values 0..255):
+//
+//   0: magic 0xDB    1: version 0x01    2: field_count (1..255)
+//   then field_count fields, each: type 0x01 (i64) + 8 bytes little-endian
+//   (field 0 is the row id, fields 1.. are the columns)
+//
+// Minimum encoded size is 12 bytes. The buffer stays `Vec[Int]` until the
+// stdlib byte-IO / Vec[UInt8] conversion gap closes (STDLIB-WISHLIST row 5);
+// it is byte-true today so CRC32C and on-disk page budgets apply directly.
 
 pub type Row = {
   id: Int;
@@ -44,37 +53,124 @@ pub fn Row.column_count(row: &Row) -> Int {
   return row.data.len();
 }
 
-// --- Tuple codec (Phase 1) ---
+// --- Tuple codec v1 (byte-packed) ---
 
-// Serialize a row into a flat integer buffer: [id, len, col0, col1, ...].
-pub fn tuple_encode(row: &Row) -> Vec[Int] {
+pub const TUPLE_MAGIC: Int = 0xDB;
+pub const TUPLE_VERSION: Int = 1;
+pub const TUPLE_MAX_FIELDS: Int = 255;
+
+fn push_int_le(out: &mut Vec[Int], v: Int) {
+  var k = 0;
+  while k < 8 {
+    out.push((v >> (8 * k)) & 0xFF);
+    k = k + 1;
+  }
+}
+
+// Reconstruct an i64 from 8 little-endian bytes without ever leaving the
+// signed 64-bit range (top byte first, seven magnitude bits before the low
+// seven bytes; sign applied last).
+fn read_int_le(buf: &Vec[Int], at: Int) -> Int {
+  let top = buf[at + 7] & 0xFF;
+  let sign = (top & 0x80) == 0x80;
+  var v = top & 0x7F;
+  var k = 6;
+  while k >= 0 {
+    v = (v << 8) | (buf[at + k] & 0xFF);
+    k = k - 1;
+  }
+  if sign {
+    return -(9223372036854775807 - v) - 1;
+  }
+  return v;
+}
+
+pub fn tuple_encoded_len(row: &Row) -> Int {
+  return 3 + 9 * (row.data.len() + 1);
+}
+
+// True when the row's v1 encoding fits the given page payload budget.
+pub fn tuple_fits_page(row: &Row, page_size: Int) -> Bool {
+  if page_size < 0 { return false; }
+  return tuple_encoded_len(row) <= page_size;
+}
+
+// Direct byte builder: caller must have validated the field count. Each
+// field emits a type byte (0x01 = i64) followed by 8 little-endian bytes.
+fn tuple_encode_bytes(row: &Row) -> Vec[Int] {
   var out = Vec[Int].new();
-  out.push(row.id);
-  out.push(row.data.len());
+  out.push(TUPLE_MAGIC);
+  out.push(TUPLE_VERSION);
+  out.push(row.data.len() + 1);
+  out.push(0x01);
+  push_int_le(&mut out, row.id);
   var i = 0;
   while i < row.data.len() {
-    out.push(row.data[i]);
+    out.push(0x01);
+    push_int_le(&mut out, row.data[i]);
     i = i + 1;
   }
   return out;
 }
 
-// Decode the flat buffer produced by `tuple_encode` back into a Row.
-pub type DbResult[T] = Result[T, DbError];
+// Checked encode: Err(ConstraintViolation) when the row exceeds 255 fields
+// (a v1 field_count byte cannot represent it).
+pub fn tuple_encode_checked(row: &Row) -> DbResult[Vec[Int]] {
+  if row.data.len() + 1 > TUPLE_MAX_FIELDS {
+    return Err(DbError.ConstraintViolation);
+  }
+  return Ok(tuple_encode_bytes(row));
+}
 
+// Convenience encode for callers that cannot fail. Returns an EMPTY buffer
+// when the row is not encodable (empty is never a valid v1 record: minimum
+// size 12); use `tuple_encode_checked` to distinguish the reason. Kept for
+// signature compatibility with the C-ORBIT-01 repro bundles.
+pub fn tuple_encode(row: &Row) -> Vec[Int] {
+  if row.data.len() + 1 > TUPLE_MAX_FIELDS {
+    var empty = Vec[Int].new();
+    return empty;
+  }
+  return tuple_encode_bytes(row);
+}
+
+// Decode a v1 buffer produced by `tuple_encode_checked`. Validates magic,
+// version, field count, exact length and every field type; any violation is
+// Err(Corruption) -- no partial rows.
 pub fn tuple_decode(buf: &Vec[Int]) -> DbResult[Row] {
-  if buf.len() < 2 {
+  if buf.len() < 12 {
     return Err(DbError.Corruption);
   }
-  var id = buf[0];
-  var count = buf[1];
-  if count < 0 { return Err(DbError.Corruption); }
-  if buf.len() < 2 + count { return Err(DbError.Corruption); }
-  var data = Vec[Int].new();
+  if buf[0] != TUPLE_MAGIC {
+    return Err(DbError.Corruption);
+  }
+  if buf[1] != TUPLE_VERSION {
+    return Err(DbError.Corruption);
+  }
+  let count = buf[2];
+  if count < 1 {
+    return Err(DbError.Corruption);
+  }
+  if buf.len() != 3 + 9 * count {
+    return Err(DbError.Corruption);
+  }
+
+  var at = 3;
   var i = 0;
   while i < count {
-    data.push(buf[2 + i]);
+    if buf[at] != 0x01 {
+      return Err(DbError.Corruption);
+    }
+    at = at + 9;
     i = i + 1;
+  }
+
+  let id = read_int_le(buf, 4);
+  var data = Vec[Int].new();
+  var j = 1;
+  while j < count {
+    data.push(read_int_le(buf, 4 + 9 * j));
+    j = j + 1;
   }
   return Ok(Row{ id: id, data: data });
 }

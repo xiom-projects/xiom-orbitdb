@@ -1742,16 +1742,21 @@ fn run_tuple_encode_decode() -> Int {
   data.push(42);
   data.push(99);
   let row = Row.new(7, data);
-  let encoded = tuple_encode(&row);
+  let enc = tuple_encode_checked(&row);
+  var encoded = Vec[Int].new();
+  match enc {
+    Err(_) => return 1,
+    Ok(buf) => {
+      // C-ORBIT-01 workaround: rebind the cross-module generic Result payload
+      // through an explicitly typed local (docs/repro/ok-method-receiver/).
+      let bytes: Vec[Int] = buf;
+      encoded = bytes;
+    }
+  }
   let r = tuple_decode(&encoded);
   match r {
     Err(_) => return 1,
     Ok(decoded) => {
-      // C-ORBIT-01 workaround: on v0.64.0 the cross-module generic alias
-      // `DbResult[T]` is not resolved for a match-bound Ok payload (receiver
-      // dropped at the checker; "unknown type 'DbResult' defaulting to i64"
-      // + unresolved `column_count` at codegen). Rebind through an
-      // explicitly typed local; evidence in docs/repro/ok-method-receiver/.
       let d: Row = decoded;
       if d.id != 7 { return 1; }
       if d.column_count() != 2 { return 1; }
@@ -1768,6 +1773,142 @@ fn test_tuple_encode_decode() -> TestResult {
   let rc = run_tuple_encode_decode();
   if rc == 0 { return assert(true, "tuple: encode then decode roundtrip"); }
   return assert(false, "tuple: encode/decode failed");
+}
+
+// v1 KAT: Row(1, [1, 2]) -> exact byte sequence.
+fn run_tuple_codec_kat() -> Int {
+  var data = Vec[Int].new();
+  data.push(1);
+  data.push(2);
+  let row = Row.new(1, data);
+  let enc = tuple_encode_checked(&row);
+  match enc {
+    Err(_) => return 1,
+    Ok(buf) => {
+      let bytes: Vec[Int] = buf;
+      // 3 header bytes + 3 fields x (1 type + 8 LE)
+      if bytes.len() != 30 { return 1; } // 3 + 9*3
+      if bytes[0] != 0xDB { return 1; }
+      if bytes[1] != 0x01 { return 1; }
+      if bytes[2] != 3 { return 1; }
+      // field 0 (id=1): type 0x01 then 01 00 00 00 00 00 00 00
+      if bytes[3] != 0x01 { return 1; }
+      if bytes[4] != 1 { return 1; }
+      var k = 5;
+      while k < 12 { if bytes[k] != 0 { return 1; } k = k + 1; }
+      // field 1 (1)
+      if bytes[12] != 0x01 { return 1; }
+      if bytes[13] != 1 { return 1; }
+      k = 14;
+      while k < 21 { if bytes[k] != 0 { return 1; } k = k + 1; }
+      // field 2 (2)
+      if bytes[21] != 0x01 { return 1; }
+      if bytes[22] != 2 { return 1; }
+      k = 23;
+      while k < 30 { if bytes[k] != 0 { return 1; } k = k + 1; }
+    }
+  }
+  return 0;
+}
+
+fn test_tuple_codec_kat() -> TestResult {
+  let rc = run_tuple_codec_kat();
+  if rc == 0 { return assert(true, "tuple: codec v1 byte KAT (magic/version/LE fields)"); }
+  return assert(false, "tuple: codec KAT failed");
+}
+
+// Roundtrip extremes: negatives and i64 boundaries must survive the LE codec.
+fn run_tuple_codec_extremes() -> Int {
+  var data = Vec[Int].new();
+  data.push(-1);
+  data.push(-9223372036854775807 - 1);
+  data.push(9223372036854775807);
+  data.push(0);
+  let row = Row.new(-5, data);
+  let enc = tuple_encode_checked(&row);
+  match enc {
+    Err(_) => return 1,
+    Ok(buf) => {
+      let bytes: Vec[Int] = buf;
+      if !tuple_fits_page(&row, 4096) { return 1; }
+      let r = tuple_decode(&bytes);
+      match r {
+        Err(_) => return 1,
+        Ok(decoded) => {
+          let d: Row = decoded;
+          if d.id != -5 { return 1; }
+          if d.column_count() != 4 { return 1; }
+          let c0 = d.get_column(0);
+          match c0 { None => return 1; Some(v) => { if v != -1 { return 1; } } }
+          let c1 = d.get_column(1);
+          match c1 { None => return 1; Some(v) => { if v != -9223372036854775807 - 1 { return 1; } } }
+          let c2 = d.get_column(2);
+          match c2 { None => return 1; Some(v) => { if v != 9223372036854775807 { return 1; } } }
+          let c3 = d.get_column(3);
+          match c3 { None => return 1; Some(v) => { if v != 0 { return 1; } } }
+        }
+      }
+    }
+  }
+  return 0;
+}
+
+fn test_tuple_codec_extremes() -> TestResult {
+  let rc = run_tuple_codec_extremes();
+  if rc == 0 { return assert(true, "tuple: codec extremes (negatives, i64 bounds)"); }
+  return assert(false, "tuple: codec extremes failed");
+}
+
+// Malformed buffers must be rejected, never partially decoded.
+fn run_tuple_codec_rejects() -> Int {
+  // bad magic
+  var bad1 = Vec[Int].new();
+  var i = 0;
+  while i < 12 { bad1.push(0); i = i + 1; }
+  let d1 = tuple_decode(&bad1);
+  match d1 { Ok(_) => { return 1; } Err(_) => {} }
+  // truncated valid header
+  var bad2 = Vec[Int].new();
+  bad2.push(0xDB);
+  bad2.push(0x01);
+  bad2.push(3);
+  let d2 = tuple_decode(&bad2);
+  match d2 { Ok(_) => { return 2; } Err(_) => {} }
+  // trailing byte after an otherwise valid record
+  var data = Vec[Int].new();
+  data.push(1);
+  let row = Row.new(1, data);
+  let enc = tuple_encode_checked(&row);
+  match enc {
+    Err(_) => { return 3; }
+    Ok(buf) => {
+      let bytes: Vec[Int] = buf;
+      var bad3 = Vec[Int].new();
+      i = 0;
+      while i < bytes.len() { bad3.push(bytes[i]); i = i + 1; }
+      bad3.push(0);
+      let d3 = tuple_decode(&bad3);
+      match d3 { Ok(_) => { return 4; } Err(_) => {} }
+    }
+  }
+  // empty buffer
+  let empty = Vec[Int].new();
+  let d4 = tuple_decode(&empty);
+  match d4 { Ok(_) => { return 5; } Err(_) => {} }
+  // too many fields -> checked encode refuses
+  var wide = Vec[Int].new();
+  i = 0;
+  while i < 300 { wide.push(i); i = i + 1; }
+  let wide_row = Row.new(0, wide);
+  let enc2 = tuple_encode_checked(&wide_row);
+  match enc2 { Ok(_) => { return 6; } Err(_) => {} }
+  return 0;
+}
+
+fn test_tuple_codec_rejects() -> TestResult {
+  let rc = run_tuple_codec_rejects();
+  if rc == 0 { return assert(true, "tuple: codec rejects malformed/oversized buffers"); }
+  return assert(false, "tuple: codec malformed rejection failed");
 }
 
 fn run_result_set_ops() -> Int {
@@ -2026,6 +2167,12 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r91.passed, r91.name);
   let r92 = test_tuple_encode_decode();
   total = total + 1; failed = failed + report(r92.passed, r92.name);
+  let r92b = test_tuple_codec_kat();
+  total = total + 1; failed = failed + report(r92b.passed, r92b.name);
+  let r92c = test_tuple_codec_extremes();
+  total = total + 1; failed = failed + report(r92c.passed, r92c.name);
+  let r92d = test_tuple_codec_rejects();
+  total = total + 1; failed = failed + report(r92d.passed, r92d.name);
   let r93 = test_result_set_ops();
   total = total + 1; failed = failed + report(r93.passed, r93.name);
 
