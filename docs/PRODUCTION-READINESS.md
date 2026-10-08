@@ -26,16 +26,16 @@
 
 | Area | Weight | Earned | Status summary |
 |---|---|---|---|
-| A. Correctness & data structures | 20 | 16.0 | B-tree churn-proven; tuple codec v1 KAT-locked; FSM best-fit model-soaked; node-per-page pending |
-| B. Durability & crash safety | 20 | 16.0 | Disk WAL segment + page file + engine WAL-before-ack + checkpoint/snapshot crash-proven; fsync still pending |
+| A. Correctness & data structures | 20 | 16.0 | B-tree churn-proven; tuple codec v1 KAT-locked; FSM best-fit model-soaked; node-per-page durable pages done, paged access pending |
+| B. Durability & crash safety | 20 | 16.0 | Disk WAL segment + page file + engine WAL-before-ack + incremental generation-committed checkpoint crash-proven; fsync still pending |
 | C. Storage engine (pages/pager) | 15 | 8.0 | Codec + checksum + FSM + durable page file done; pager substrate/replacement policy pending |
 | D. Transactions & isolation | 10 | 1.0 | State machine only; no MVCC, no crash-safe redo/undo |
 | E. Query & schema | 10 | 3.0 | Value-filter query + DBFile range/query bindings done; planner scaffold; no secondary indexes/typed values |
 | F. Operations & tooling | 10 | 4.0 | ps1/sh runners, crash harness, probes; no CI/packaging/version stamp |
-| G. Performance & limits | 5 | 2.5 | Benchmarks published (v0.64.1); replay constrained by the filed stdlib `str_split` quadratic; memory/scale policy pending |
+| G. Performance & limits | 5 | 3.0 | Benchmarks published (v0.64.1); WAL segment size policy live (`maybe_checkpoint`); replay constrained by the filed stdlib `str_split` quadratic; page/cache bounds pending |
 | H. Security & integrity | 5 | 2.0 | Checksums + validation; no fuzz, no encryption, no supply-chain pinning |
 | I. Documentation & evidence | 5 | 4.0 | Full doc set + relay docs + repro bundles; public API reference pending |
-| **Total** | **100** | **56.5** | **~57% -- pre-alpha, durable log + pages, benchmarks live** |
+| **Total** | **100** | **57.0** | **~57% -- pre-alpha, durable log + pages + incremental checkpoints, benchmarks live** |
 
 Scoreboard changelog:
 - 2026-10-08: bootstrap complete (suite migrated, engine defects fixed, WAL
@@ -63,6 +63,12 @@ Scoreboard changelog:
   `qverify` query-after-recovery checks in all three crash scenarios; suite
   107/107 x2 Win + WSL, db_crash 15/15 x2 Win + WSL. E1 evidence upgraded
   (no score change; E1 already credited): 56.5.
+- 2026-10-08: incremental generation-committed checkpoints -- page log +
+  header-last commit + generation resolution + compaction; `maybe_checkpoint`
+  policy; suite 111/111 x2 Win + WSL, db_crash 15/15 x2, WAL/page crash x2,
+  2000-key policy soak (9 checkpoints) x2. Also surfaced, worked around, and
+  filed **C-ORBIT-05** (nested `Vec[Struct-with-Vec]` loop + push aborts
+  v0.64.1) with a repro bundle. G2 0.5 -> 1.0 (segment policy): 57.0.
 
 ## A. Correctness & data structures (20)
 
@@ -72,7 +78,7 @@ Scoreboard changelog:
 | A2 | B-tree delete borrow/merge invariants (all key counts valid, uniform leaf depth) | 4 | OK | `probe_btree_churn` structural validator; 20k ops x orders 4/5/6 + seed matrix |
 | A3 | Byte-packed tuple codec with strict decode + budget | 4 | OK | `probe_tuple_codec` KAT/extremes/rejects; suite 99/99 |
 | A4 | Free-space map hardening (best-fit, invariants, model soak) | 4 | OK | `probe_fsm` (use/release/find vs model, invariant checks, 50k ops x 256 pages) + suite best-fit/clamp tests |
-| A5 | Node-per-page B-tree | 4 | -- | needs A4 + pager seam |
+| A5 | Node-per-page B-tree | 4 | WIP | durable node pages + incremental generation-committed flush (snapshot path); live tree still fully resident -- paged/evicting access needs the pager seam |
 | | *Partial credit:* CRC32C integrity aids A3/A5 | +0 | -- | counted in B |
 
 ## B. Durability & crash safety (20)
@@ -80,7 +86,7 @@ Scoreboard changelog:
 | # | Item | Pts | Status | Evidence / gate |
 |---|---|---|---|---|
 | B1 | Append-only WAL segment: append, replay, torn-tail heal, LSN resume | 4 | OK | `probe_wal_file` + `scripts/crash_test.{ps1,sh}` x2 Win + WSL; 200-record soak |
-| B2 | WAL checkpoint/truncate seam | 2 | OK | `db_file_checkpoint`: node page codec snapshot + atomic install + Checkpoint anchor + `wal_file_truncate` keep >= anchor (payload preserved); `db_file_open` snapshot + tail replay; suite checkpoint tests; `db_crash_test.{ps1,sh}` scenarios B/C x2 Win + WSL; 2000-key soak |
+| B2 | WAL checkpoint/truncate seam | 2 | OK | `db_file_checkpoint`: **incremental** generation-committed snapshot (changed nodes only, header-last commit, uncommitted-generation ignored on load, compaction at node_count+64) + Checkpoint anchor + `wal_file_truncate` keep >= anchor; `db_file_maybe_checkpoint(limit)` policy; suite crash-state tests (no-op delta, uncommitted generation, torn-tail heal); `db_crash_test.{ps1,sh}` scenarios B/C x2 Win + WSL; 2000-key policy soak (9 checkpoints) x2 Win + WSL |
 | B3 | CRC32C page integrity (KAT-locked) | 2 | OK | `probe_crc32c` x2 + suite KAT |
 | B4 | Engine wired to the disk WAL (WAL-before-ack on real files) | 4 | OK | `DBFile` facade: `db_file_put/delete` append then apply; `db_file_open` replays; `db_crash_test.{ps1,sh}` GREEN x2 Win + WSL + 200-key soak; suite roundtrip |
 | B5 | fsync/durable flush on commit (`wal_file_flush` is honest no-op) | 4 | 0 | blocked: stdlib fsync row (STDLIB-WISHLIST-ORBITDB.md #1) |
@@ -128,7 +134,7 @@ Scoreboard changelog:
 | # | Item | Pts | Status | Evidence / gate |
 |---|---|---|---|---|
 | G1 | Benchmarks (insert/search/delete/range; WAL append/replay throughput) | 2 | OK | `scripts/bench.{ps1,sh}` + `probe_bench`; v0.64.1 N=10k: Win btree_insert 1.25M/s, search 3.3M/s, delete 1.67M/s, tuple 714k/s, WAL append 2.9k/s, replay 0.94k/s; WSL native-fs append 26k/s; replay constrained by the filed `str_split` quadratic (44.7 s per 5 MB) |
-| G2 | Memory bounds (page budget, WAL segment size policy, cache) | 2 | 0.5 | tuple budget exists; segment/cache policy pending |
+| G2 | Memory bounds (page budget, WAL segment size policy, cache) | 2 | 1.0 | tuple budget + WAL segment size policy (`db_file_maybe_checkpoint`, bounded replay after truncate) + compaction-bounded snapshot log; page/cache bounds pending |
 | G3 | Scale soak (1M+ keys, long WAL) | 1 | -- | |
 
 ## H. Security & integrity (5)

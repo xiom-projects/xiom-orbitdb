@@ -31,7 +31,7 @@ The working core. Everything here is implemented and exercised through the publi
 | Storage primitives (Page, BufferPool, tuple codec) | [OK] (in-memory) | `storage/page.xi`, `storage/tuple.xi` |
 | Transaction state machine | [OK] (state only) | `txn/transaction.xi` |
 | Dependency on `xiom-core` substrate | [OK] | `package.xi` |
-| Conformance test suite (104 tests) | [OK] | `tests/test_conformance.xi` |
+| Conformance test suite (111 tests) | [OK] | `tests/test_conformance.xi` |
 
 **Known limitation:** all state lives in RAM. "Durability" and "recovery" are correct with respect to the in-memory WAL but survive only process-lifetime, not a real crash.
 
@@ -46,9 +46,9 @@ Move storage from ad-hoc in-memory structures to the shared pager.
 | Free-space map | [OK] (2026-10-08) | `storage/free_space_map.xi` -- best-fit placement, use/release clamping, invariant checker; model-soaked (`probe_fsm`, 50k ops). FSM tree/bitmap + persistence land with the pager |
 | Byte-packed tuple codec | [OK] (2026-10-08) | `storage/tuple.xi` -- v1 record: magic/version/field_count + typed i64 LE fields; decode validates exact length/type; `tuple_fits_page` budget; byte-true in `Vec[Int]` until Vec[UInt8] conversion lands |
 | Real pager integration | [FAIL] | Route `StorageEngine` through `xiom.core.storage.pager` + `buffer_pool` |
-| Durable page file v1 (text codec) | [OK] (2026-10-08) | `storage/page_file.xi` -- one line per page `id\|len\|crc\|bytes`, CRC32C verified on read, upsert via temp+rename (atomic replace), torn/checksum-invalid lines rejected and healed on rewrite; crash harness `scripts/page_crash_test.{ps1,sh}` |
+| Durable page file v1 (text codec) | [OK] (2026-10-08) | `storage/page_file.xi` -- one line per page `id\|len\|crc\|bytes`, CRC32C verified on read, upsert via temp+rename (atomic replace), torn/checksum-invalid lines rejected and healed on rewrite; append-only **page log** (`page_log_append`/`read_all`/`len`/`heal_tail`) for incremental writes; crash harness `scripts/page_crash_test.{ps1,sh}` |
 | CRC32C checksums | [OK] (2026-10-08) | `storage/page.xi` -- bitwise Castagnoli, KAT-locked (0xE3069283); swap to `xiom.hash.crc` when byte packs land |
-| Node-per-page B-tree | [FAIL] | Store B-tree nodes in pages instead of a flat `Vec` |
+| Node-per-page B-tree | [WIP] (2026-10-08) | Durable node pages + incremental generation-committed checkpoint done (`db_file_checkpoint`: changed nodes only, header-last commit, generation resolution); the live tree is still fully resident -- paged/evicting access needs the pager seam |
 
 ---
 
@@ -61,7 +61,7 @@ Make durability real.
 | Append-only WAL segment file | [OK] (2026-10-08) | `wal_file.xi` -- durable segment (own module; `xiom.core.wal` substrate later), crash-proven; `DBFile` facade replays it on open |
 | fsync on commit | [FAIL] | Blocked on the stdlib fsync row; `wal_file_flush`/`page_file_sync` are the wired seams |
 | LSN-based ordering | [WIP] | `DBFile` orders by `wal_file` LSNs; the in-memory engine still uses integer timestamps |
-| Checkpointing | [WIP] | `wal_file_truncate` seam + smoke test exists; no checkpoint policy wired yet |
+| Checkpointing | [OK] (2026-10-08) | Incremental generation-committed snapshot (`db_file_checkpoint`: only changed nodes, header page commits, compaction at node_count+64) + `db_file_maybe_checkpoint(limit)` policy; uncommitted-generation and torn-tail crash states in the suite; 2000-key policy soak (9 checkpoints) x2 Win + WSL |
 | Torn-page / crash recovery test suite | [OK] (2026-10-08) | `crash_test.{ps1,sh}` (WAL), `page_crash_test.{ps1,sh}`, `db_crash_test.{ps1,sh}` -- GREEN x2 Windows + WSL; power-loss leg blocked on fsync |
 
 ---
