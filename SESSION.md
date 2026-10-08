@@ -42,18 +42,25 @@ B-Tree index, WAL, query engine, crash recovery; formerly `xiom-db`
 - **Green evidence this session:**
   - `scripts/run.ps1` + `scripts/run.sh` (watchdog + exit-code gate);
     dev-env twins; hello probe x2 Windows + WSL.
-  - **Conformance suite: 103/103 passed, exit 0** (93 + 2 churn + CRC32C KAT
-    + 3 tuple-codec + 2 FSM + 2 page-file tests) -- x2 Windows + WSL.
-  - **Durable page file v1 landed:** `storage/page_file.xi` -- one line per
-    page (`id|len|crc|bytes`), CRC32C verified on read, upsert via
-    temp+rename (atomic replace), malformed torn tails skipped and
-    checksum-invalid survivors dropped on rewrite. Acceptance:
-    `tests/probes/probe_page_file.xi` + `scripts/page_crash_test.{ps1,sh}`
-    (writer 20 pages -> hard kill -> torn tail -> verify 20 checksums/bytes
-    -> upsert 9999 -> verify 21): GREEN x2 Windows + WSL. Suite locks
-    roundtrip/upsert and torn/bad-checksum rejection.
-  - **Readiness score: 50.5/100** (`docs/PRODUCTION-READINESS.md`; C2 done,
-    B6 partial credit, changelog updated).
+  - **Conformance suite: 104/104 passed, exit 0** (93 + 2 churn + CRC32C KAT
+    + 3 tuple-codec + 2 FSM + 2 page-file + 1 db-file tests) -- x2 Windows + WSL.
+  - **Engine on the disk WAL (B4):** `DBFile` facade in `src/engine.xi` --
+    `db_file_put/delete` append to the durable segment FIRST (Insert for new
+    keys, Update for upserts, Delete) and only then apply to the in-memory
+    tree; `db_file_open` recovers by replaying the segment (torn tail
+    skipped); `db_file_flush` is the fsync seam. Acceptance:
+    `tests/probes/probe_db_file.xi` + `scripts/db_crash_test.{ps1,sh}`
+    (writer 20 keys -> hard kill -> torn tail -> recover 20 -> put 9999 ->
+    recover 21): GREEN x2 Windows + WSL, plus a 200-key soak. Suite locks
+    put/update/delete-reopen replay.
+  - **Compiler finding C-ORBIT-04 filed:** unqualified enum-variant
+    construction in `wal_file` resolved against `xiom.db.txn`'s
+    structurally identical `WALOp` enum once both modules entered one
+    compilation unit (clang IR type mismatch). Workaround (module-qualified
+    variants in constructors and patterns) applied and verified; details +
+    IR evidence in `docs/COMPILER-FINDINGS-ORBITDB.md`.
+  - **Readiness score: 54.5/100** (`docs/PRODUCTION-READINESS.md`; B4 done,
+    changelog updated).
   - **Free-space map hardened:** `storage/free_space_map.xi` now does
     best-fit placement (tightest page, lowest id on ties), `record_used`
     over-use/negative clamping with false returns, `record_free` with
@@ -144,13 +151,13 @@ B-Tree index, WAL, query engine, crash recovery; formerly `xiom-db`
   probe as the package acceptance test, keep durable's record shape, and
   add per-record checksums when stdlib byte IO lands. (2) Phase 1 durable
   pages: **CRC32C, tuple codec v1, free-space map and the durable page file
-  are done in-repo**; remaining -- node-per-page B-tree (the page-file seam
-  now exists; flat-array nodes move into pages with FSM placement), engine
-  wired to the disk WAL + page file (B4), real pager integration
-  (externally blocked: `xiom.core.storage.pager` substrate / registry
-  source-roots, C-PULSE-02). (3) Re-run
+  are done in-repo; the engine now runs WAL-before-ack on the disk segment
+  (`DBFile`)**; remaining -- node-per-page B-tree (page-file seam + FSM now
+  exist), checkpoint policy wired to `wal_file_truncate`, real pager
+  integration (externally blocked: `xiom.core.storage.pager` substrate /
+  registry source-roots, C-PULSE-02). (3) Re-run
   conformance + crash probes on the next compiler archive (watch
-  C-ORBIT-01/02/03; C-ORBIT-01 may be fixed by `0c5337e0`). Add `xiom.toml`
+  C-ORBIT-01..04; C-ORBIT-01 may be fixed by `0c5337e0`). Add `xiom.toml`
   + CI only when the repo goes public (owner gate; ops has the mechanics per
   the PULSE ops relay). No VPS/DNS action requested.
   (4) Keep `docs/PRODUCTION-READINESS.md` recomputed at every wrap (score +

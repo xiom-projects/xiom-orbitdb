@@ -21,7 +21,7 @@ The working core. Everything here is implemented and exercised through the publi
 | B-tree delete borrow/merge hardening (churn-proven vs model) | [OK] (2026-10-08) | `index/btree.xi` |
 | Range queries, min/max, in-order traversal | [OK] | `index/btree.xi` |
 | Write-ahead log (append/replay/truncate/clear) | [OK] (in-memory) | `wal/wal.xi`, `wal/wal_record.xi` |
-| Crash recovery via WAL replay | [OK] (in-memory) | `engine.xi` `engine_recover` |
+| Crash recovery via WAL replay | [OK] (in-memory; file-backed `DBFile` replays the disk segment) | `engine.xi` `engine_recover`, `db_file_open` |
 | Query engine (AND filter, limit, offset) | [OK] | `query/query.xi` |
 | Engine coordinator (WAL-before-data) | [OK] | `engine.xi` |
 | Public `Database` facade | [OK] | `api/database.xi` |
@@ -31,7 +31,7 @@ The working core. Everything here is implemented and exercised through the publi
 | Storage primitives (Page, BufferPool, tuple codec) | [OK] (in-memory) | `storage/page.xi`, `storage/tuple.xi` |
 | Transaction state machine | [OK] (state only) | `txn/transaction.xi` |
 | Dependency on `xiom-core` substrate | [OK] | `package.xi` |
-| Conformance test suite (103 tests) | [OK] | `tests/test_conformance.xi` |
+| Conformance test suite (104 tests) | [OK] | `tests/test_conformance.xi` |
 
 **Known limitation:** all state lives in RAM. "Durability" and "recovery" are correct with respect to the in-memory WAL but survive only process-lifetime, not a real crash.
 
@@ -58,11 +58,11 @@ Make durability real.
 
 | Item | Status | Plan |
 |------|--------|------|
-| Append-only WAL segment file | [FAIL] | Back `wal/wal.xi` with `xiom.core.wal.wal_writer` |
-| fsync on commit | [FAIL] | `db_close` / commit path issues real fsync via core FFI |
-| LSN-based ordering | [FAIL] | Replace the engine's integer timestamp with `xiom.core.ids.Lsn` |
-| Checkpointing | [FAIL] | Truncate WAL after a durable checkpoint using `xiom.core.wal.checkpoint` |
-| Torn-page / crash recovery test suite | [FAIL] | Validate replay after simulated crashes |
+| Append-only WAL segment file | [OK] (2026-10-08) | `wal_file.xi` -- durable segment (own module; `xiom.core.wal` substrate later), crash-proven; `DBFile` facade replays it on open |
+| fsync on commit | [FAIL] | Blocked on the stdlib fsync row; `wal_file_flush`/`page_file_sync` are the wired seams |
+| LSN-based ordering | [WIP] | `DBFile` orders by `wal_file` LSNs; the in-memory engine still uses integer timestamps |
+| Checkpointing | [WIP] | `wal_file_truncate` seam + smoke test exists; no checkpoint policy wired yet |
+| Torn-page / crash recovery test suite | [OK] (2026-10-08) | `crash_test.{ps1,sh}` (WAL), `page_crash_test.{ps1,sh}`, `db_crash_test.{ps1,sh}` -- GREEN x2 Windows + WSL; power-loss leg blocked on fsync |
 
 ---
 

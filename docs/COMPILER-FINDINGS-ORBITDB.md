@@ -31,6 +31,7 @@ caches, cross-module `Result` aliases, or nested-field `&mut` methods.
 | 2026-10-08 | **C-ORBIT-01: a cross-module generic type alias in return position (`pub type DbResult[T] = Result[T, DbError]`) is not resolved at the consumer.** A match-bound `Ok(payload)` loses its type: method calls drop the receiver (`'get_column' expects 2 argument(s), found 1` / `expected Row, found Int`), zero-arg methods on the raw binding reach codegen as an unresolved symbol (`C001 'column_count'`), and codegen warns `unknown type 'DbResult' -- defaulting to i64` (10x per suite run). | `docs/repro/ok-method-receiver/probe_import.xi` (A/B/C broken, D/E/F/G green); `probe_rebind.xi` (H broken at codegen, I green); `probe_only_i.xi` green. App: conformance suite 4 T001 -> C001 -> green after rebind; `probe_wal_file.xi` read_file_lines payload printed raw addresses until rebind. | rebind the payload through an explicitly typed local before any access: `let d: Row = decoded;` (probe_only_i), or call the explicit receiver form `Row.get_column(&decoded, 0)` | silent wrong values / no-arg methods emit garbage symbols; breaks every consumer of aliased cross-module `Result` returns (stdlib `io.read_file_lines`, packages) |
 | 2026-10-08 | **C-ORBIT-02: assigning an Option into a `Vec[Option[T]]` element poisons the slot.** After `v.push(None); v[0] = Some(x);` (or any Option-to-slot write: Some->Some, Option[Str], None->None) the element matches NEITHER `None` NOR `Some(_)`; every `match` over it silently runs no arm and execution falls through. No diagnostic. `Vec[Int]` writes, enum-vector writes and struct-field Option writes are all fine. | `docs/repro/option-vec-assign/probe.xi` (V1/V3 silent, V2/V4/V5 green); `probe2.xi` (V6 Some->Some silent, V8 Option[Str] silent, V9 None->None silent, V7 enum fine, V10 untouched slot fine). App: BufferPool.put corruption -> `buffer_pool` + `storage_engine` suite failures; `tests/probes/probe_write_drop2.xi`. | never index-assign an Option into a Vec element; rebuild the Vec and assign the Vec (`src/storage/page.xi BufferPool.put`); struct fields are safe | silent wrong behavior + broken exhaustiveness in caches/pools/option-vectors; would corrupt any `Vec[Option[T]]` structure |
 | 2026-10-08 | **C-ORBIT-03: a method call whose receiver is a nested field mutates a temporary copy.** `o.inner.bump()` inside a method, and `eng.buffer_pool.put(page)` anywhere, execute on a copy; the `&mut` write-back is lost. Explicit `Inner.bump(&mut o.inner)` and copy-mutate-writeback work. No diagnostic. | `docs/repro/nested-field-mut/probe.xi`: A=0 (lost), C=0 (lost), B=1, D=1 (green). App: `StorageEngine.cache_page` -> `storage_engine: cache/lookup` suite failure; `src/storage/page.xi`. | copy the field to a local, mutate, write it back (`var bp = eng.buffer_pool; bp.put(page); eng.buffer_pool = bp;`); or use the explicit receiver form with `&mut` on the field | silent data loss for every nested-field mutation, including struct-of-struct state machines and adapters |
+| 2026-10-08 | **C-ORBIT-04: unqualified enum-variant construction resolves against ANOTHER module's structurally identical enum.** With `xiom.db.txn.transaction`'s `pub enum WALOp { Insert, Update, Delete }` and `xiom.db.wal_file`'s `pub enum WALOpKind { Insert, Update, Delete, ... }` in one compilation unit, `return Update;` inside `wal_op_from_code` lowered as txn's `%struct.WALOp` while the function is declared `-> WALOpKind`; clang rejects the module. Variant patterns may silently compare equal tags instead of failing. | Hard failure with IR evidence (below); suite build broke only when engine imported wal_file AND the suite imported the txn module. | module-qualify variants everywhere (`return WALOpKind.Update;`, `match op { WALOpKind.Insert => ... }`) -- verified compiling and green | hard build failure today; potential silent wrong-enum construction/matching for any two enums sharing variant names (very common: Insert/Update/Delete) |
 
 ### Secondary observations (no repro bundle needed)
 
@@ -121,6 +122,49 @@ caches, cross-module `Result` aliases, or nested-field `&mut` methods.
 - **Suggested direction:** auto-ref through field projections in method
   receivers (pass `&mut <projection>`, not a value copy), or at minimum
   emit a diagnostic when a `&mut` method is invoked on a projection.
+
+## C-ORBIT-04 -- details
+
+- **Symptom (exact):**
+  ```
+  error: clang failed with exit code 1
+  xiominput.ll:71073:25: error: '%tmp10' defined with type
+      '%struct.WALOp = type { i64 }' but expected '%struct.WALOpKind = type { i64 }'
+  71073 |   ret %struct.WALOpKind %tmp10
+  ```
+  The body just above constructs `%struct.WALOp` (`alloca %struct.WALOp` ...
+  `store i64 1, ...` `load %struct.WALOp`) inside
+  `define %struct.WALOpKind @db.wal_file.wal_op_from_code(i64)`.
+- **Trigger:** a compilation unit containing both modules (engine now
+  `use xiom.db.wal_file;` and the conformance suite imports
+  `xiom.db.txn.transaction`). `probe_wal_file.xi` alone compiled and ran
+  green for hours -- the collision only appears when both enums are in the
+  graph and variant resolution picks the first-registered enum with that
+  variant name.
+- **Minimal repro sketch (two modules):**
+  ```
+  // a.xi
+  module example.a
+  pub enum AKind { Insert, Update }
+  pub fn a_make() -> AKind { return Update; }     // lowered as ...?
+  // b.xi
+  module example.b
+  pub enum BKind { Insert, Update, Delete }
+  pub fn b_make() -> BKind { return Update; }
+  ```
+  Compile both plus a caller; expect one function to construct the other
+  module's enum (`--emit-ir`, look for the `%struct.` name in `ret`).
+- **Impact:** clang catches the return mismatch here, but a variant
+  *pattern* against the wrong structural twin would compare equal i64 tags
+  and silently take the wrong branch. Treat as high-priority.
+- **Workaround (verified clean, 104/104 suite):** module-qualify every
+  variant in constructors and patterns in the affected module
+  (`src/wal_file.xi`), e.g. `return WALOpKind.Update;` and
+  `match op { WALOpKind.Insert => ... }` -- both forms compile and behave.
+- **Suggested fix:** unqualified variant resolution must be scoped to the
+  current module's declarations first (and error on genuine ambiguity),
+  the same way type names are; or intern enum variants by
+  (module, name, tag) instead of name only.
 
 ## Bump procedure used by this lane
 

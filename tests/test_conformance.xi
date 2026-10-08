@@ -2050,6 +2050,42 @@ fn test_page_file_corruption() -> TestResult {
   return assert(false, "page_file: corruption handling failed");
 }
 
+// ===========================================================================
+// File-backed database (WAL-before-ack + replay recovery)
+// ===========================================================================
+
+fn run_db_file_roundtrip() -> Int {
+  let path = "orbitdb-suite-db.wal";
+  let _ = io.remove_file(path);
+  var db = db_file_open(path, 4);
+  if !db_file_put(&mut db, 1, 10) { return 1; }
+  if !db_file_put(&mut db, 2, 20) { return 1; }
+  if !db_file_put(&mut db, 2, 99) { return 1; }   // update
+  if !db_file_delete(&mut db, 1) { return 1; }
+  if db_file_size(&db) != 1 { return 1; }
+  if db_file_last_lsn(&db) != 4 { return 1; }
+  if !db_file_flush(&mut db) { return 1; }
+
+  // Reopen: replay must reproduce the final state exactly.
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 1 { return 1; }
+  let v = db_file_get(&db2, 2);
+  match v {
+    None => { return 1; }
+    Some(x) => { if x != 99 { return 1; } }
+  }
+  let gone = db_file_get(&db2, 1);
+  match gone { Some(_) => { return 1; }, None => {} }
+  let _ = io.remove_file(path);
+  return 0;
+}
+
+fn test_db_file_roundtrip() -> TestResult {
+  let rc = run_db_file_roundtrip();
+  if rc == 0 { return assert(true, "db_file: put/update/delete survive reopen (WAL replay)"); }
+  return assert(false, "db_file: roundtrip failed");
+}
+
 fn run_result_set_ops() -> Int {
   var cols = Vec[Str].new();
   cols.push("id");
@@ -2320,6 +2356,8 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r93a.passed, r93a.name);
   let r93b = test_page_file_corruption();
   total = total + 1; failed = failed + report(r93b.passed, r93b.name);
+  let r94 = test_db_file_roundtrip();
+  total = total + 1; failed = failed + report(r94.passed, r94.name);
   let r93 = test_result_set_ops();
   total = total + 1; failed = failed + report(r93.passed, r93.name);
 

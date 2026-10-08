@@ -27,7 +27,7 @@
 | Area | Weight | Earned | Status summary |
 |---|---|---|---|
 | A. Correctness & data structures | 20 | 16.0 | B-tree churn-proven; tuple codec v1 KAT-locked; FSM best-fit model-soaked; node-per-page pending |
-| B. Durability & crash safety | 20 | 12.0 | Disk WAL segment + page file crash-proven; CRC32C; fsync + engine wiring pending |
+| B. Durability & crash safety | 20 | 16.0 | Disk WAL segment + page file + engine WAL-before-ack crash-proven; fsync still pending |
 | C. Storage engine (pages/pager) | 15 | 8.0 | Codec + checksum + FSM + durable page file done; pager substrate/replacement policy pending |
 | D. Transactions & isolation | 10 | 1.0 | State machine only; no MVCC, no crash-safe redo/undo |
 | E. Query & schema | 10 | 3.0 | Value-filter query done; planner scaffold; no secondary indexes/typed values |
@@ -35,7 +35,7 @@
 | G. Performance & limits | 5 | 0.5 | Soak timings only; no benchmarks, no memory bounds |
 | H. Security & integrity | 5 | 2.0 | Checksums + validation; no fuzz, no encryption, no supply-chain pinning |
 | I. Documentation & evidence | 5 | 4.0 | Full doc set + relay docs + repro bundles; public API reference pending |
-| **Total** | **100** | **50.5** | **~51% -- pre-alpha, honest core with durable pages** |
+| **Total** | **100** | **54.5** | **~55% -- pre-alpha, durable log + pages** |
 
 Scoreboard changelog:
 - 2026-10-08: bootstrap complete (suite migrated, engine defects fixed, WAL
@@ -45,6 +45,9 @@ Scoreboard changelog:
 - 2026-10-08: durable page file v1 (CRC32C verify, atomic rewrite, crash
   harness x2 Win + WSL) -> C2 5 pts; page-level torn detection credited
   partially -> B6 2/4: 50.5.
+- 2026-10-08: engine on the disk WAL -- `DBFile` WAL-before-ack +
+  replay recovery, `db_crash_test` x2 Win + WSL + 200-key soak -> B4 4 pts
+  (also surfaced and worked around compiler finding C-ORBIT-04): 54.5.
 
 ## A. Correctness & data structures (20)
 
@@ -64,7 +67,7 @@ Scoreboard changelog:
 | B1 | Append-only WAL segment: append, replay, torn-tail heal, LSN resume | 4 | OK | `probe_wal_file` + `scripts/crash_test.{ps1,sh}` x2 Win + WSL; 200-record soak |
 | B2 | WAL checkpoint/truncate seam | 2 | OK | truncate smoke (keep lsn >= 15 -> replay 7) |
 | B3 | CRC32C page integrity (KAT-locked) | 2 | OK | `probe_crc32c` x2 + suite KAT |
-| B4 | Engine wired to the disk WAL (WAL-before-ack on real files) | 4 | -- | engine today is in-memory WAL only |
+| B4 | Engine wired to the disk WAL (WAL-before-ack on real files) | 4 | OK | `DBFile` facade: `db_file_put/delete` append then apply; `db_file_open` replays; `db_crash_test.{ps1,sh}` GREEN x2 Win + WSL + 200-key soak; suite roundtrip |
 | B5 | fsync/durable flush on commit (`wal_file_flush` is honest no-op) | 4 | 0 | blocked: stdlib fsync row (STDLIB-WISHLIST-ORBITDB.md #1) |
 | B6 | Torn-page detection on read + crash matrix (page-level) | 4 | 2 | checksum reject + `page_crash_test.{ps1,sh}` GREEN x2 Win + WSL; power-loss leg still blocked on fsync |
 | | *Partial:* B1+B2+B3 = 8/20, B6 = 2/4 | | | |

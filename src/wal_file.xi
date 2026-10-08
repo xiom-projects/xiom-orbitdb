@@ -57,36 +57,40 @@ pub type WALFile = {
 
 pub fn wal_op_code(op: WALOpKind) -> Int {
   match op {
-    Insert => { return 1; }
-    Update => { return 2; }
-    Delete => { return 3; }
-    SegmentSeal => { return 4; }
-    ManifestUpdate => { return 5; }
-    Checkpoint => { return 6; }
-    SnapshotMarker => { return 7; }
+    WALOpKind.Insert => { return 1; }
+    WALOpKind.Update => { return 2; }
+    WALOpKind.Delete => { return 3; }
+    WALOpKind.SegmentSeal => { return 4; }
+    WALOpKind.ManifestUpdate => { return 5; }
+    WALOpKind.Checkpoint => { return 6; }
+    WALOpKind.SnapshotMarker => { return 7; }
   }
 }
 
+// C-ORBIT-04 workaround: variant constructors/patterns are module-qualified
+// because `xiom.db.txn.transaction` declares `WALOp { Insert, Update, Delete }`
+// with the same variant names; unqualified `return Update;` here was lowered
+// against THAT enum (clang: ret %struct.WALOpKind but found %struct.WALOp).
 pub fn wal_op_from_code(code: Int) -> WALOpKind {
-  if code == 2 { return Update; }
-  if code == 3 { return Delete; }
-  if code == 4 { return SegmentSeal; }
-  if code == 5 { return ManifestUpdate; }
-  if code == 6 { return Checkpoint; }
-  if code == 7 { return SnapshotMarker; }
-  return Insert;
+  if code == 2 { return WALOpKind.Update; }
+  if code == 3 { return WALOpKind.Delete; }
+  if code == 4 { return WALOpKind.SegmentSeal; }
+  if code == 5 { return WALOpKind.ManifestUpdate; }
+  if code == 6 { return WALOpKind.Checkpoint; }
+  if code == 7 { return WALOpKind.SnapshotMarker; }
+  return WALOpKind.Insert;
 }
 
 // True for record kinds that mutate an index (replay applies these).
 pub fn wal_op_is_write(op: WALOpKind) -> Bool {
   match op {
-    Insert => { return true; }
-    Update => { return true; }
-    Delete => { return true; }
-    SegmentSeal => { return false; }
-    ManifestUpdate => { return false; }
-    Checkpoint => { return false; }
-    SnapshotMarker => { return false; }
+    WALOpKind.Insert => { return true; }
+    WALOpKind.Update => { return true; }
+    WALOpKind.Delete => { return true; }
+    WALOpKind.SegmentSeal => { return false; }
+    WALOpKind.ManifestUpdate => { return false; }
+    WALOpKind.Checkpoint => { return false; }
+    WALOpKind.SnapshotMarker => { return false; }
   }
 }
 

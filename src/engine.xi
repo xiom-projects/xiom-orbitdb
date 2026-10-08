@@ -3,6 +3,8 @@
 
 module xiom.db.engine
 
+use xiom.db.wal_file;
+
 // ============================================================================
 // XIOM-DB: Consolidated Engine -- B-Tree + WAL + Query + Engine + Database API
 // ============================================================================
@@ -1079,4 +1081,97 @@ pub fn db_close(db: &mut Database) {
   if !db.open { return; }
   engine_flush_wal(&mut db.engine);
   db.open = false;
+}
+
+// ===========================================================================
+// File-backed database facade (Phase 1/B4): WAL-before-ack on a real segment
+// ===========================================================================
+
+// A database whose log is the durable WAL segment (src/wal_file.xi). Every
+// mutating call appends the record FIRST and only then applies it to the
+// in-memory B-tree; `db_file_open` rebuilds the tree by replaying the segment
+// (torn tail skipped). Data pages still rebuild from the log on open; the
+// durable page file (storage/page_file.xi) takes over persistence next.
+//
+// Durability honesty: `db_file_flush` is the wal_file flush seam (no-op until
+// the stdlib fsync wrapper lands) -- process-crash safe, not power-loss safe.
+
+pub type DBFile = {
+  path: Str;
+  order: Int;
+  tree: BTree;
+  wal: WALFile;
+}
+
+// Apply one replayed record. Maps by op code so cross-module enum patterns
+// stay out of this module (1 Insert, 2 Update, 3 Delete).
+fn db_file_apply_record(tree: &mut BTree, rec: WALRecord) {
+  let code = wal_op_code(rec.op);
+  if code == 2 { let _ = btree_delete(tree, rec.key); }
+  if code == 3 {
+    let _ = btree_delete(tree, rec.key);
+    return;
+  }
+  if code == 1 || code == 2 {
+    let _ = btree_insert(tree, rec.key, rec.value);
+  }
+}
+
+// Open (or create) a file-backed database and recover by replaying the log.
+pub fn db_file_open(path: Str, order: Int) -> DBFile {
+  var tree = btree_new(order);
+  let records = wal_file_replay(path);
+  var i = 0;
+  while i < records.len() {
+    db_file_apply_record(&mut tree, records[i]);
+    i = i + 1;
+  }
+  let w = wal_file_open(path);
+  return DBFile{ path: path, order: order, tree: tree, wal: w };
+}
+
+// Upsert with WAL-before-ack: append (Insert for new keys, Update for
+// existing), then apply. Returns false when the log write fails.
+pub fn db_file_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
+  var op = WALOpKind.Insert;
+  var is_update = false;
+  let existing = btree_search(&db.tree, key);
+  match existing {
+    None => {}
+    Some(_) => {
+      op = WALOpKind.Update;
+      is_update = true;
+    }
+  }
+  let lsn = wal_file_append(&mut db.wal, op, key, value);
+  if lsn < 0 { return false; }
+  if is_update { let _ = btree_delete(&mut db.tree, key); }
+  return btree_insert(&mut db.tree, key, value);
+}
+
+pub fn db_file_delete(db: &mut DBFile, key: Int) -> Bool {
+  let existing = btree_search(&db.tree, key);
+  match existing {
+    None => { return false; }
+    Some(_) => {}
+  }
+  let lsn = wal_file_append(&mut db.wal, WALOpKind.Delete, key, 0);
+  if lsn < 0 { return false; }
+  return btree_delete(&mut db.tree, key);
+}
+
+pub fn db_file_get(db: &DBFile, key: Int) -> Option[Int] {
+  return btree_search(&db.tree, key);
+}
+
+pub fn db_file_size(db: &DBFile) -> Int {
+  return btree_size(&db.tree);
+}
+
+pub fn db_file_last_lsn(db: &DBFile) -> Int {
+  return wal_file_next_lsn(&db.wal) - 1;
+}
+
+pub fn db_file_flush(db: &mut DBFile) -> Bool {
+  return wal_file_flush(&mut db.wal);
 }
