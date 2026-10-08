@@ -32,10 +32,10 @@
 | D. Transactions & isolation | 10 | 1.0 | State machine only; no MVCC, no crash-safe redo/undo |
 | E. Query & schema | 10 | 3.0 | Value-filter query done; planner scaffold; no secondary indexes/typed values |
 | F. Operations & tooling | 10 | 4.0 | ps1/sh runners, crash harness, probes; no CI/packaging/version stamp |
-| G. Performance & limits | 5 | 0.5 | Soak timings only; no benchmarks, no memory bounds |
+| G. Performance & limits | 5 | 2.5 | Benchmarks published (v0.64.1); replay constrained by the filed stdlib `str_split` quadratic; memory/scale policy pending |
 | H. Security & integrity | 5 | 2.0 | Checksums + validation; no fuzz, no encryption, no supply-chain pinning |
 | I. Documentation & evidence | 5 | 4.0 | Full doc set + relay docs + repro bundles; public API reference pending |
-| **Total** | **100** | **54.5** | **~55% -- pre-alpha, durable log + pages** |
+| **Total** | **100** | **56.5** | **~57% -- pre-alpha, durable log + pages, benchmarks live** |
 
 Scoreboard changelog:
 - 2026-10-08: bootstrap complete (suite migrated, engine defects fixed, WAL
@@ -48,6 +48,10 @@ Scoreboard changelog:
 - 2026-10-08: engine on the disk WAL -- `DBFile` WAL-before-ack +
   replay recovery, `db_crash_test` x2 Win + WSL + 200-key soak -> B4 4 pts
   (also surfaced and worked around compiler finding C-ORBIT-04): 54.5.
+- 2026-10-08: benchmark harness (`bench.{ps1,sh}`) + numbers -> G1 2 pts;
+  the bench caught the stdlib `str_split`/`read_file_lines` quadratic (filed)
+  and drove the WAL append heal-state fix (626 -> 2,946 ops/s Windows,
+  26k ops/s WSL native fs): 56.5.
 
 ## A. Correctness & data structures (20)
 
@@ -112,7 +116,7 @@ Scoreboard changelog:
 
 | # | Item | Pts | Status | Evidence / gate |
 |---|---|---|---|---|
-| G1 | Benchmarks (insert/search/delete/range; WAL append/replay throughput) | 2 | -- | none yet; soak timings are not benchmarks |
+| G1 | Benchmarks (insert/search/delete/range; WAL append/replay throughput) | 2 | OK | `scripts/bench.{ps1,sh}` + `probe_bench`; v0.64.1 N=10k: Win btree_insert 1.25M/s, search 3.3M/s, delete 1.67M/s, tuple 714k/s, WAL append 2.9k/s, replay 0.94k/s; WSL native-fs append 26k/s; replay constrained by the filed `str_split` quadratic (44.7 s per 5 MB) |
 | G2 | Memory bounds (page budget, WAL segment size policy, cache) | 2 | 0.5 | tuple budget exists; segment/cache policy pending |
 | G3 | Scale soak (1M+ keys, long WAL) | 1 | -- | |
 

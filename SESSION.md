@@ -63,8 +63,19 @@ B-Tree index, WAL, query engine, crash recovery; formerly `xiom-db`
     compilation unit (clang IR type mismatch). Workaround (module-qualified
     variants in constructors and patterns) applied and verified; details +
     IR evidence in `docs/COMPILER-FINDINGS-ORBITDB.md`.
-  - **Readiness score: 54.5/100** (`docs/PRODUCTION-READINESS.md`; B4 done,
-    changelog updated).
+  - **Benchmark harness live:** `scripts/bench.{ps1,sh}` + `probe_bench.xi`
+    (btree insert/search/delete/range, tuple roundtrip, WAL append/replay),
+    results per run in `probe-logs/bench-*.txt`; v0.64.1 N=10k numbers
+    recorded in `docs/PRODUCTION-READINESS.md` G1. Two findings fell out:
+    - **WAL append heal-state fix (in-lane):** heal scanned the whole
+      segment per append -> 626 ops/s; now tracked in the `WALFile` handle
+      -> 2,946 ops/s Windows, 26k ops/s WSL native FS (DrvFs ~20x slower;
+      bench.sh writes scratch to `/tmp`).
+    - **stdlib perf bug filed: `str_split`/`io.read_file_lines` are O(n^2)**
+      (5 MB: `read_file` 2 ms vs `read_file + str_split` 44.7 s; WAL replay
+      20k = 61.6 s). Rows + relay message updated (STDLIB-WISHLIST /
+      RELAY-STDLIB-ORBITDB).
+  - **Readiness score: 56.5/100** (G1 benchmarks landed; changelog updated).
   - **Free-space map hardened:** `storage/free_space_map.xi` now does
     best-fit placement (tightest page, lowest id on ties), `record_used`
     over-use/negative clamping with false returns, `record_free` with

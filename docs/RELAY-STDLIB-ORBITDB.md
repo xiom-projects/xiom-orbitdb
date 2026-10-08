@@ -42,3 +42,23 @@ a doc note would help consumers; ORBITDB migrated its 93-test suite.
 
 Happy to be the acceptance harness for rows 1-3: the crash test is a
 ready-made consumer fixture for fsync + append-repair + replay.
+
+**Update 2026-10-08 (v0.64.1 benchmarks) -- two sharp findings, in priority
+order:**
+
+1. **`str_split` is O(n^2), and `io.read_file_lines` inherits it.** Measured
+   on a 5 MB / 20k-line WAL segment: `io.read_file` alone 2 ms;
+   `io.read_file + str_split(content, "\n")` 44.7 s; `io.read_file_lines`
+   44.1 s; scaling 10k -> 20k lines 10.5 s -> 44.1 s. This makes WAL
+   replay/open quadratic (61.6 s for 20k records) and stalls every
+   `read_file_lines` consumer (PULSE's JSONL store too). A one-pass scan in
+   the splitter fixes all of it. Reproduce: `scripts/bench.ps1` /
+   `bench.sh` (cases in `tests/probes/probe_bench.xi`).
+2. **Append handle needed:** `io.append_line` opens+closes per call; our WAL
+   append is 2,061 ops/s at best and the rest is open/close churn.
+   `io.open_append(path) -> Handle` (write/sync/close) would fix throughput
+   and give the fsync row its natural home.
+
+ORBITDB worked around what it can in-lane (heal-state tracked in the WAL
+handle: append 626 -> 2,061 ops/s) but cannot fix either of the above
+without runtime support.
