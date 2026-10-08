@@ -69,6 +69,10 @@ Scoreboard changelog:
   2000-key policy soak (9 checkpoints) x2. Also surfaced, worked around, and
   filed **C-ORBIT-05** (nested `Vec[Struct-with-Vec]` loop + push aborts
   v0.64.1) with a repro bundle. G2 0.5 -> 1.0 (segment policy): 57.0.
+- 2026-10-08: checkpoint compaction covered -- 70 no-op checkpoints drive the
+  log past node_count + 64, the next checkpoint rewrites one version per page
+  atomically, and writes/checkpoints continue afterwards; suite 112/112 x2
+  Win + WSL. No score change (B2 evidence): 57.0.
 
 ## A. Correctness & data structures (20)
 
@@ -86,7 +90,7 @@ Scoreboard changelog:
 | # | Item | Pts | Status | Evidence / gate |
 |---|---|---|---|---|
 | B1 | Append-only WAL segment: append, replay, torn-tail heal, LSN resume | 4 | OK | `probe_wal_file` + `scripts/crash_test.{ps1,sh}` x2 Win + WSL; 200-record soak |
-| B2 | WAL checkpoint/truncate seam | 2 | OK | `db_file_checkpoint`: **incremental** generation-committed snapshot (changed nodes only, header-last commit, uncommitted-generation ignored on load, compaction at node_count+64) + Checkpoint anchor + `wal_file_truncate` keep >= anchor; `db_file_maybe_checkpoint(limit)` policy; suite crash-state tests (no-op delta, uncommitted generation, torn-tail heal); `db_crash_test.{ps1,sh}` scenarios B/C x2 Win + WSL; 2000-key policy soak (9 checkpoints) x2 Win + WSL |
+| B2 | WAL checkpoint/truncate seam | 2 | OK | `db_file_checkpoint`: **incremental** generation-committed snapshot (changed nodes only, header-last commit, uncommitted-generation ignored on load, compaction at node_count+64) + Checkpoint anchor + `wal_file_truncate` keep >= anchor; `db_file_maybe_checkpoint(limit)` policy; suite crash-state tests (no-op delta, uncommitted generation, torn-tail heal, compaction); `db_crash_test.{ps1,sh}` scenarios B/C x2 Win + WSL; 2000-key policy soak (9 checkpoints) x2 Win + WSL |
 | B3 | CRC32C page integrity (KAT-locked) | 2 | OK | `probe_crc32c` x2 + suite KAT |
 | B4 | Engine wired to the disk WAL (WAL-before-ack on real files) | 4 | OK | `DBFile` facade: `db_file_put/delete` append then apply; `db_file_open` replays; `db_crash_test.{ps1,sh}` GREEN x2 Win + WSL + 200-key soak; suite roundtrip |
 | B5 | fsync/durable flush on commit (`wal_file_flush` is honest no-op) | 4 | 0 | blocked: stdlib fsync row (STDLIB-WISHLIST-ORBITDB.md #1) |

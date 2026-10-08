@@ -10,8 +10,8 @@ snapshot recovery landed; suite 106/106 x2 Win + WSL; crash scenarios B/C.
 **Updated:** 2026-10-08 (query session): `db_file_query`/`db_file_range` +
 query-after-recovery crash checks; suite 107/107; db_crash 15/15 x2 Win + WSL.
 **Updated:** 2026-10-08 (node-per-page session): incremental generation-
-committed checkpoints + `maybe_checkpoint` policy; suite 111/111; filed
-C-ORBIT-05 with a repro bundle.
+committed checkpoints + `maybe_checkpoint` policy + compaction test; suite
+112/112; filed C-ORBIT-05 with a repro bundle.
 **Project:** embedded database engine for XIOM -- B-Tree, WAL, query engine,
 crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
 
@@ -47,10 +47,10 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     sets `XIOM_COMPILER`/`XIOM_STDLIB` explicitly.
 - **Green evidence (exact commands; all GREEN x2 Windows + WSL unless noted):**
   - Suite: `scripts/run.ps1 tests/test_conformance.xi -TimeoutSec 300` ->
-    **111/111, exit 0** (x2 Win + WSL). Composition: 93 base + 2 churn +
-    CRC32C KAT + 3 tuple-codec + 2 FSM + 2 page-file + 1 page-log + 7 db-file
+    **112/112, exit 0** (x2 Win + WSL). Composition: 93 base + 2 churn +
+    CRC32C KAT + 3 tuple-codec + 2 FSM + 2 page-file + 1 page-log + 8 db-file
     (roundtrip, checkpoint, churn, query/range, incremental, uncommitted
-    generation, policy).
+    generation, policy, compaction).
   - Crash/recovery harnesses: `scripts/crash_test.ps1 -Events 20` (WAL; 200
     soak), `scripts/page_crash_test.ps1 -Pages 20`, `scripts/db_crash_test.ps1
     -Keys 20 -Tail 3` (three scenarios: WAL-only, snapshot-only,
@@ -239,7 +239,7 @@ WSL: the default distro is docker-desktop (no bash) -- run via
 Evidence rules: green suites x2, crash harnesses x2, soak long paths, keep
 probe-logs out of commits (gitignored).
 
-CURRENT STATE: conformance 111/111 x2 Win + WSL; WAL/page crash x2 both;
+CURRENT STATE: conformance 112/112 x2 Win + WSL; WAL/page crash x2 both;
 db_crash three scenarios (WAL-only, snapshot-only, snapshot+tail) x2 Win +
 WSL, each recovery followed by qverify (range + value-filter queries);
 policy soak 2000 keys / 9 checkpoints x2 Win + WSL; bench harness live;

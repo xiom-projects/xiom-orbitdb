@@ -2512,6 +2512,59 @@ fn test_db_file_checkpoint_policy() -> TestResult {
   return assert(false, "db_file: checkpoint policy failed");
 }
 
+fn run_db_file_compaction() -> Int {
+  let path = "orbitdb-suite-db-compact.wal";
+  let snap = "orbitdb-suite-db-compact.wal.snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+
+  var db = db_file_open(path, 4);
+  var i = 1;
+  while i <= 8 {
+    if !db_file_put(&mut db, i, i * 10) { return 1; }
+    i = i + 1;
+  }
+  if db_file_checkpoint(&mut db) < 0 { return 1; }
+
+  // Repeated no-op checkpoints grow the log by one header each; once it
+  // passes node_count + 64, the next checkpoint must compact (atomic batch
+  // rewrite to one page per node).
+  var c = 0;
+  while c < 70 {
+    if db_file_checkpoint(&mut db) < 0 { return 1; }
+    c = c + 1;
+  }
+
+  let pf = page_file_open(snap);
+  let entries = page_log_len(&pf);
+  // Without compaction the log would hold ~78 entries; after compaction it is
+  // one page per node + a header plus the post-compaction headers (< 20).
+  if entries > 25 { return 1; }
+
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 8 { return 1; }
+  let v8 = db_file_get(&db2, 8);
+  match v8 {
+    None => { return 1; }
+    Some(x) => { if x != 80 { return 1; } }
+  }
+  // The compacted snapshot must keep accepting writes + checkpoints.
+  if !db_file_put(&mut db2, 9, 90) { return 1; }
+  if db_file_checkpoint(&mut db2) < 0 { return 1; }
+  var db3 = db_file_open(path, 4);
+  if db_file_size(&db3) != 9 { return 1; }
+
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  return 0;
+}
+
+fn test_db_file_compaction() -> TestResult {
+  let rc = run_db_file_compaction();
+  if rc == 0 { return assert(true, "db_file: log compaction at node_count + 64"); }
+  return assert(false, "db_file: compaction failed");
+}
+
 fn run_result_set_ops() -> Int {
   var cols = Vec[Str].new();
   cols.push("id");
@@ -2798,6 +2851,8 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r97b.passed, r97b.name);
   let r97c = test_db_file_checkpoint_policy();
   total = total + 1; failed = failed + report(r97c.passed, r97c.name);
+  let r97d = test_db_file_compaction();
+  total = total + 1; failed = failed + report(r97d.passed, r97d.name);
   let r93 = test_result_set_ops();
   total = total + 1; failed = failed + report(r93.passed, r93.name);
 
