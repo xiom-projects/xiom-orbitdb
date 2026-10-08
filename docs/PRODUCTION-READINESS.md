@@ -27,7 +27,7 @@
 | Area | Weight | Earned | Status summary |
 |---|---|---|---|
 | A. Correctness & data structures | 20 | 16.0 | B-tree churn-proven; tuple codec v1 KAT-locked; FSM best-fit model-soaked; node-per-page pending |
-| B. Durability & crash safety | 20 | 16.0 | Disk WAL segment + page file + engine WAL-before-ack crash-proven; fsync still pending |
+| B. Durability & crash safety | 20 | 16.0 | Disk WAL segment + page file + engine WAL-before-ack + checkpoint/snapshot crash-proven; fsync still pending |
 | C. Storage engine (pages/pager) | 15 | 8.0 | Codec + checksum + FSM + durable page file done; pager substrate/replacement policy pending |
 | D. Transactions & isolation | 10 | 1.0 | State machine only; no MVCC, no crash-safe redo/undo |
 | E. Query & schema | 10 | 3.0 | Value-filter query done; planner scaffold; no secondary indexes/typed values |
@@ -52,6 +52,12 @@ Scoreboard changelog:
   the bench caught the stdlib `str_split`/`read_file_lines` quadratic (filed)
   and drove the WAL append heal-state fix (626 -> 2,946 ops/s Windows,
   26k ops/s WSL native fs): 56.5.
+- 2026-10-08: checkpoint/snapshot landed -- node page codec (B-tree -> page
+  file), atomic snapshot install, Checkpoint anchor + keep-anchor truncate,
+  `db_file_open` = snapshot + tail replay; suite 106/106 x2 Win + WSL,
+  `db_crash_test` checkpoint scenarios (snapshot-only + snapshot/tail) x2 Win
+  + WSL, 2000-key soak (9 checkpoints). B2 evidence upgraded smoke ->
+  crash-proven (no score change; B2 was already credited at 2/2): 56.5.
 
 ## A. Correctness & data structures (20)
 
@@ -69,7 +75,7 @@ Scoreboard changelog:
 | # | Item | Pts | Status | Evidence / gate |
 |---|---|---|---|---|
 | B1 | Append-only WAL segment: append, replay, torn-tail heal, LSN resume | 4 | OK | `probe_wal_file` + `scripts/crash_test.{ps1,sh}` x2 Win + WSL; 200-record soak |
-| B2 | WAL checkpoint/truncate seam | 2 | OK | truncate smoke (keep lsn >= 15 -> replay 7) |
+| B2 | WAL checkpoint/truncate seam | 2 | OK | `db_file_checkpoint`: node page codec snapshot + atomic install + Checkpoint anchor + `wal_file_truncate` keep >= anchor (payload preserved); `db_file_open` snapshot + tail replay; suite checkpoint tests; `db_crash_test.{ps1,sh}` scenarios B/C x2 Win + WSL; 2000-key soak |
 | B3 | CRC32C page integrity (KAT-locked) | 2 | OK | `probe_crc32c` x2 + suite KAT |
 | B4 | Engine wired to the disk WAL (WAL-before-ack on real files) | 4 | OK | `DBFile` facade: `db_file_put/delete` append then apply; `db_file_open` replays; `db_crash_test.{ps1,sh}` GREEN x2 Win + WSL + 200-key soak; suite roundtrip |
 | B5 | fsync/durable flush on commit (`wal_file_flush` is honest no-op) | 4 | 0 | blocked: stdlib fsync row (STDLIB-WISHLIST-ORBITDB.md #1) |
@@ -151,7 +157,7 @@ Scoreboard changelog:
 - [ ] Every data path proven by suite x2 + a soak; every durability path by
       the crash harness on Windows AND WSL.
 - [ ] fsync wired (stdlib row) and power-loss matrix run.
-- [ ] Engine on disk: WAL-before-ack, recovery from real files, checkpoint.
+- [x] Engine on disk: WAL-before-ack, recovery from real files, checkpoint.
 - [ ] Durable page file + pager + replacement policy; torn-page detection.
 - [ ] Redo/undo with committed/uncommitted classification; MVCC story decided.
 - [ ] Benchmarks with published numbers and no unbounded memory growth.
