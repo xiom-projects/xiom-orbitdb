@@ -5,17 +5,22 @@
 # Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 # SPDX-License-Identifier: MIT OR Apache-2.0
 #
-# Mirrors scripts/db_crash_test.ps1 (three crash scenarios per run):
+# Mirrors scripts/db_crash_test.ps1 (five crash scenarios per run):
 #   A. WAL-only: writer puts N keys, hard-kill the process GROUP, torn tail,
 #      reopen recovers N, heal + put one more -> N+1.
 #   B. snapshot-only: writer puts N keys + checkpoint, hard-kill before any
 #      tail write, torn tail, reopen recovers N from the snapshot alone.
 #   C. snapshot + tail: writer checkpoints after N, appends Tail more keys,
 #      hard-kill mid-tail, reopen recovers N+Tail (snapshot + tail replay).
+#   D. uncommitted txn: writer checkpoints a baseline of N keys, opens a
+#      transaction writing Tx keys, hard-kill BEFORE commit; reopen must
+#      recover exactly N keys (the txn is discarded).
+#   E. committed txn: same, but the txn commits before the kill; reopen must
+#      recover N+Tx keys (snapshot + committed txn).
 # After every recovery the harness runs `qverify`: key-range + value-filter
 # queries must return the correct values from the recovered tree.
 #
-# Usage: scripts/db_crash_test.sh [--keys N] [--tail T] [--timeout-sec S]
+# Usage: scripts/db_crash_test.sh [--keys N] [--tail T] [--tx T] [--timeout-sec S]
 # Exit:  0 = green, 1 = failed.
 # ============================================================================
 
@@ -29,13 +34,15 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 KEYS=20
 TAIL=3
+TX=5
 TIMEOUT_SEC=90
 while [ $# -gt 0 ]; do
   case "$1" in
     --keys) KEYS=${2:?missing value}; shift 2 ;;
     --tail) TAIL=${2:?missing value}; shift 2 ;;
+    --tx) TX=${2:?missing value}; shift 2 ;;
     --timeout-sec) TIMEOUT_SEC=${2:?missing value}; shift 2 ;;
-    -h|--help) printf 'Usage: db_crash_test.sh [--keys N] [--tail T] [--timeout-sec S]\n'; exit 0 ;;
+    -h|--help) printf 'Usage: db_crash_test.sh [--keys N] [--tail T] [--tx T] [--timeout-sec S]\n'; exit 0 ;;
     *) printf 'unknown flag: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -180,6 +187,80 @@ invoke_mode put1 "$((KEYS + TAIL))" "" "" "$TAIL_WAL" >/dev/null 2>&1
 check "ckpt+tail put after recovery heals tail (put1 exit 0)" "$?"
 invoke_mode verify "$((KEYS + TAIL + 1))" "9999" "99990" "$TAIL_WAL" >/dev/null 2>&1
 check "ckpt+tail reopen recovers $((KEYS + TAIL + 1)) keys incl. healed put" "$?"
+
+# --- scenario D: uncommitted txn discarded on kill --------------------------
+TXN_WAL="$LOG_DIR/crash-dbfile-txn.wal"
+TXN_SNAP="$TXN_WAL.snap"
+rm -f "$TXN_WAL" "$TXN_SNAP"
+export ORBITDB_DB_FILE="$TXN_WAL"
+export ORBITDB_DB_MODE="txn"
+export ORBITDB_DB_N="$KEYS"
+export ORBITDB_DB_TXN_COUNT="$TX"
+export ORBITDB_DB_TXN_COMMIT="0"
+setsid "$XIOM_COMPILER" --run "$PROBE" >"$LOG_DIR/dbfile-writer-txn.out" 2>&1 &
+WRITER_PID=$!
+
+DEADLINE=$(( $(date +%s) + TIMEOUT_SEC ))
+OBSERVED=-1
+while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+  if [ -f "$TXN_SNAP" ] && [ -f "$TXN_WAL" ]; then
+    OBSERVED=$(grep -c '|' "$TXN_WAL" 2>/dev/null || true)
+    [ -n "$OBSERVED" ] || OBSERVED=0
+    [ "$OBSERVED" -eq "$((TX + 2))" ] && break
+  fi
+  kill -0 "$WRITER_PID" 2>/dev/null || break
+  sleep 0.3
+done
+check "txn writer reached pending-txn point (observed=$OBSERVED)" "$([ "$OBSERVED" -eq "$((TX + 2))" ] && echo 0 || echo 1)"
+kill -9 -"$WRITER_PID" 2>/dev/null || kill -9 "$WRITER_PID" 2>/dev/null
+wait "$WRITER_PID" 2>/dev/null || true
+printf 'torn|' >> "$TXN_WAL"
+
+invoke_mode verify "$KEYS" "" "" "$TXN_WAL" >/dev/null 2>&1
+check "uncommitted txn discarded: $KEYS keys recovered (no txn keys)" "$?"
+invoke_mode qverify "$KEYS" "" "" "$TXN_WAL" >/dev/null 2>&1
+check "query after uncommitted-txn recovery: range + filter correct" "$?"
+invoke_mode put1 "$KEYS" "" "" "$TXN_WAL" >/dev/null 2>&1
+check "put after uncommitted-txn recovery heals WAL (put1 exit 0)" "$?"
+invoke_mode verify "$((KEYS + 1))" "9999" "99990" "$TXN_WAL" >/dev/null 2>&1
+check "reopen recovers $((KEYS + 1)) keys incl. healed put" "$?"
+
+# --- scenario E: committed txn recovered on kill ----------------------------
+TXNC_WAL="$LOG_DIR/crash-dbfile-txn2.wal"
+TXNC_SNAP="$TXNC_WAL.snap"
+rm -f "$TXNC_WAL" "$TXNC_SNAP"
+export ORBITDB_DB_FILE="$TXNC_WAL"
+export ORBITDB_DB_MODE="txn"
+export ORBITDB_DB_N="$KEYS"
+export ORBITDB_DB_TXN_COUNT="$TX"
+export ORBITDB_DB_TXN_COMMIT="1"
+setsid "$XIOM_COMPILER" --run "$PROBE" >"$LOG_DIR/dbfile-writer-txn2.out" 2>&1 &
+WRITER_PID=$!
+
+DEADLINE=$(( $(date +%s) + TIMEOUT_SEC ))
+OBSERVED=-1
+while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+  if [ -f "$TXNC_SNAP" ] && [ -f "$TXNC_WAL" ]; then
+    OBSERVED=$(grep -c '|' "$TXNC_WAL" 2>/dev/null || true)
+    [ -n "$OBSERVED" ] || OBSERVED=0
+    [ "$OBSERVED" -eq "$((TX + 3))" ] && break
+  fi
+  kill -0 "$WRITER_PID" 2>/dev/null || break
+  sleep 0.3
+done
+check "txn writer reached committed point (observed=$OBSERVED)" "$([ "$OBSERVED" -eq "$((TX + 3))" ] && echo 0 || echo 1)"
+kill -9 -"$WRITER_PID" 2>/dev/null || kill -9 "$WRITER_PID" 2>/dev/null
+wait "$WRITER_PID" 2>/dev/null || true
+printf 'torn|' >> "$TXNC_WAL"
+
+invoke_mode verify "$((KEYS + TX))" "" "" "$TXNC_WAL" >/dev/null 2>&1
+check "committed txn recovered: $((KEYS + TX)) keys (snapshot + txn)" "$?"
+invoke_mode qverify "$((KEYS + TX))" "" "" "$TXNC_WAL" >/dev/null 2>&1
+check "query after committed-txn recovery: range + filter correct" "$?"
+invoke_mode put1 "$((KEYS + TX))" "" "" "$TXNC_WAL" >/dev/null 2>&1
+check "put after committed-txn recovery heals WAL (put1 exit 0)" "$?"
+invoke_mode verify "$((KEYS + TX + 1))" "9999" "99990" "$TXNC_WAL" >/dev/null 2>&1
+check "reopen recovers $((KEYS + TX + 1)) keys incl. healed put" "$?"
 
 printf 'crash: pass=%s fail=%s\n' "$PASS" "$FAIL"
 if [ "$FAIL" -eq 0 ]; then printf 'db-crash: GREEN\n'; exit 0; fi

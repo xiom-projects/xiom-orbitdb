@@ -9,11 +9,13 @@
 //
 // Env:
 //   ORBITDB_DB_FILE      WAL segment path (required)
-//   ORBITDB_DB_MODE      write | verify | put1 | ckpt | qverify | soak
+//   ORBITDB_DB_MODE      write | verify | put1 | ckpt | qverify | soak | txn
 //                        (default: verify)
 //   ORBITDB_DB_N         key count for write / verify / ckpt   (default: 20)
 //   ORBITDB_DB_TAIL      ckpt mode: keys appended AFTER the checkpoint (default 0)
 //   ORBITDB_DB_CKPT_EVERY soak mode: maybe_checkpoint record limit (default 250)
+//   ORBITDB_DB_TXN_COUNT  txn mode: keys written inside the transaction (default 5)
+//   ORBITDB_DB_TXN_COMMIT txn mode: "0" leaves the txn pending, "1" commits (default 1)
 //   ORBITDB_DB_LAST_KEY  optional: key to assert after recovery
 //   ORBITDB_DB_LAST_VAL  optional: expected value for LAST_KEY
 //
@@ -131,6 +133,57 @@ fn run_qverify(path: Str, n: Int) -> Int {
   if s[1] != 20 { io.println("qverify: lt 1"); return 1; }
 
   io.println("qverify: OK n=" + convert.int_to_string(n));
+  return 0;
+}
+
+// Transaction scenario: put N base keys, checkpoint (clean baseline), then
+// begin a transaction, write `txn_count` keys, optionally commit, and hang for
+// a hard kill. Harness polls WAL line count + snapshot file, not stdout.
+fn run_txn(path: Str, n: Int) -> Int {
+  var txn_count = 5;
+  match parse.parse_int(env.var_or("ORBITDB_DB_TXN_COUNT", "5")) {
+    Ok(v) => { txn_count = v; }
+    Err(_) => { txn_count = 5; }
+  }
+  var do_commit = true;
+  if env.var_or("ORBITDB_DB_TXN_COMMIT", "1") == "0" { do_commit = false; }
+
+  var db = db_file_open(path, 4);
+  var i = 1;
+  while i <= n {
+    if !db_file_put(&mut db, i, i * 10) {
+      io.println("txn: base put failed at " + convert.int_to_string(i));
+      return 1;
+    }
+    i = i + 1;
+  }
+  let base = db_file_checkpoint(&mut db);
+  if base < 0 { io.println("txn: baseline checkpoint failed"); return 1; }
+  io.println("txn: baseline done lsn=" + convert.int_to_string(base));
+
+  if !db_file_txn_begin(&mut db) { io.println("txn: begin failed"); return 1; }
+  var j = n + 1;
+  while j <= n + txn_count {
+    if !db_file_txn_put(&mut db, j, j * 10) {
+      io.println("txn: put failed at " + convert.int_to_string(j));
+      return 1;
+    }
+    j = j + 1;
+  }
+  if do_commit {
+    if !db_file_txn_commit(&mut db) { io.println("txn: commit failed"); return 1; }
+    io.println("txn: committed");
+  } else {
+    io.println("txn: pending (uncommitted)");
+  }
+  let flushed = db_file_flush(&mut db);
+  if !flushed { io.println("txn: flush failed"); return 1; }
+
+  // Hang until the harness hard-kills us (crash simulation).
+  var alive = true;
+  while alive {
+    io.sleep(1000);
+  }
   return 0;
 }
 
@@ -265,6 +318,9 @@ fn main() -> Int {
   }
   if mode == "qverify" {
     return run_qverify(path, n);
+  }
+  if mode == "txn" {
+    return run_txn(path, n);
   }
   if mode == "put1" {
     var db = db_file_open(path, 4);

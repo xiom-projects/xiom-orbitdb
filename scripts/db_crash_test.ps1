@@ -5,23 +5,29 @@
 # Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 # SPDX-License-Identifier: MIT OR Apache-2.0
 #
-# Drives tests\probes\probe_db_file.xi (three crash scenarios per run):
+# Drives tests\probes\probe_db_file.xi (five crash scenarios per run):
 #   A. WAL-only: writer puts N keys, hard-kill, torn tail, reopen recovers N,
 #      heal + put one more -> N+1.
 #   B. snapshot-only: writer puts N keys + checkpoint, hard-kill before any
 #      tail write, torn tail, reopen recovers N from the snapshot alone.
 #   C. snapshot + tail: writer checkpoints after N, appends Tail more keys,
 #      hard-kill mid-tail, reopen recovers N+Tail (snapshot + tail replay).
+#   D. uncommitted txn: writer checkpoints a baseline of N keys, opens a
+#      transaction writing Tx keys, hard-kill BEFORE commit; reopen must
+#      recover exactly N keys (the txn is discarded).
+#   E. committed txn: same, but the txn commits before the kill; reopen must
+#      recover N+Tx keys (snapshot + committed txn).
 # After every recovery the harness runs `qverify`: key-range + value-filter
 # queries must return the correct values from the recovered tree.
 #
-# Usage: .\scripts\db_crash_test.ps1 [-Keys 20] [-Tail 3] [-TimeoutSec 90]
+# Usage: .\scripts\db_crash_test.ps1 [-Keys 20] [-Tail 3] [-Tx 5] [-TimeoutSec 90]
 # Exit:  0 = green, 1 = failed.
 # ============================================================================
 [CmdletBinding()]
 param(
     [int]$Keys = 20,
     [int]$Tail = 3,
+    [int]$Tx = 5,
     [int]$TimeoutSec = 90
 )
 
@@ -172,6 +178,50 @@ $rc = Invoke-DbMode -Mode "put1" -N ($Keys + $Tail) -Path $tailWal
 Check "ckpt+tail put after recovery heals tail (put1 exit 0)" ($rc -eq 0)
 $rc = Invoke-DbMode -Mode "verify" -N ($Keys + $Tail + 1) -LastKey "9999" -LastVal "99990" -Path $tailWal
 Check "ckpt+tail reopen recovers $($Keys + $Tail + 1) keys incl. healed put" ($rc -eq 0)
+
+# --- scenario D: uncommitted txn discarded on kill --------------------------
+$txnWal = Join-Path $logDir "crash-dbfile-txn.wal"
+$txnSnap = "$txnWal.snap"
+Remove-Item -LiteralPath $txnWal, $txnSnap -Force -ErrorAction SilentlyContinue
+$env:ORBITDB_DB_TXN_COUNT = "$Tx"
+$env:ORBITDB_DB_TXN_COMMIT = "0"
+$writer = Start-Writer -Mode "txn" -N $Keys -T 0 -OutName "dbfile-writer-txn" -Path $txnWal
+$observed = Wait-ForCkptPoint -Writer $writer -Path $txnWal -SnapPath $txnSnap `
+    -ExpectedLines ($Tx + 2) -TimeoutSec $TimeoutSec
+Check "txn writer reached pending-txn point (observed=$observed)" ($observed -eq ($Tx + 2))
+Stop-Writer -Writer $writer
+Add-Content -LiteralPath $txnWal -Value "torn|" -NoNewline
+
+$rc = Invoke-DbMode -Mode "verify" -N $Keys -Path $txnWal
+Check "uncommitted txn discarded: $Keys keys recovered (no txn keys)" ($rc -eq 0)
+$rc = Invoke-DbMode -Mode "qverify" -N $Keys -Path $txnWal
+Check "query after uncommitted-txn recovery: range + filter correct" ($rc -eq 0)
+$rc = Invoke-DbMode -Mode "put1" -N $Keys -Path $txnWal
+Check "put after uncommitted-txn recovery heals WAL (put1 exit 0)" ($rc -eq 0)
+$rc = Invoke-DbMode -Mode "verify" -N ($Keys + 1) -LastKey "9999" -LastVal "99990" -Path $txnWal
+Check "reopen recovers $($Keys + 1) keys incl. healed put" ($rc -eq 0)
+
+# --- scenario E: committed txn recovered on kill ----------------------------
+$txncWal = Join-Path $logDir "crash-dbfile-txn2.wal"
+$txncSnap = "$txncWal.snap"
+Remove-Item -LiteralPath $txncWal, $txncSnap -Force -ErrorAction SilentlyContinue
+$env:ORBITDB_DB_TXN_COUNT = "$Tx"
+$env:ORBITDB_DB_TXN_COMMIT = "1"
+$writer = Start-Writer -Mode "txn" -N $Keys -T 0 -OutName "dbfile-writer-txn2" -Path $txncWal
+$observed = Wait-ForCkptPoint -Writer $writer -Path $txncWal -SnapPath $txncSnap `
+    -ExpectedLines ($Tx + 3) -TimeoutSec $TimeoutSec
+Check "txn writer reached committed point (observed=$observed)" ($observed -eq ($Tx + 3))
+Stop-Writer -Writer $writer
+Add-Content -LiteralPath $txncWal -Value "torn|" -NoNewline
+
+$rc = Invoke-DbMode -Mode "verify" -N ($Keys + $Tx) -Path $txncWal
+Check "committed txn recovered: $($Keys + $Tx) keys (snapshot + txn)" ($rc -eq 0)
+$rc = Invoke-DbMode -Mode "qverify" -N ($Keys + $Tx) -Path $txncWal
+Check "query after committed-txn recovery: range + filter correct" ($rc -eq 0)
+$rc = Invoke-DbMode -Mode "put1" -N ($Keys + $Tx) -Path $txncWal
+Check "put after committed-txn recovery heals WAL (put1 exit 0)" ($rc -eq 0)
+$rc = Invoke-DbMode -Mode "verify" -N ($Keys + $Tx + 1) -LastKey "9999" -LastVal "99990" -Path $txncWal
+Check "reopen recovers $($Keys + $Tx + 1) keys incl. healed put" ($rc -eq 0)
 
 Write-Host ("crash: pass={0} fail={1}" -f $pass, $fail)
 if ($fail -eq 0) { Write-Host "db-crash: GREEN"; exit 0 }
