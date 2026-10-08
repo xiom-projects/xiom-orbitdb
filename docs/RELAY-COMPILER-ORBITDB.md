@@ -44,5 +44,32 @@ A/B/C broken -> green), `probe_only_i.xi`, `probe2.xi` in
 option-vec-assign, `nested-field-mut/probe.xi` (A/C must be 1). Findings
 flip to RESOLVED only when the bundles are green unchanged.
 
+**New finding since the first message -- C-ORBIT-04 (enum variant collision,
+hard compile failure):** with `xiom.db.txn.transaction`'s
+`pub enum WALOp { Insert, Update, Delete }` and `xiom.db.wal_file`'s
+`pub enum WALOpKind { Insert, Update, Delete, ... }` in one compilation
+unit, unqualified `return Update;` inside `wal_op_from_code` lowered as the
+txn module's `%struct.WALOp` while the function is declared `-> WALOpKind`:
+
+```
+error: clang failed with exit code 1
+xiominput.ll:71073:25: error: '%tmp10' defined with type
+    '%struct.WALOp = type { i64 }' but expected '%struct.WALOpKind = type { i64 }'
+71073 |   ret %struct.WALOpKind %tmp10
+```
+
+The same module (wal_file) compiled and ran green for hours when the txn
+module was NOT in the graph -- the collision only appears when both enums
+are present. Variant *patterns* against the wrong structural twin would
+compare equal i64 tags and silently take the wrong branch, so this is
+high-priority even though clang caught the constructor case here.
+Workaround verified in our build: module-qualify variants in constructors
+AND patterns (`return WALOpKind.Update;`,
+`match op { WALOpKind.Insert => ... }`) -- suite back to 104/104.
+Full details + IR snippet in `docs/COMPILER-FINDINGS-ORBITDB.md`
+(section C-ORBIT-04). Suggested fix: scope unqualified variant resolution to
+the current module first (or intern variants by module+name+tag) and error
+on real ambiguity.
+
 Thanks -- ORBITDB keeps tracking the latest compiler and will re-run these
 every release.
