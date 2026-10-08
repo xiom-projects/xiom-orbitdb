@@ -7,6 +7,8 @@
 clean handoff.
 **Updated:** 2026-10-08 (checkpoint session): `db_file_checkpoint` +
 snapshot recovery landed; suite 106/106 x2 Win + WSL; crash scenarios B/C.
+**Updated:** 2026-10-08 (query session): `db_file_query`/`db_file_range` +
+query-after-recovery crash checks; suite 107/107; db_crash 15/15 x2 Win + WSL.
 **Project:** embedded database engine for XIOM -- B-Tree, WAL, query engine,
 crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
 
@@ -19,9 +21,11 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   `c7d4901` B-tree delete hardening, `59b67bd` `xiom.wal` reference,
   `7b2a206` CRC32C, `5dc6450` tuple codec v1, `0462820` FSM hardening,
   `2503eb4` page file, `32d71c3` DBFile, `cf5a64a` v0.64.1 re-test,
-  `1faf145` benchmarks); checkpoint session `c3abe56` -> HEAD (`868cefe`
-  storage primitives, `de826db` engine checkpoint (suite 104 -> 106),
-  `f359707` crash-harness checkpoint scenarios, then the wrap commit).
+  `1faf145` benchmarks); checkpoint session `c3abe56` -> `29813fd`
+  (`868cefe` storage primitives, `de826db` engine checkpoint (suite
+  104 -> 106), `f359707` crash-harness checkpoint scenarios, wrap
+  `29813fd`); query session `29813fd` -> HEAD (`06be90e` DBFile query/range
+  (suite 107), `5ec8c79` qverify crash checks, then the wrap commit).
 - **VERSION POLICY (owner): track the LATEST compiler / stdlib / packages.**
   Record exact versions + lane hashes here at every wrap.
   - compiler: **v0.64.1** -- Windows `%LOCALAPPDATA%\xiom.new\bin\xiom.exe`,
@@ -35,15 +39,17 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     sets `XIOM_COMPILER`/`XIOM_STDLIB` explicitly.
 - **Green evidence (exact commands; all GREEN x2 Windows + WSL unless noted):**
   - Suite: `scripts/run.ps1 tests/test_conformance.xi -TimeoutSec 300` ->
-    **106/106, exit 0** (x2 Win + WSL). Composition: 93 base + 2 churn +
-    CRC32C KAT + 3 tuple-codec + 2 FSM + 2 page-file + 3 db-file (roundtrip,
-    checkpoint, checkpoint-churn).
+    **107/107, exit 0** (x2 Win + WSL). Composition: 93 base + 2 churn +
+    CRC32C KAT + 3 tuple-codec + 2 FSM + 2 page-file + 4 db-file (roundtrip,
+    checkpoint, checkpoint-churn, query/range).
   - Crash/recovery harnesses: `scripts/crash_test.ps1 -Events 20` (WAL; 200
     soak), `scripts/page_crash_test.ps1 -Pages 20`, `scripts/db_crash_test.ps1
     -Keys 20 -Tail 3` (three scenarios: WAL-only, snapshot-only,
     snapshot+tail; 200 soak). All: writer -> hard kill -> torn tail -> reopen
-    -> verify -> heal -> verify +1. Checkpoint scenarios poll snapshot file +
-    truncated WAL line count before killing (x2 Win + WSL).
+    -> verify -> heal -> verify +1; each recovery is followed by `qverify`
+    (key-range + value-filter queries on the recovered tree; 15 checks).
+    Checkpoint scenarios poll snapshot file + truncated WAL line count before
+    killing (x2 Win + WSL).
   - Benchmarks: `scripts/bench.ps1 -N 10000` / `scripts/bench.sh` ->
     `probe-logs/bench-*.txt`. v0.64.1 N=10k: Win insert 1.25M/s, search
     3.3M/s, delete 1.67M/s, tuple 714k/s, WAL append 2.9k/s, replay 0.94k/s;
@@ -72,6 +78,10 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     `wal_file_truncate` keeping `lsn >= anchor` (the anchor survives so
     `next_lsn` resumes). `db_file_open` loads the snapshot and replays only
     records with `lsn > checkpoint_lsn`; no snapshot -> full replay.
+  - Queries (new): `db_file_range(low, high)` (key range, values in key order)
+    and `db_file_query(query)` (value filter with offset/limit) on the
+    live/recovered tree; semantics match `db_range`/`db_query` (pinned in
+    `docs/query-pipeline.md`).
   - Index-of-record: `docs/PRODUCTION-READINESS.md` **56.5/100 (~57%)**,
     per-area table + changelog + 100% checklist.
 - **Known limitations / risks (read before touching storage):**
@@ -85,8 +95,9 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     rewrites the entire snapshot page set (text codec, O(nodes)); no policy or
     background cadence. Truncate keeps the Checkpoint anchor -- NEVER truncate
     to empty (next_lsn lives in the segment). Snapshot path is `<wal>.snap`.
-  - `DBFile` has no query/range API yet (put/get/delete/size/flush/last_lsn
-    only); engine `Database` is separate and still in-memory.
+  - `DBFile` (put/get/delete/size/flush/last_lsn/checkpoint/range/query) and
+    the in-memory `Database` facade are still separate; no transactions API
+    on `DBFile` (single-op WAL-before-ack only).
   - Node-per-page B-tree: the SNAPSHOT is node-per-page on the page file, but
     the live tree is still in-memory (rebuilt on open); pager integration
     externally blocked (`xiom.core.storage.pager` substrate / C-PULSE-02).
@@ -99,15 +110,14 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   new `str_split` quadratic + append-handle findings**; package docs carry
   the `xiom.wal`/`xiom.btree` decisions.
 - **Next action (priority order):**
-  1. **DBFile query/range API** (reuse `query_execute`/`btree_range_query` on
-     `db.tree`) + a query-after-recovery crash phase.
-  2. **Node-per-page B-tree** on the stable snapshot codec (pager substrate
+  1. **Node-per-page B-tree** on the stable snapshot codec (pager substrate
      still externally blocked; the snapshot already gives page-per-node
      representation to build on).
-  3. Re-test C-ORBIT bundles on the next archive; keep readiness + relay docs
+  2. Re-test C-ORBIT bundles on the next archive; keep readiness + relay docs
      current; commit signed at every logical step.
-  4. Checkpoint policy (cadence, bounded snapshot rewrite) once the pager /
+  3. Checkpoint policy (cadence, bounded snapshot rewrite) once the pager /
      codec swap is decided.
+  4. DBFile transactions API (single-op today; the vehicle for D2 redo/undo).
 
 ## 1. Consumer-lane rules (non-negotiable)
 
@@ -203,33 +213,34 @@ WSL: the default distro is docker-desktop (no bash) -- run via
 Evidence rules: green suites x2, crash harnesses x2, soak long paths, keep
 probe-logs out of commits (gitignored).
 
-CURRENT STATE: conformance 106/106 x2 Win + WSL; WAL/page crash x2 Win;
+CURRENT STATE: conformance 107/107 x2 Win + WSL; WAL/page crash x2 Win;
 db_crash three scenarios (WAL-only, snapshot-only, snapshot+tail) x2 Win +
-WSL; checkpoint soak 2000 keys / 9 checkpoints x2 Win + WSL; bench harness
-live; readiness 56.5/100 (docs/PRODUCTION-READINESS.md -- recompute +
-changelog every wrap). Durable pieces: src/wal_file.xi (segment, LSN resume,
+WSL, each recovery followed by qverify (range + value-filter queries);
+checkpoint soak 2000 keys / 9 checkpoints x2 Win + WSL; bench harness live;
+readiness 56.5/100 (docs/PRODUCTION-READINESS.md -- recompute + changelog
+every wrap). Durable pieces: src/wal_file.xi (segment, LSN resume,
 heal-state, truncate seam keeping payloads), src/storage/page_file.xi
 (CRC32C text page store, atomic rewrite + batch install + read-all),
 src/storage/tuple.xi codec v1 (LE helpers exported), CRC32C, best-fit FSM,
 DBFile in src/engine.xi (WAL-before-ack + replay recovery + checkpoint:
 node page codec snapshot at <wal>.snap, Checkpoint anchor, keep-anchor
-truncate, open = snapshot + tail replay). Known limits: no fsync
-(process-crash safe only); replay/O(n^2) line IO (filed); checkpoint is
-manual + whole-snapshot rewrite; DBFile has no query/range API yet; live
-tree still in-memory (snapshot codec is node-per-page).
+truncate, open = snapshot + tail replay; db_file_range + db_file_query).
+Known limits: no fsync (process-crash safe only); replay/O(n^2) line IO
+(filed); checkpoint is manual + whole-snapshot rewrite; no DBFile
+transactions API; live tree still in-memory (snapshot codec is
+node-per-page).
 
 TASK ORDER (highest value first):
-1. DBFile query/range API (reuse query_execute / btree_range_query on
-   db.tree) + a query-after-recovery crash phase.
-2. Node-per-page B-tree on the stable snapshot codec (pager substrate still
+1. Node-per-page B-tree on the stable snapshot codec (pager substrate still
    externally blocked / C-PULSE-02; the snapshot already gives page-per-node
    representation to build on).
-3. Re-test docs/repro bundles + suite on the next compiler archive (watch
+2. Re-test docs/repro bundles + suite on the next compiler archive (watch
    C-ORBIT-01..04; all still open on v0.64.1); update findings + relay docs.
-4. Checkpoint policy (cadence, bounded snapshot rewrite) once the pager /
-   codec swap is decided; keep SESSION.md STATE, relay docs and
-   PRODUCTION-READINESS updated at every wrap; commit signed at every
-   logical step.
+3. Checkpoint policy (cadence, bounded snapshot rewrite) once the pager /
+   codec swap is decided.
+4. DBFile transactions API (single-op today; vehicle for D2 redo/undo); keep
+   SESSION.md STATE, relay docs and PRODUCTION-READINESS updated at every
+   wrap; commit signed at every logical step.
 
 DISCIPLINE (v0.64.1 workarounds, all still needed):
 - Rebind cross-module generic Result payloads through an annotated local

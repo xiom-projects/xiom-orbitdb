@@ -30,7 +30,7 @@
 | B. Durability & crash safety | 20 | 16.0 | Disk WAL segment + page file + engine WAL-before-ack + checkpoint/snapshot crash-proven; fsync still pending |
 | C. Storage engine (pages/pager) | 15 | 8.0 | Codec + checksum + FSM + durable page file done; pager substrate/replacement policy pending |
 | D. Transactions & isolation | 10 | 1.0 | State machine only; no MVCC, no crash-safe redo/undo |
-| E. Query & schema | 10 | 3.0 | Value-filter query done; planner scaffold; no secondary indexes/typed values |
+| E. Query & schema | 10 | 3.0 | Value-filter query + DBFile range/query bindings done; planner scaffold; no secondary indexes/typed values |
 | F. Operations & tooling | 10 | 4.0 | ps1/sh runners, crash harness, probes; no CI/packaging/version stamp |
 | G. Performance & limits | 5 | 2.5 | Benchmarks published (v0.64.1); replay constrained by the filed stdlib `str_split` quadratic; memory/scale policy pending |
 | H. Security & integrity | 5 | 2.0 | Checksums + validation; no fuzz, no encryption, no supply-chain pinning |
@@ -58,6 +58,11 @@ Scoreboard changelog:
   `db_crash_test` checkpoint scenarios (snapshot-only + snapshot/tail) x2 Win
   + WSL, 2000-key soak (9 checkpoints). B2 evidence upgraded smoke ->
   crash-proven (no score change; B2 was already credited at 2/2): 56.5.
+- 2026-10-08: DBFile query/range API -- `db_file_query`/`db_file_range` mirror
+  `db_query`/`db_range` (value semantics, key-range) on the recovered tree;
+  `qverify` query-after-recovery checks in all three crash scenarios; suite
+  107/107 x2 Win + WSL, db_crash 15/15 x2 Win + WSL. E1 evidence upgraded
+  (no score change; E1 already credited): 56.5.
 
 ## A. Correctness & data structures (20)
 
@@ -103,7 +108,7 @@ Scoreboard changelog:
 
 | # | Item | Pts | Status | Evidence / gate |
 |---|---|---|---|---|
-| E1 | Query engine: AND filter, offset, limit, deterministic order | 3 | OK | suite query/db_query tests; **value semantics pinned** in docs/query-pipeline.md |
+| E1 | Query engine: AND filter, offset, limit, deterministic order | 3 | OK | suite query/db_query/db_file tests; **value semantics pinned** in docs/query-pipeline.md; `db_file_range`/`db_file_query` on recovered trees; `qverify` in every `db_crash_test` scenario x2 Win + WSL |
 | E2 | Index-aware planner (key-range pushdown, point lookup, cost) | 3 | -- | requires the semantics extension decision (docs/query-pipeline.md note) |
 | E3 | Secondary indexes driven by catalog `IndexDef` | 2 | -- | needs A5 |
 | E4 | Typed values + column constraints (beyond Int) | 2 | -- | codec v1 carries type byte 0x01; more types later |
