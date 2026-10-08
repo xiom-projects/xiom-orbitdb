@@ -1104,6 +1104,7 @@ pub type DBFile = {
   order: Int;
   tree: BTree;
   wal: WALFile;
+  records_since_ckpt: Int;
 }
 
 // Apply one replayed record. Maps by op code so cross-module enum patterns
@@ -1128,6 +1129,10 @@ pub fn db_file_open(path: Str, order: Int) -> DBFile {
   var tree = btree_new(order);
   var snap_lsn = 0;
   let snap_path = path + ".snap";
+  // Heal a torn trailing snapshot append before any future append can merge
+  // with it (same rule as the WAL segment).
+  let snap_pf = page_file_open(snap_path);
+  let _ = page_log_heal_tail(&snap_pf);
   let loaded = snap_load(snap_path);
   match loaded {
     None => {}
@@ -1148,7 +1153,8 @@ pub fn db_file_open(path: Str, order: Int) -> DBFile {
     i = i + 1;
   }
   let w = wal_file_open(path);
-  return DBFile{ path: path, order: tree.order, tree: tree, wal: w };
+  return DBFile{ path: path, order: tree.order, tree: tree, wal: w,
+                 records_since_ckpt: 0 };
 }
 
 // Upsert with WAL-before-ack: append (Insert for new keys, Update for
@@ -1166,6 +1172,7 @@ pub fn db_file_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
   }
   let lsn = wal_file_append(&mut db.wal, op, key, value);
   if lsn < 0 { return false; }
+  db.records_since_ckpt = db.records_since_ckpt + 1;
   if is_update { let _ = btree_delete(&mut db.tree, key); }
   return btree_insert(&mut db.tree, key, value);
 }
@@ -1178,6 +1185,7 @@ pub fn db_file_delete(db: &mut DBFile, key: Int) -> Bool {
   }
   let lsn = wal_file_append(&mut db.wal, WALOpKind.Delete, key, 0);
   if lsn < 0 { return false; }
+  db.records_since_ckpt = db.records_since_ckpt + 1;
   return btree_delete(&mut db.tree, key);
 }
 
@@ -1217,21 +1225,22 @@ pub fn db_file_flush(db: &mut DBFile) -> Bool {
 // CHECKPOINT / SNAPSHOT (Phase 1/C): persist the B-tree node set into the
 // durable page file; recovery loads the snapshot and replays only the tail.
 // ===========================================================================
-// Snapshot page file layout (text page codec v1, storage/page_file.xi):
-//   page 0     header: root, order, node_count, checkpoint_lsn, generation
-//   page i+1   B-tree node i (node codec v1, little-endian i64 fields)
-// The full page set is installed with ONE atomic rename (page_file_write_batch),
-// so a crash mid-checkpoint leaves the previous snapshot intact. The Checkpoint
-// WAL record that follows anchors truncation: `wal_file_truncate` keeps records
-// with lsn >= that anchor, so `next_lsn` resumes past it and the anchor itself
-// is never dropped (never truncate to empty -- the LSN counter lives in the
-// segment).
+// Snapshot layout (append-only page log, storage/page_file.xi):
+//   page 0                  header: root, order, node_count, lsn, generation
+//   page g*STRIDE + i + 1   B-tree node i as of generation g
+// A checkpoint appends new versions of ONLY the nodes that changed since the
+// last committed generation, then appends the header page LAST: its generation
+// commits the snapshot (every page of that generation is already in the log).
+// Readers resolve, per node, the newest generation <= the committed header
+// generation -- pages from an uncommitted later generation are ignored, so a
+// crash mid-checkpoint leaves the previous snapshot fully valid. When the log
+// grows past node_count + 64 entries, compaction rewrites one version of every
+// page through page_file_write_batch (single atomic rename).
 //
 // Crash ordering (each step leaves a recoverable state):
-//   1. snapshot install (atomic)      -> crash: old snapshot + full WAL
-//   2. Checkpoint record append       -> crash: new snapshot + full WAL
-//                                        (open skips it via checkpoint_lsn)
-//   3. WAL truncate keep >= anchor    -> crash: new snapshot + full WAL
+//   1. node appends (generation g)       -> crash: g uncommitted, old header
+//   2. header append (generation g)      -> snapshot committed at g
+//   3. WAL anchor append + truncate      -> anchor kept, next_lsn resumes
 //
 // Durability honesty: the snapshot rides on `page_file_sync` (no-op until the
 // stdlib fsync wrapper lands) -- process-crash safe, not power-loss safe.
@@ -1243,6 +1252,26 @@ const SNAP_KIND_NODE: Int = 0x4E;   // 'N'
 const SNAP_HEADER_BYTES: Int = 44;
 const SNAP_NODE_HEADER_BYTES: Int = 28;
 const SNAP_PAGE_MAX_BYTES: Int = 4096;
+// 2^32: page id = generation*STRIDE + node_idx + 1. The stride bounds a
+// generation's node ids; ids never collide across generations, so older
+// generations stay valid until a compaction rewrites the file atomically.
+pub const SNAP_PAGE_STRIDE: Int = 4294967296;
+// Compact once the raw log grows past node_count + this slack.
+const SNAP_COMPACT_SLACK: Int = 64;
+
+fn snap_page_id_for(gen: Int, node_idx: Int) -> Int {
+  return gen * SNAP_PAGE_STRIDE + node_idx + 1;
+}
+
+fn snap_bytes_equal(a: &Vec[Int], b: &Vec[Int]) -> Bool {
+  if a.len() != b.len() { return false; }
+  var i = 0;
+  while i < a.len() {
+    if a[i] != b[i] { return false; }
+    i = i + 1;
+  }
+  return true;
+}
 
 type SnapshotMeta = {
   root: Int;
@@ -1359,46 +1388,170 @@ fn snap_decode_header(data: &Vec[Int]) -> Option[SnapshotMeta] {
   });
 }
 
-fn snap_find_page(pages: &Vec[Page], page_id: Int) -> Option[Page] {
+// Header selection: a committed checkpoint appends its header page LAST, so
+// among valid header pages (id 0) the highest generation is the active one.
+fn snap_read_meta(pages: &Vec[Page]) -> Option[SnapshotMeta] {
+  var best = SnapshotMeta{ root: 0, order: 3, node_count: 0, checkpoint_lsn: 0, generation: -1 };
+  var found = false;
   var i = 0;
   while i < pages.len() {
-    if pages[i].id == page_id { return Some(pages[i]); }
+    let pg = pages[i];
+    if pg.id == 0 {
+      let dec = snap_decode_header(&pg.data);
+      match dec {
+        None => {}
+        Some(m) => {
+          let mm: SnapshotMeta = m;
+          if mm.generation > best.generation {
+            best = mm;
+            found = true;
+          }
+        }
+      }
+    }
     i = i + 1;
   }
-  return None;
+  if !found { return None; }
+  return Some(best);
 }
 
-fn snap_read_meta(pages: &Vec[Page]) -> Option[SnapshotMeta] {
-  let found = snap_find_page(pages, 0);
-  match found {
-    None => { return None; }
-    Some(p) => {
-      let pg: Page = p;
-      return snap_decode_header(&pg.data);
-    }
+// One committed page per node: the newest generation <= active_gen. Returns
+// None when any node has no committed page (the snapshot is then unusable).
+fn snap_resolve_pages(pages: &Vec[Page], node_count: Int,
+                       active_gen: Int) -> Option[Vec[Page]] {
+  var best_gen = Vec[Int].new();
+  var best = Vec[Page].new();
+  var i = 0;
+  while i < node_count {
+    var empty = Vec[Int].new();
+    best_gen.push(-1);
+    best.push(Page.new(0, empty, 0));
+    i = i + 1;
   }
+
+  var p = 0;
+  while p < pages.len() {
+    let pg = pages[p];
+    if pg.id > 0 {
+      let zero = pg.id - 1;
+      let idx = zero % SNAP_PAGE_STRIDE;
+      let gen = zero / SNAP_PAGE_STRIDE;
+      if idx < node_count && gen <= active_gen {
+        if gen > best_gen[idx] {
+          best_gen[idx] = gen;
+          best[idx] = pg;
+        }
+      }
+    }
+    p = p + 1;
+  }
+
+  i = 0;
+  while i < node_count {
+    if best_gen[i] < 0 { return None; }
+    i = i + 1;
+  }
+  return Some(best);
 }
 
-// Write the whole snapshot (header + one page per node) as one atomic page-set
-// install. False when a node exceeds the page budget or the IO fails; the
-// previous snapshot (if any) is untouched in both cases.
-fn snap_save(path: Str, tree: &BTree, checkpoint_lsn: Int, generation: Int) -> Bool {
+// Atomic compaction: one page per node + the header at generation `gen`,
+// installed through page_file_write_batch (single rename). Used when the log
+// has grown past node_count + slack.
+fn snap_compact(path: Str, tree: &BTree, checkpoint_lsn: Int, gen: Int) -> Bool {
   var pages = Vec[Page].new();
-  let hdr = snap_header_page_bytes(tree.root, tree.order, tree.nodes.len(),
-                                   checkpoint_lsn, generation);
-  if hdr.len() > SNAP_PAGE_MAX_BYTES { return false; }
-  pages.push(Page.new(0, hdr, page_compute_checksum(&hdr)));
-
   var i = 0;
   while i < tree.nodes.len() {
     let node = tree.nodes[i];
     let data = snap_node_page_bytes(&node);
     if data.len() > SNAP_PAGE_MAX_BYTES { return false; }
-    pages.push(Page.new(i + 1, data, page_compute_checksum(&data)));
+    pages.push(Page.new(snap_page_id_for(gen, i), data, page_compute_checksum(&data)));
     i = i + 1;
   }
+  let hdr = snap_header_page_bytes(tree.root, tree.order, tree.nodes.len(),
+                                   checkpoint_lsn, gen);
+  if hdr.len() > SNAP_PAGE_MAX_BYTES { return false; }
+  pages.push(Page.new(0, hdr, page_compute_checksum(&hdr)));
   let pf = page_file_open(path);
   return page_file_write_batch(&pf, pages);
+}
+
+// Commit a checkpoint incrementally: append new versions of only the nodes
+// that differ from the committed snapshot, then append the header page (id 0,
+// generation = prior + 1) LAST as the commit point. Returns the committed
+// generation, or -1 when nothing was committed; the previous snapshot stays
+// valid in every failure mode.
+fn snap_flush(path: Str, tree: &BTree, checkpoint_lsn: Int) -> Int {
+  let pf = page_file_open(path);
+  let pages = page_log_read_all(&pf);
+  let meta_found = snap_read_meta(&pages);
+  var prior_gen = 0;
+  var best = Vec[Page].new();
+  var have_prior = false;
+  match meta_found {
+    None => {}
+    Some(m) => {
+      let mm: SnapshotMeta = m;
+      prior_gen = mm.generation;
+      let resolved = snap_resolve_pages(&pages, mm.node_count, mm.generation);
+      match resolved {
+        None => {}
+        Some(v) => {
+          let vv: Vec[Page] = v;
+          best = vv;
+          have_prior = true;
+        }
+      }
+    }
+  }
+
+  // A crashed checkpoint may have appended pages at generation prior_gen + 1
+  // without committing them. They are ignored on load, but if this checkpoint
+  // commits the same generation a diff would skip unchanged nodes and leave
+  // the stale pages as their only committed version. Detect leftovers and
+  // force a full write of the new generation in that case (rare, safe).
+  var has_uncommitted = false;
+  var q = 0;
+  while q < pages.len() {
+    let pg2 = pages[q];
+    if pg2.id > 0 {
+      let z = pg2.id - 1;
+      let g2 = z / SNAP_PAGE_STRIDE;
+      if g2 == prior_gen + 1 { has_uncommitted = true; }
+    }
+    q = q + 1;
+  }
+  if has_uncommitted { have_prior = false; }
+
+  let gen = prior_gen + 1;
+  let entries = page_log_len(&pf);
+  if entries > tree.nodes.len() + SNAP_COMPACT_SLACK {
+    if snap_compact(path, tree, checkpoint_lsn, gen) { return gen; }
+    return -1;
+  }
+
+  var i = 0;
+  while i < tree.nodes.len() {
+    let node = tree.nodes[i];
+    let data = snap_node_page_bytes(&node);
+    if data.len() > SNAP_PAGE_MAX_BYTES { return -1; }
+    var unchanged = false;
+    if have_prior && i < best.len() {
+      let bp = best[i];
+      if snap_bytes_equal(&bp.data, &data) { unchanged = true; }
+    }
+    if !unchanged {
+      let pg = Page.new(snap_page_id_for(gen, i), data, page_compute_checksum(&data));
+      if !page_log_append(&pf, pg) { return -1; }
+    }
+    i = i + 1;
+  }
+
+  let hdr = snap_header_page_bytes(tree.root, tree.order, tree.nodes.len(),
+                                   checkpoint_lsn, gen);
+  if hdr.len() > SNAP_PAGE_MAX_BYTES { return -1; }
+  let hp = Page.new(0, hdr, page_compute_checksum(&hdr));
+  if page_log_append(&pf, hp) { return gen; }
+  return -1;
 }
 
 // Load a snapshot; None when absent or invalid at ANY level (page checksum,
@@ -1406,9 +1559,9 @@ fn snap_save(path: Str, tree: &BTree, checkpoint_lsn: Int, generation: Int) -> B
 // falls back to full WAL replay.
 fn snap_load(path: Str) -> Option[Snapshot] {
   let pf = page_file_open(path);
-  let pages = page_file_read_all(&pf);
+  let pages = page_log_read_all(&pf);
   let meta_found = snap_read_meta(&pages);
-  var meta = SnapshotMeta{ root: 0, order: 3, node_count: 0, checkpoint_lsn: 0, generation: 0 };
+  var meta = SnapshotMeta{ root: 0, order: 3, node_count: 0, checkpoint_lsn: 0, generation: -1 };
   match meta_found {
     None => { return None; }
     Some(m) => {
@@ -1418,30 +1571,32 @@ fn snap_load(path: Str) -> Option[Snapshot] {
   }
   if meta.order < 3 { return None; }
   if meta.node_count < 1 { return None; }
+  if meta.node_count >= SNAP_PAGE_STRIDE { return None; }
   if meta.root < 0 { return None; }
   if meta.root >= meta.node_count { return None; }
+
+  let resolved = snap_resolve_pages(&pages, meta.node_count, meta.generation);
+  var best = Vec[Page].new();
+  match resolved {
+    None => { return None; }
+    Some(v) => {
+      let vv: Vec[Page] = v;
+      best = vv;
+    }
+  }
 
   var nodes = Vec[BTreeNode].new();
   var i = 0;
   while i < meta.node_count {
-    let found = snap_find_page(&pages, i + 1);
-    var ok = false;
-    match found {
-      None => {}
-      Some(p) => {
-        let pg: Page = p;
-        let dec = snap_decode_node(&pg.data);
-        match dec {
-          None => {}
-          Some(n) => {
-            let nd: BTreeNode = n;
-            nodes.push(nd);
-            ok = true;
-          }
-        }
+    let pg = best[i];
+    let dec = snap_decode_node(&pg.data);
+    match dec {
+      None => { return None; }
+      Some(n) => {
+        let nd: BTreeNode = n;
+        nodes.push(nd);
       }
     }
-    if !ok { return None; }
     i = i + 1;
   }
 
@@ -1463,30 +1618,24 @@ fn snap_load(path: Str) -> Option[Snapshot] {
   return Some(Snapshot{ tree: tree, checkpoint_lsn: meta.checkpoint_lsn, generation: meta.generation });
 }
 
-// Checkpoint: install a snapshot of the current tree, append the Checkpoint
-// anchor record, then truncate the segment to keep the anchor and everything
-// after it. Returns the anchor LSN, or -1 when the snapshot could not be
-// installed (the WAL is untouched in that case).
+// Checkpoint: commit an incremental snapshot of the current tree (only the
+// nodes that changed since the last committed generation are appended; the
+// header page commits the generation), append the Checkpoint anchor record,
+// then truncate the segment to keep the anchor and everything after it.
+// Returns the anchor LSN, or -1 when the snapshot could not be committed (the
+// WAL is untouched in that case).
 pub fn db_file_checkpoint(db: &mut DBFile) -> Int {
   let snap_path = db.path + ".snap";
-  var generation = 1;
   let pf = page_file_open(snap_path);
-  let existing = page_file_read_all(&pf);
-  let meta_found = snap_read_meta(&existing);
-  match meta_found {
-    None => {}
-    Some(m) => {
-      let mm: SnapshotMeta = m;
-      generation = mm.generation + 1;
-    }
-  }
+  // A torn trailing append must not merge with this checkpoint's entries.
+  let _ = page_log_heal_tail(&pf);
 
   let snap_lsn = wal_file_next_lsn(&db.wal) - 1;
-  let saved = snap_save(snap_path, &db.tree, snap_lsn, generation);
-  if !saved { return -1; }
+  let gen = snap_flush(snap_path, &db.tree, snap_lsn);
+  if gen < 0 { return -1; }
 
   var payload = Vec[Int].new();
-  payload.push(generation);
+  payload.push(gen);
   payload.push(db.tree.nodes.len());
   payload.push(db.tree.order);
   let anchor = wal_file_append_tagged(&mut db.wal, WALOpKind.Checkpoint,
@@ -1497,5 +1646,16 @@ pub fn db_file_checkpoint(db: &mut DBFile) -> Int {
   // so next_lsn still resumes correctly. A failed truncate leaves older
   // records that `db_file_open` skips via the snapshot's checkpoint_lsn gate.
   let _ = wal_file_truncate(db.path, anchor);
+  db.records_since_ckpt = 0;
   return anchor;
+}
+
+// Policy hook: checkpoint when at least `limit` records were logged since the
+// last checkpoint. Returns the anchor LSN when a checkpoint ran, or -1 when
+// the threshold is not reached (or the checkpoint failed).
+pub fn db_file_maybe_checkpoint(db: &mut DBFile, limit: Int) -> Int
+  requires: limit >= 1
+{
+  if db.records_since_ckpt < limit { return -1; }
+  return db_file_checkpoint(db);
 }

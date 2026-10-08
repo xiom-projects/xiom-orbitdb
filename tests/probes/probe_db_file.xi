@@ -13,7 +13,7 @@
 //                        (default: verify)
 //   ORBITDB_DB_N         key count for write / verify / ckpt   (default: 20)
 //   ORBITDB_DB_TAIL      ckpt mode: keys appended AFTER the checkpoint (default 0)
-//   ORBITDB_DB_CKPT_EVERY soak mode: checkpoint cadence (default 250)
+//   ORBITDB_DB_CKPT_EVERY soak mode: maybe_checkpoint record limit (default 250)
 //   ORBITDB_DB_LAST_KEY  optional: key to assert after recovery
 //   ORBITDB_DB_LAST_VAL  optional: expected value for LAST_KEY
 //
@@ -196,21 +196,22 @@ fn run_soak(path: Str, n: Int) -> Int {
       io.println("soak: put failed at " + convert.int_to_string(i));
       return 1;
     }
-    if (i % every) == 0 {
-      let anchor = db_file_checkpoint(&mut db);
-      if anchor < 0 { io.println("soak: checkpoint failed"); return 1; }
-      checkpoints = checkpoints + 1;
-    }
+    // Policy-driven cadence: checkpoint when `every` records accumulated.
+    let anchor = db_file_maybe_checkpoint(&mut db, every);
+    if anchor > 0 { checkpoints = checkpoints + 1; }
     i = i + 1;
   }
   let final = db_file_checkpoint(&mut db);
   if final < 0 { io.println("soak: final checkpoint failed"); return 1; }
+  io.println("soak: loop+final done checkpoints=" + convert.int_to_string(checkpoints + 1));
 
   var db2 = db_file_open(path, 4);
+  io.println("soak: reopened");
   if db_file_size(&db2) != n {
     io.println("soak: size mismatch got " + convert.int_to_string(db_file_size(&db2)));
     return 1;
   }
+  io.println("soak: size ok");
   let mid = n / 2;
   let spot = db_file_get(&db2, mid);
   match spot {
@@ -227,7 +228,9 @@ fn run_soak(path: Str, n: Int) -> Int {
     io.println("soak: post-recovery put failed");
     return 1;
   }
+  io.println("soak: post put done");
   var db3 = db_file_open(path, 4);
+  io.println("soak: reopened 2");
   if db_file_size(&db3) != n + 1 {
     io.println("soak: final size wrong");
     return 1;

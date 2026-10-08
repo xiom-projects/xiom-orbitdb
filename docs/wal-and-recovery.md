@@ -95,23 +95,33 @@ replays the whole segment.
 
 ## DBFile checkpoint
 
-`db_file_checkpoint(db)` installs a durable snapshot and bounds replay:
+`db_file_checkpoint(db)` commits an incremental snapshot and bounds replay:
 
 ```
-1. snapshot of the tree via the node page codec, installed with ONE atomic
-   rename (page_file_write_batch) into <wal path>.snap
-2. append the Checkpoint anchor:
+1. append new versions of only the CHANGED tree nodes at the next generation
+   (page id = generation*2^32 + node_idx + 1) into <wal path>.snap
+2. append the header page LAST (generation, root, order, node_count,
+   snapshot_lsn) -- the highest-generation header commits the generation
+3. append the Checkpoint anchor:
    lsn|6|snapshot_lsn|root|0|generation,node_count,order
-3. wal_file_truncate(path, anchor)  -- keeps lsn >= anchor, so the anchor
+4. wal_file_truncate(path, anchor)  -- keeps lsn >= anchor, so the anchor
    itself survives and next_lsn resumes past it
 ```
 
-Every step leaves a recoverable state: a crash before the rename leaves the
-previous snapshot intact (WAL untouched); a crash after the rename but before
-the anchor is healed on open by the snapshot's `checkpoint_lsn` gate (records
-at or below it are skipped); a failed truncate leaves records that the same
-gate skips. The segment is never truncated to empty -- the LSN counter lives
-in the anchor record.
+Recovery loads the newest committed header generation and resolves each node
+as the newest generation <= it; node pages from an uncommitted crash window
+(newer generation, no header) are ignored, and the next checkpoint forces a
+full write of the generation when it detects such leftovers. Every step leaves
+a recoverable state: a crash mid-append leaves the previous header in force; a
+crash after the header but before the anchor is healed on open by the
+snapshot's `checkpoint_lsn` gate (records at or below it are skipped); a failed
+truncate leaves records that the same gate skips. When the log grows past
+`node_count + 64` entries, compaction rewrites it atomically. The segment is
+never truncated to empty -- the LSN counter lives in the anchor record.
+
+`db_file_maybe_checkpoint(db, limit)` is the policy hook: it checkpoints when
+at least `limit` records were appended since the last checkpoint (returns the
+anchor LSN), or returns -1 below the threshold.
 
 ## Phase 2 direction
 

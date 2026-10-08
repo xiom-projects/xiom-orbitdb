@@ -84,17 +84,22 @@ Integrity is CRC32C over the byte view (`Page.is_valid`); a structurally complet
 
 ### Checkpoint snapshot layout (`db_file_checkpoint`)
 
-The checkpoint snapshot is a page file (`<wal path>.snap`) holding the B-tree
-node set:
+The checkpoint snapshot is an append-only page log (`<wal path>.snap`) holding
+the B-tree node set:
 
 ```
-page 0      header: root, order, node_count, checkpoint_lsn, generation
-page i+1    B-tree node i
+page 0                  header: root, order, node_count, lsn, generation
+page g*2^32 + i + 1     B-tree node i as of generation g
 ```
 
 Node codec v1: magic `'O'`, version 1, kind byte `'H'` (header) / `'N'` (node),
-then little-endian i64 fields. The whole set is installed with
-`page_file_write_batch` (one atomic rename), so a checkpoint is all-or-nothing;
+then little-endian i64 fields (LE helpers exported from `storage/tuple.xi`).
+A checkpoint appends new versions of only the **changed** nodes, then appends
+the header page **last** as the commit point; readers resolve, per node, the
+newest generation <= the committed header generation, so pages from an
+uncommitted crash window are ignored and the previous snapshot stays fully
+valid. When the log grows past `node_count + 64` entries it is compacted with
+one version per page through `page_file_write_batch` (atomic).
 `db_file_checkpoint` then appends the WAL Checkpoint anchor and truncates the
 segment to keep it. See `wal-and-recovery.md`.
 

@@ -2339,6 +2339,179 @@ fn test_db_file_query_range() -> TestResult {
   return assert(false, "db_file: query/range failed");
 }
 
+fn run_db_file_incremental_checkpoint() -> Int {
+  let path = "orbitdb-suite-db-inc.wal";
+  let snap = "orbitdb-suite-db-inc.wal.snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+
+  var db = db_file_open(path, 4);
+  var i = 1;
+  while i <= 12 {
+    if !db_file_put(&mut db, i, i * 10) { return 1; }
+    i = i + 1;
+  }
+  let c1 = db_file_checkpoint(&mut db);
+  if c1 < 12 { return 1; }
+  let pf = page_file_open(snap);
+  let entries1 = page_log_len(&pf);
+
+  // No mutation -> the second checkpoint commits a header entry only.
+  let c2 = db_file_checkpoint(&mut db);
+  if c2 <= c1 { return 1; }
+  let entries2 = page_log_len(&pf);
+  if entries2 != entries1 + 1 { return 1; }
+
+  // A torn trailing append must be healed before the next checkpoint appends,
+  // or the first new entry would merge with it and be lost.
+  let app = io.append_file(snap, "12|3|");
+  match app { Ok(_) => {}, Err(_) => { return 1; } }
+  if !db_file_put(&mut db, 13, 130) { return 1; }
+  let c3 = db_file_checkpoint(&mut db);
+  if c3 <= c2 { return 1; }
+
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 13 { return 1; }
+  let v13 = db_file_get(&db2, 13);
+  match v13 {
+    None => { return 1; }
+    Some(x) => { if x != 130 { return 1; } }
+  }
+  let v1 = db_file_get(&db2, 1);
+  match v1 {
+    None => { return 1; }
+    Some(x) => { if x != 10 { return 1; } }
+  }
+
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  return 0;
+}
+
+fn test_db_file_incremental_checkpoint() -> TestResult {
+  let rc = run_db_file_incremental_checkpoint();
+  if rc == 0 { return assert(true, "db_file: incremental checkpoint (no-op delta + torn-tail heal)"); }
+  return assert(false, "db_file: incremental checkpoint failed");
+}
+
+// Node page bytes for the bogus uncommitted-generation page (codec v1).
+fn snap_test_leaf_bytes(keys: Vec[Int], values: Vec[Int]) -> Vec[Int] {
+  var out = Vec[Int].new();
+  out.push(0x4F);
+  out.push(1);
+  out.push(0x4E);
+  out.push(1);
+  tuple_push_int_le(&mut out, keys.len());
+  tuple_push_int_le(&mut out, 0);
+  tuple_push_int_le(&mut out, 0);
+  var i = 0;
+  while i < keys.len() {
+    tuple_push_int_le(&mut out, keys[i]);
+    i = i + 1;
+  }
+  i = 0;
+  while i < values.len() {
+    tuple_push_int_le(&mut out, values[i]);
+    i = i + 1;
+  }
+  return out;
+}
+
+fn run_db_file_uncommitted_generation() -> Int {
+  let path = "orbitdb-suite-db-uncommitted.wal";
+  let snap = "orbitdb-suite-db-uncommitted.wal.snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+
+  var db = db_file_open(path, 4);
+  var i = 1;
+  while i <= 12 {
+    if !db_file_put(&mut db, i, i * 10) { return 1; }
+    i = i + 1;
+  }
+  if db_file_checkpoint(&mut db) < 0 { return 1; }
+
+  // Crash window simulation: a node page from the NEXT generation was
+  // appended, but its header never was. It must be ignored on load.
+  let pf = page_file_open(snap);
+  var keys = Vec[Int].new();
+  keys.push(999);
+  var values = Vec[Int].new();
+  values.push(9990);
+  let bytes = snap_test_leaf_bytes(keys, values);
+  let bogus_id = 2 * SNAP_PAGE_STRIDE + 1; // generation 2, node 0
+  if !page_log_append(&pf, Page.new(bogus_id, bytes, page_compute_checksum(&bytes))) { return 1; }
+
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 12 { return 1; }
+  let phantom = db_file_get(&db2, 999);
+  match phantom { Some(_) => { return 1; }, None => {} }
+
+  // The next checkpoint must not let the stale generation-2 page leak into
+  // the committed generation: it forces a full write of generation 2.
+  if !db_file_put(&mut db2, 5, 55) { return 1; }
+  if db_file_checkpoint(&mut db2) < 0 { return 1; }
+
+  var db3 = db_file_open(path, 4);
+  if db_file_size(&db3) != 12 { return 1; }
+  let v5 = db_file_get(&db3, 5);
+  match v5 {
+    None => { return 1; }
+    Some(x) => { if x != 55 { return 1; } }
+  }
+  let still = db_file_get(&db3, 999);
+  match still { Some(_) => { return 1; }, None => {} }
+
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  return 0;
+}
+
+fn test_db_file_uncommitted_generation() -> TestResult {
+  let rc = run_db_file_uncommitted_generation();
+  if rc == 0 { return assert(true, "db_file: uncommitted generation ignored + stale flush handled"); }
+  return assert(false, "db_file: uncommitted generation failed");
+}
+
+fn run_db_file_checkpoint_policy() -> Int {
+  let path = "orbitdb-suite-db-policy.wal";
+  let snap = "orbitdb-suite-db-policy.wal.snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+
+  var db = db_file_open(path, 4);
+  var i = 1;
+  while i <= 3 {
+    if !db_file_put(&mut db, i, i * 10) { return 1; }
+    i = i + 1;
+  }
+  if db_file_maybe_checkpoint(&mut db, 5) != -1 { return 1; }
+
+  var j = 4;
+  while j <= 6 {
+    if !db_file_put(&mut db, j, j * 10) { return 1; }
+    j = j + 1;
+  }
+  let anchor = db_file_maybe_checkpoint(&mut db, 5);
+  if anchor < 6 { return 1; }
+  // The counter reset: below threshold again, and the WAL holds the anchor.
+  if db_file_maybe_checkpoint(&mut db, 5) != -1 { return 1; }
+  if wal_file_len(path) != 1 { return 1; }
+
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 6 { return 1; }
+
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  return 0;
+}
+
+fn test_db_file_checkpoint_policy() -> TestResult {
+  let rc = run_db_file_checkpoint_policy();
+  if rc == 0 { return assert(true, "db_file: maybe_checkpoint threshold + counter reset"); }
+  return assert(false, "db_file: checkpoint policy failed");
+}
+
 fn run_result_set_ops() -> Int {
   var cols = Vec[Str].new();
   cols.push("id");
@@ -2619,6 +2792,12 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r95b.passed, r95b.name);
   let r96 = test_db_file_query_range();
   total = total + 1; failed = failed + report(r96.passed, r96.name);
+  let r97a = test_db_file_incremental_checkpoint();
+  total = total + 1; failed = failed + report(r97a.passed, r97a.name);
+  let r97b = test_db_file_uncommitted_generation();
+  total = total + 1; failed = failed + report(r97b.passed, r97b.name);
+  let r97c = test_db_file_checkpoint_policy();
+  total = total + 1; failed = failed + report(r97c.passed, r97c.name);
   let r93 = test_result_set_ops();
   total = total + 1; failed = failed + report(r93.passed, r93.name);
 
