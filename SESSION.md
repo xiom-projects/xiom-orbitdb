@@ -22,8 +22,12 @@ B-Tree index, WAL, query engine, crash recovery; formerly `xiom-db`
 - **VERSION POLICY (owner decision): track the LATEST compiler / stdlib /
   packages** -- this lane hardens the ecosystem by real-world use. Record
   exact versions and lane hashes here at every wrap.
-  - compiler: **v0.64.0** on Windows (`%LOCALAPPDATA%\xiom.new\bin\xiom.exe`)
-    and in WSL (`~/.local/bin/xiom`); `XIOM_RUNTIME_DIR` retired.
+  - compiler: **v0.64.1** on Windows (`%LOCALAPPDATA%\xiom.new\bin\xiom.exe`)
+    and in WSL (`~/.local/bin/xiom`); `XIOM_RUNTIME_DIR` retired. Re-tested
+    2026-10-08: C-ORBIT-01..04 **all still open** (bundles + suite with the
+    qualification workaround reverted), lane regression clean (104/104,
+    WAL/page/DB crash tests GREEN); the false W004 warning from v0.64.0 was
+    not emitted.
   - stdlib: `E:\xiom-lang\stdlib` @ **`a677338`** (2026-10-08T12:27:20+03:00,
     "docs: refresh handoff snapshot 20") = `/mnt/e/xiom-lang/stdlib` in WSL.
   - compiler lane @ `0c5337e0` (2026-10-08, "fix(codegen): m216 alias Vec
@@ -155,9 +159,10 @@ B-Tree index, WAL, query engine, crash recovery; formerly `xiom-db`
   (`DBFile`)**; remaining -- node-per-page B-tree (page-file seam + FSM now
   exist), checkpoint policy wired to `wal_file_truncate`, real pager
   integration (externally blocked: `xiom.core.storage.pager` substrate /
-  registry source-roots, C-PULSE-02). (3) Re-run
+  registry source-roots, C-PULSE-02).   (3) Re-run
   conformance + crash probes on the next compiler archive (watch
-  C-ORBIT-01..04; C-ORBIT-01 may be fixed by `0c5337e0`). Add `xiom.toml`
+  C-ORBIT-01..04; re-tested on v0.64.1 -- all four still open, m216 did not
+  cover C-ORBIT-01). Add `xiom.toml`
   + CI only when the repo goes public (owner gate; ops has the mechanics per
   the PULSE ops relay). No VPS/DNS action requested.
   (4) Keep `docs/PRODUCTION-READINESS.md` recomputed at every wrap (score +

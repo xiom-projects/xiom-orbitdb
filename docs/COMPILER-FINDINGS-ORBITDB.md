@@ -1,6 +1,6 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-# XIOM ORBITDB -> compiler lane: findings (pin v0.64.0)
+# XIOM ORBITDB -> compiler lane: findings (pin v0.64.1)
 
 **Relay:** hand this file to the compiler-lane session together with the
 matching `docs/repro/<bundle>/` directories from the ORBITDB repo
@@ -13,16 +13,33 @@ located while triaging and are evidence, not patches.
 | Component | Version / hash |
 |---|---|
 | compiler | v0.64.0 (`%LOCALAPPDATA%\xiom.new\bin\xiom.exe`; Linux WSL same release) |
+| compiler (re-test) | **v0.64.1** (2026-10-08; installed in place, WSL updated too) |
 | stdlib | `E:\xiom-lang\stdlib` @ `a677338` (2026-10-08) |
 | compiler lane | `0c5337e0` (2026-10-08; m216 alias fix + lazy builtin probe -- likely touches C-ORBIT-01, re-test on next archive) |
 | env | `XIOM_STDLIB=E:\xiom-lang\stdlib`; `XIOM_RUNTIME_DIR` retired (env-free, installed R65 layout) |
 
-**Consumer impact in one line:** the 93-test conformance suite of a
-database engine did not compile on v0.64.0 (218 type errors, then a codegen
-C001); after working around the findings below it is **93/93 green x2**, and
-the crash/reopen WAL probe is green on Windows + WSL. These defects are on
-the critical path of any storage/collection code that uses `Vec[Option[T]]`
-caches, cross-module `Result` aliases, or nested-field `&mut` methods.
+## Re-test v0.64.1 (2026-10-08) -- all four findings still open; lane green
+
+| Finding | Bundle | v0.64.1 result |
+|---|---|---|
+| C-ORBIT-01 | `docs/repro/ok-method-receiver/probe_import.xi` | **OPEN** -- identical 4 T001 sites (lines 34/36/53/69): `'get_column' expects 2 argument(s), found 1` / `expected Row, found Int`; A/B/C still fail, D/E/F/G green |
+| C-ORBIT-02 | `docs/repro/option-vec-assign/probe.xi` + `probe2.xi` | **OPEN** -- V1/V3/V6/V8/V9 still print nothing (no arm runs); V2/V4/V5/V7/V10 fine |
+| C-ORBIT-03 | `docs/repro/nested-field-mut/probe.xi` | **OPEN** -- A=0 (lost), C=0 (lost); B=1, D=1 |
+| C-ORBIT-04 | suite with the qualification workaround temporarily reverted | **OPEN** -- same clang failure: `'%tmp10' defined with type '%struct.WALOp' but expected '%struct.WALOpKind'` (IR line 71079) |
+
+Positive on v0.64.1: the whole lane regressed clean -- conformance **104/104**,
+WAL/page/DB crash tests GREEN, CRC32C/FSM/tuple/page-file probes unchanged.
+The false `W004 unreachable match arm` seen on v0.64.0
+(`docs/repro/option-vec-assign/probe2.xi`) was **not emitted** on v0.64.1 --
+treat as fixed, keep watching.
+
+**Consumer impact in one line:** the conformance suite of a database engine
+did not compile on v0.64.0 (218 type errors, then a codegen C001); after
+working around the findings below it is **104/104 green on v0.64.1**
+(Windows + WSL), and the crash/reopen WAL/page/DB probes are green on both.
+These defects are on the critical path of any storage/collection code that
+uses `Vec[Option[T]]` caches, cross-module `Result` aliases, nested-field
+`&mut` methods, or same-named enum variants across modules.
 
 ## Open findings
 
@@ -128,10 +145,11 @@ caches, cross-module `Result` aliases, or nested-field `&mut` methods.
 - **Symptom (exact):**
   ```
   error: clang failed with exit code 1
-  xiominput.ll:71073:25: error: '%tmp10' defined with type
+  xiominput.ll:71079:25: error: '%tmp10' defined with type
       '%struct.WALOp = type { i64 }' but expected '%struct.WALOpKind = type { i64 }'
-  71073 |   ret %struct.WALOpKind %tmp10
+  71079 |   ret %struct.WALOpKind %tmp10
   ```
+  (line 71073 on v0.64.0, 71079 on v0.64.1; still reproducible on v0.64.1)
   The body just above constructs `%struct.WALOp` (`alloca %struct.WALOp` ...
   `store i64 1, ...` `load %struct.WALOp`) inside
   `define %struct.WALOpKind @db.wal_file.wal_op_from_code(i64)`.

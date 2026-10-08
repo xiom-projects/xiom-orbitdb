@@ -73,3 +73,12 @@ on real ambiguity.
 
 Thanks -- ORBITDB keeps tracking the latest compiler and will re-run these
 every release.
+
+**Update 2026-10-08 -- re-tested on v0.64.1 (installed in place, Windows +
+WSL): all four findings still reproduce.** C-ORBIT-01: identical 4 T001
+sites in `probe_import.xi` (m216 did not cover the match-bound alias
+payload). C-ORBIT-02: V1/V3/V6/V8/V9 still silent. C-ORBIT-03: A=0, C=0.
+C-ORBIT-04: same clang mismatch (IR line 71079) with the qualification
+workaround reverted. Lane regression on v0.64.1 is clean otherwise
+(conformance 104/104, WAL/page/DB crash tests GREEN), and the false W004
+"unreachable match arm" from v0.64.0 no longer appears -- thanks for that.

@@ -9,7 +9,7 @@
 # ROLLBACK OPTION, and keep moving on other slices.
 #
 # As of 2026-10-08:
-#   compiler  v0.64.0  %LOCALAPPDATA%\xiom.new\bin\xiom.exe
+#   compiler  v0.64.1  %LOCALAPPDATA%\xiom.new\bin\xiom.exe
 #   stdlib    E:\xiom-lang\stdlib (stdlib-lane checkout = latest lane work)
 #   packages  %LOCALAPPDATA%\xiom\packages (registry, signature-verified)
 #
