@@ -11,6 +11,7 @@ module xiom_db_conformance
 use xiom.io;
 use xiom.test;
 use xiom.db.engine;
+use xiom.db.wal_file;
 use xiom.db.error;
 use xiom.db.ids;
 use xiom.db.config;
@@ -2086,6 +2087,119 @@ fn test_db_file_roundtrip() -> TestResult {
   return assert(false, "db_file: roundtrip failed");
 }
 
+// ===========================================================================
+// File-backed database: checkpoint/snapshot (node page codec + tail replay)
+// ===========================================================================
+
+fn run_db_file_checkpoint() -> Int {
+  let path = "orbitdb-suite-db-ckpt.wal";
+  let snap = "orbitdb-suite-db-ckpt.wal.snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+
+  var db = db_file_open(path, 4);
+  var i = 1;
+  while i <= 12 {
+    if !db_file_put(&mut db, i, i * 10) { return 1; }
+    i = i + 1;
+  }
+  let ckpt = db_file_checkpoint(&mut db);
+  if ckpt < 12 { return 1; }
+
+  // Truncation kept exactly the Checkpoint anchor: no write records remain,
+  // and the anchor's payload [generation, node_count, order] survived.
+  if wal_file_len(path) != 1 { return 1; }
+  let records = wal_file_replay(path);
+  let r0 = records[0];
+  if r0.lsn != ckpt { return 1; }
+  if wal_op_code(r0.op) != 6 { return 1; }
+  if r0.payload.len() != 3 { return 1; }
+
+  // The 12 keys can only come from the snapshot now (the log has no write
+  // records); LastLSN resumes from the anchor.
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 12 { return 1; }
+  if db_file_last_lsn(&db2) != ckpt { return 1; }
+  let v7 = db_file_get(&db2, 7);
+  match v7 {
+    None => { return 1; }
+    Some(x) => { if x != 70 { return 1; } }
+  }
+
+  // A write after the checkpoint replays from the tail on the next open.
+  if !db_file_put(&mut db2, 13, 130) { return 1; }
+  var db3 = db_file_open(path, 4);
+  if db_file_size(&db3) != 13 { return 1; }
+  let v13 = db_file_get(&db3, 13);
+  match v13 {
+    None => { return 1; }
+    Some(x) => { if x != 130 { return 1; } }
+  }
+
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  return 0;
+}
+
+fn test_db_file_checkpoint() -> TestResult {
+  let rc = run_db_file_checkpoint();
+  if rc == 0 { return assert(true, "db_file: checkpoint snapshot + tail replay + WAL truncate"); }
+  return assert(false, "db_file: checkpoint roundtrip failed");
+}
+
+fn run_db_file_checkpoint_churn() -> Int {
+  let path = "orbitdb-suite-db-ckpt2.wal";
+  let snap = "orbitdb-suite-db-ckpt2.wal.snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+
+  var db = db_file_open(path, 4);
+  var i = 1;
+  while i <= 20 {
+    if !db_file_put(&mut db, i, i) { return 1; }
+    i = i + 1;
+  }
+  // Churn before the snapshot: delete evens, update odds (exercises internal
+  // split/merge node shapes in the node page codec).
+  var k = 2;
+  while k <= 20 {
+    if !db_file_delete(&mut db, k) { return 1; }
+    k = k + 2;
+  }
+  k = 1;
+  while k <= 19 {
+    if !db_file_put(&mut db, k, k * 100) { return 1; }
+    k = k + 2;
+  }
+  if db_file_size(&db) != 10 { return 1; }
+
+  let ckpt = db_file_checkpoint(&mut db);
+  if ckpt < 0 { return 1; }
+  // A second checkpoint must advance the generation and re-install atomically.
+  let ckpt2 = db_file_checkpoint(&mut db);
+  if ckpt2 <= ckpt { return 1; }
+
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 10 { return 1; }
+  let gone = db_file_get(&db2, 2);
+  match gone { Some(_) => { return 1; }, None => {} }
+  let v19 = db_file_get(&db2, 19);
+  match v19 {
+    None => { return 1; }
+    Some(x) => { if x != 1900 { return 1; } }
+  }
+
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  return 0;
+}
+
+fn test_db_file_checkpoint_churn() -> TestResult {
+  let rc = run_db_file_checkpoint_churn();
+  if rc == 0 { return assert(true, "db_file: checkpoint survives churn + re-checkpoint (generation)"); }
+  return assert(false, "db_file: checkpoint churn failed");
+}
+
 fn run_result_set_ops() -> Int {
   var cols = Vec[Str].new();
   cols.push("id");
@@ -2358,6 +2472,10 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r93b.passed, r93b.name);
   let r94 = test_db_file_roundtrip();
   total = total + 1; failed = failed + report(r94.passed, r94.name);
+  let r95a = test_db_file_checkpoint();
+  total = total + 1; failed = failed + report(r95a.passed, r95a.name);
+  let r95b = test_db_file_checkpoint_churn();
+  total = total + 1; failed = failed + report(r95b.passed, r95b.name);
   let r93 = test_result_set_ops();
   total = total + 1; failed = failed + report(r93.passed, r93.name);
 

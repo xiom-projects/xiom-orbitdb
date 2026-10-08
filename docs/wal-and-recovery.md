@@ -7,7 +7,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0
 
 The write-ahead log makes xiom-db recoverable. It is the ordered history of every mutation, written **before** the change reaches the index. Recovery replays that history onto an empty tree to reconstruct exact state.
 
-> **Status:** Phase 0 -- the WAL is an in-memory `Vec[WALEntry]`. Correctness (ordering, replay) is real; durability across a true process crash arrives in Phase 2 when the log is backed by an fsync'd segment file.
+> **Status:** Phase 0 -- the engine facade's WAL is an in-memory `Vec[WALEntry]`. Correctness (ordering, replay) is real. Phase 1 adds a durable sibling: the `src/wal_file.xi` segment and the `DBFile` checkpoint path, documented at the end of this page (process-crash safe; no fsync yet).
 
 ## Record -- `wal/wal_record.xi`
 
@@ -76,6 +76,42 @@ A checkpoint bounds how much log recovery must replay:
 - `engine_truncate_wal(before_ts)` -- discard only records older than a durable boundary.
 
 `db_close` performs a checkpoint (`engine_flush_wal`) before marking the handle closed.
+
+## Durable segment and DBFile recovery (Phase 1)
+
+`src/wal_file.xi` is the on-disk half of the contract: one record per line
+(`lsn|op|key|value|timestamp[|p0,p1,...]`; op codes 1..7 including the
+Checkpoint anchor), strictly monotonic LSNs, malformed/torn lines skipped on
+replay, and a torn tail healed once per handle (`heal_needed`). `wal_file_open`
+resumes `next_lsn` from the last valid record; `wal_file_truncate(path, from)`
+rewrites the segment keeping records with `lsn >= from` (temp + rename), and
+preserves payloads.
+
+`DBFile` (`src/engine.xi`) applies WAL-before-ack: `db_file_put` /
+`db_file_delete` append the record first, then mutate the in-memory tree.
+`db_file_open` recovers by loading the checkpoint snapshot (when present) and
+replaying **only** records with `lsn > checkpoint_lsn`; without a snapshot it
+replays the whole segment.
+
+## DBFile checkpoint
+
+`db_file_checkpoint(db)` installs a durable snapshot and bounds replay:
+
+```
+1. snapshot of the tree via the node page codec, installed with ONE atomic
+   rename (page_file_write_batch) into <wal path>.snap
+2. append the Checkpoint anchor:
+   lsn|6|snapshot_lsn|root|0|generation,node_count,order
+3. wal_file_truncate(path, anchor)  -- keeps lsn >= anchor, so the anchor
+   itself survives and next_lsn resumes past it
+```
+
+Every step leaves a recoverable state: a crash before the rename leaves the
+previous snapshot intact (WAL untouched); a crash after the rename but before
+the anchor is healed on open by the snapshot's `checkpoint_lsn` gate (records
+at or below it are skipped); a failed truncate leaves records that the same
+gate skips. The segment is never truncated to empty -- the LSN counter lives
+in the anchor record.
 
 ## Phase 2 direction
 

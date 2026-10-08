@@ -68,6 +68,22 @@ page_id|len|checksum|b0,b1,...
 
 Integrity is CRC32C over the byte view (`Page.is_valid`); a structurally complete but checksum-invalid line is dropped on read. `tuple_push_int_le` / `tuple_read_int_le` (exported from `storage/tuple.xi`) are the shared little-endian integer helpers for every on-disk codec.
 
+### Checkpoint snapshot layout (`db_file_checkpoint`)
+
+The checkpoint snapshot is a page file (`<wal path>.snap`) holding the B-tree
+node set:
+
+```
+page 0      header: root, order, node_count, checkpoint_lsn, generation
+page i+1    B-tree node i
+```
+
+Node codec v1: magic `'O'`, version 1, kind byte `'H'` (header) / `'N'` (node),
+then little-endian i64 fields. The whole set is installed with
+`page_file_write_batch` (one atomic rename), so a checkpoint is all-or-nothing;
+`db_file_checkpoint` then appends the WAL Checkpoint anchor and truncates the
+segment to keep it. See `wal-and-recovery.md`.
+
 ## Free-space map -- `storage/free_space_map.xi` *(scaffold)*
 
 ```

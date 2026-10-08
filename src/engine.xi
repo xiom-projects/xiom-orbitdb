@@ -4,6 +4,9 @@
 module xiom.db.engine
 
 use xiom.db.wal_file;
+use xiom.db.storage.page;
+use xiom.db.storage.page_file;
+use xiom.db.storage.tuple;
 
 // ============================================================================
 // XIOM-DB: Consolidated Engine -- B-Tree + WAL + Query + Engine + Database API
@@ -1117,17 +1120,35 @@ fn db_file_apply_record(tree: &mut BTree, rec: WALRecord) {
   }
 }
 
-// Open (or create) a file-backed database and recover by replaying the log.
+// Open (or create) a file-backed database. Recovery: load the checkpoint
+// snapshot when present, then replay ONLY records newer than its
+// checkpoint_lsn; without a snapshot, replay the whole segment (Phase 1/B
+// behavior). The torn tail is healed once by `wal_file_open`.
 pub fn db_file_open(path: Str, order: Int) -> DBFile {
   var tree = btree_new(order);
+  var snap_lsn = 0;
+  let snap_path = path + ".snap";
+  let loaded = snap_load(snap_path);
+  match loaded {
+    None => {}
+    Some(s) => {
+      let snap: Snapshot = s;
+      tree = snap.tree;
+      snap_lsn = snap.checkpoint_lsn;
+    }
+  }
+
   let records = wal_file_replay(path);
   var i = 0;
   while i < records.len() {
-    db_file_apply_record(&mut tree, records[i]);
+    let rec = records[i];
+    if rec.lsn > snap_lsn {
+      db_file_apply_record(&mut tree, rec);
+    }
     i = i + 1;
   }
   let w = wal_file_open(path);
-  return DBFile{ path: path, order: order, tree: tree, wal: w };
+  return DBFile{ path: path, order: tree.order, tree: tree, wal: w };
 }
 
 // Upsert with WAL-before-ack: append (Insert for new keys, Update for
@@ -1174,4 +1195,291 @@ pub fn db_file_last_lsn(db: &DBFile) -> Int {
 
 pub fn db_file_flush(db: &mut DBFile) -> Bool {
   return wal_file_flush(&mut db.wal);
+}
+
+// ===========================================================================
+// CHECKPOINT / SNAPSHOT (Phase 1/C): persist the B-tree node set into the
+// durable page file; recovery loads the snapshot and replays only the tail.
+// ===========================================================================
+// Snapshot page file layout (text page codec v1, storage/page_file.xi):
+//   page 0     header: root, order, node_count, checkpoint_lsn, generation
+//   page i+1   B-tree node i (node codec v1, little-endian i64 fields)
+// The full page set is installed with ONE atomic rename (page_file_write_batch),
+// so a crash mid-checkpoint leaves the previous snapshot intact. The Checkpoint
+// WAL record that follows anchors truncation: `wal_file_truncate` keeps records
+// with lsn >= that anchor, so `next_lsn` resumes past it and the anchor itself
+// is never dropped (never truncate to empty -- the LSN counter lives in the
+// segment).
+//
+// Crash ordering (each step leaves a recoverable state):
+//   1. snapshot install (atomic)      -> crash: old snapshot + full WAL
+//   2. Checkpoint record append       -> crash: new snapshot + full WAL
+//                                        (open skips it via checkpoint_lsn)
+//   3. WAL truncate keep >= anchor    -> crash: new snapshot + full WAL
+//
+// Durability honesty: the snapshot rides on `page_file_sync` (no-op until the
+// stdlib fsync wrapper lands) -- process-crash safe, not power-loss safe.
+
+const SNAP_MAGIC: Int = 0x4F;       // 'O' -- snapshot page codec
+const SNAP_VERSION: Int = 1;
+const SNAP_KIND_HEADER: Int = 0x48; // 'H'
+const SNAP_KIND_NODE: Int = 0x4E;   // 'N'
+const SNAP_HEADER_BYTES: Int = 44;
+const SNAP_NODE_HEADER_BYTES: Int = 28;
+const SNAP_PAGE_MAX_BYTES: Int = 4096;
+
+type SnapshotMeta = {
+  root: Int;
+  order: Int;
+  node_count: Int;
+  checkpoint_lsn: Int;
+  generation: Int;
+}
+
+type Snapshot = {
+  tree: BTree;
+  checkpoint_lsn: Int;
+  generation: Int;
+}
+
+fn snap_header_page_bytes(root: Int, order: Int, node_count: Int,
+                          checkpoint_lsn: Int, generation: Int) -> Vec[Int] {
+  var out = Vec[Int].new();
+  out.push(SNAP_MAGIC);
+  out.push(SNAP_VERSION);
+  out.push(SNAP_KIND_HEADER);
+  out.push(0);
+  tuple_push_int_le(&mut out, root);
+  tuple_push_int_le(&mut out, order);
+  tuple_push_int_le(&mut out, node_count);
+  tuple_push_int_le(&mut out, checkpoint_lsn);
+  tuple_push_int_le(&mut out, generation);
+  return out;
+}
+
+fn snap_node_page_bytes(node: &BTreeNode) -> Vec[Int] {
+  var out = Vec[Int].new();
+  out.push(SNAP_MAGIC);
+  out.push(SNAP_VERSION);
+  out.push(SNAP_KIND_NODE);
+  var leaf = 0;
+  if node.is_leaf { leaf = 1; }
+  out.push(leaf);
+  tuple_push_int_le(&mut out, node.keys.len());
+  tuple_push_int_le(&mut out, node.children.len());
+  tuple_push_int_le(&mut out, 0); // reserved
+  var i = 0;
+  while i < node.keys.len() {
+    tuple_push_int_le(&mut out, node.keys[i]);
+    i = i + 1;
+  }
+  i = 0;
+  while i < node.values.len() {
+    tuple_push_int_le(&mut out, node.values[i]);
+    i = i + 1;
+  }
+  i = 0;
+  while i < node.children.len() {
+    tuple_push_int_le(&mut out, node.children[i]);
+    i = i + 1;
+  }
+  return out;
+}
+
+// Strict decode: magic/version/kind, exact length, sane flags and counts.
+// Returns None on any violation -- a snapshot either restores whole or not.
+fn snap_decode_node(data: &Vec[Int]) -> Option[BTreeNode] {
+  if data.len() < SNAP_NODE_HEADER_BYTES { return None; }
+  if data[0] != SNAP_MAGIC { return None; }
+  if data[1] != SNAP_VERSION { return None; }
+  if data[2] != SNAP_KIND_NODE { return None; }
+  let key_count = tuple_read_int_le(data, 4);
+  let child_count = tuple_read_int_le(data, 12);
+  if key_count < 0 { return None; }
+  if child_count < 0 { return None; }
+  let expected = SNAP_NODE_HEADER_BYTES + 16 * key_count + 8 * child_count;
+  if data.len() != expected { return None; }
+
+  var keys = Vec[Int].new();
+  var values = Vec[Int].new();
+  var children = Vec[Int].new();
+  var at = SNAP_NODE_HEADER_BYTES;
+  var i = 0;
+  while i < key_count {
+    keys.push(tuple_read_int_le(data, at));
+    at = at + 8;
+    i = i + 1;
+  }
+  i = 0;
+  while i < key_count {
+    values.push(tuple_read_int_le(data, at));
+    at = at + 8;
+    i = i + 1;
+  }
+  i = 0;
+  while i < child_count {
+    children.push(tuple_read_int_le(data, at));
+    at = at + 8;
+    i = i + 1;
+  }
+
+  let leaf = data[3] == 1;
+  if leaf && child_count != 0 { return None; }
+  if !leaf && child_count == 0 { return None; }
+  return Some(BTreeNode{ keys: keys, values: values, children: children, is_leaf: leaf });
+}
+
+fn snap_decode_header(data: &Vec[Int]) -> Option[SnapshotMeta] {
+  if data.len() < SNAP_HEADER_BYTES { return None; }
+  if data[0] != SNAP_MAGIC { return None; }
+  if data[1] != SNAP_VERSION { return None; }
+  if data[2] != SNAP_KIND_HEADER { return None; }
+  return Some(SnapshotMeta{
+    root: tuple_read_int_le(data, 4),
+    order: tuple_read_int_le(data, 12),
+    node_count: tuple_read_int_le(data, 20),
+    checkpoint_lsn: tuple_read_int_le(data, 28),
+    generation: tuple_read_int_le(data, 36),
+  });
+}
+
+fn snap_find_page(pages: &Vec[Page], page_id: Int) -> Option[Page] {
+  var i = 0;
+  while i < pages.len() {
+    if pages[i].id == page_id { return Some(pages[i]); }
+    i = i + 1;
+  }
+  return None;
+}
+
+fn snap_read_meta(pages: &Vec[Page]) -> Option[SnapshotMeta] {
+  let found = snap_find_page(pages, 0);
+  match found {
+    None => { return None; }
+    Some(p) => {
+      let pg: Page = p;
+      return snap_decode_header(&pg.data);
+    }
+  }
+}
+
+// Write the whole snapshot (header + one page per node) as one atomic page-set
+// install. False when a node exceeds the page budget or the IO fails; the
+// previous snapshot (if any) is untouched in both cases.
+fn snap_save(path: Str, tree: &BTree, checkpoint_lsn: Int, generation: Int) -> Bool {
+  var pages = Vec[Page].new();
+  let hdr = snap_header_page_bytes(tree.root, tree.order, tree.nodes.len(),
+                                   checkpoint_lsn, generation);
+  if hdr.len() > SNAP_PAGE_MAX_BYTES { return false; }
+  pages.push(Page.new(0, hdr, page_compute_checksum(&hdr)));
+
+  var i = 0;
+  while i < tree.nodes.len() {
+    let node = tree.nodes[i];
+    let data = snap_node_page_bytes(&node);
+    if data.len() > SNAP_PAGE_MAX_BYTES { return false; }
+    pages.push(Page.new(i + 1, data, page_compute_checksum(&data)));
+    i = i + 1;
+  }
+  let pf = page_file_open(path);
+  return page_file_write_batch(&pf, pages);
+}
+
+// Load a snapshot; None when absent or invalid at ANY level (page checksum,
+// header, node codec, node count, child-pointer range). The caller then
+// falls back to full WAL replay.
+fn snap_load(path: Str) -> Option[Snapshot] {
+  let pf = page_file_open(path);
+  let pages = page_file_read_all(&pf);
+  let meta_found = snap_read_meta(&pages);
+  var meta = SnapshotMeta{ root: 0, order: 3, node_count: 0, checkpoint_lsn: 0, generation: 0 };
+  match meta_found {
+    None => { return None; }
+    Some(m) => {
+      let mm: SnapshotMeta = m;
+      meta = mm;
+    }
+  }
+  if meta.order < 3 { return None; }
+  if meta.node_count < 1 { return None; }
+  if meta.root < 0 { return None; }
+  if meta.root >= meta.node_count { return None; }
+
+  var nodes = Vec[BTreeNode].new();
+  var i = 0;
+  while i < meta.node_count {
+    let found = snap_find_page(&pages, i + 1);
+    var ok = false;
+    match found {
+      None => {}
+      Some(p) => {
+        let pg: Page = p;
+        let dec = snap_decode_node(&pg.data);
+        match dec {
+          None => {}
+          Some(n) => {
+            let nd: BTreeNode = n;
+            nodes.push(nd);
+            ok = true;
+          }
+        }
+      }
+    }
+    if !ok { return None; }
+    i = i + 1;
+  }
+
+  // Child pointers must address loaded nodes: a CRC-valid but semantically
+  // corrupt snapshot must not reach search/traverse as a dangling pointer.
+  var j = 0;
+  while j < nodes.len() {
+    let nd = nodes[j];
+    var c = 0;
+    while c < nd.children.len() {
+      if nd.children[c] < 0 { return None; }
+      if nd.children[c] >= meta.node_count { return None; }
+      c = c + 1;
+    }
+    j = j + 1;
+  }
+
+  var tree = BTree{ root: meta.root, order: meta.order, nodes: nodes };
+  return Some(Snapshot{ tree: tree, checkpoint_lsn: meta.checkpoint_lsn, generation: meta.generation });
+}
+
+// Checkpoint: install a snapshot of the current tree, append the Checkpoint
+// anchor record, then truncate the segment to keep the anchor and everything
+// after it. Returns the anchor LSN, or -1 when the snapshot could not be
+// installed (the WAL is untouched in that case).
+pub fn db_file_checkpoint(db: &mut DBFile) -> Int {
+  let snap_path = db.path + ".snap";
+  var generation = 1;
+  let pf = page_file_open(snap_path);
+  let existing = page_file_read_all(&pf);
+  let meta_found = snap_read_meta(&existing);
+  match meta_found {
+    None => {}
+    Some(m) => {
+      let mm: SnapshotMeta = m;
+      generation = mm.generation + 1;
+    }
+  }
+
+  let snap_lsn = wal_file_next_lsn(&db.wal) - 1;
+  let saved = snap_save(snap_path, &db.tree, snap_lsn, generation);
+  if !saved { return -1; }
+
+  var payload = Vec[Int].new();
+  payload.push(generation);
+  payload.push(db.tree.nodes.len());
+  payload.push(db.tree.order);
+  let anchor = wal_file_append_tagged(&mut db.wal, WALOpKind.Checkpoint,
+                                      snap_lsn, db.tree.root, payload, 0);
+  if anchor < 0 { return -1; }
+
+  // Best-effort compaction: keeping lsn >= anchor retains the anchor itself,
+  // so next_lsn still resumes correctly. A failed truncate leaves older
+  // records that `db_file_open` skips via the snapshot's checkpoint_lsn gate.
+  let _ = wal_file_truncate(db.path, anchor);
+  return anchor;
 }
