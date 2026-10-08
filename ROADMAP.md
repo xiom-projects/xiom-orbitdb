@@ -18,6 +18,7 @@ The working core. Everything here is implemented and exercised through the publi
 | Item | Status | Location |
 |------|--------|----------|
 | Flat-array B-tree (insert/search/delete) | [OK] | `index/btree.xi` |
+| B-tree delete borrow/merge hardening (churn-proven vs model) | [OK] (2026-10-08) | `index/btree.xi` |
 | Range queries, min/max, in-order traversal | [OK] | `index/btree.xi` |
 | Write-ahead log (append/replay/truncate/clear) | [OK] (in-memory) | `wal/wal.xi`, `wal/wal_record.xi` |
 | Crash recovery via WAL replay | [OK] (in-memory) | `engine.xi` `engine_recover` |
@@ -30,7 +31,7 @@ The working core. Everything here is implemented and exercised through the publi
 | Storage primitives (Page, BufferPool, tuple codec) | [OK] (in-memory) | `storage/page.xi`, `storage/tuple.xi` |
 | Transaction state machine | [OK] (state only) | `txn/transaction.xi` |
 | Dependency on `xiom-core` substrate | [OK] | `package.xi` |
-| Conformance test suite (93 tests) | [OK] | `tests/test_conformance.xi` |
+| Conformance test suite (95 tests) | [OK] | `tests/test_conformance.xi` |
 
 **Known limitation:** all state lives in RAM. "Durability" and "recovery" are correct with respect to the in-memory WAL but survive only process-lifetime, not a real crash.
 

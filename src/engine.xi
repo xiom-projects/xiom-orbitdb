@@ -258,7 +258,11 @@ pub fn btree_delete(tree: &mut BTree, key: Int) -> Bool {
 
 fn delete_from_node(tree: &mut BTree, node_idx: Int, key: Int) -> Bool {
   var node = tree.nodes[node_idx];
-  var min_keys = (tree.order + 1) / 2 - 1;
+  // Split scheme: a full node has order-1 keys and splits into halves that
+  // differ by one, so the true floor is (order-2)/2 (same as the old formula
+  // for even orders, one lower for odd orders -- the old value left order-5
+  // nodes permanently under-filled after a split).
+  var min_keys = (tree.order - 2) / 2;
 
   var idx = 0;
   while idx < node.keys.len() && node.keys[idx] < key {
@@ -280,15 +284,13 @@ fn delete_from_node(tree: &mut BTree, node_idx: Int, key: Int) -> Bool {
   var child_idx = node.children[idx];
 
   if tree.nodes[child_idx].keys.len() <= min_keys {
-    fill_child(tree, node_idx, idx, min_keys);
+    // fill_child returns the NODE INDEX of the (possibly relocated) target
+    // child: a merge at child_pos-1 shifts it left. Recursing with the old
+    // position instead descended an unrelated node (churn repro op=148).
+    child_idx = fill_child(tree, node_idx, idx, min_keys);
   }
 
-  var new_idx = idx;
-  if new_idx > tree.nodes[node_idx].keys.len() {
-    new_idx = tree.nodes[node_idx].keys.len();
-  }
-  var clean_child_idx = tree.nodes[node_idx].children[new_idx];
-  return delete_from_node(tree, clean_child_idx, key);
+  return delete_from_node(tree, child_idx, key);
 }
 
 fn remove_from_leaf(tree: &mut BTree, node_idx: Int, pos: Int) {
@@ -400,14 +402,14 @@ fn merge_children(tree: &mut BTree, parent_idx: Int, pos: Int) {
   }
 }
 
-fn fill_child(tree: &mut BTree, parent_idx: Int, child_pos: Int, min_keys: Int) {
+fn fill_child(tree: &mut BTree, parent_idx: Int, child_pos: Int, min_keys: Int) -> Int {
   var parent = tree.nodes[parent_idx];
 
   if child_pos > 0 {
     var left_sib_idx = parent.children[child_pos - 1];
     if tree.nodes[left_sib_idx].keys.len() > min_keys {
       borrow_from_left(tree, parent_idx, child_pos);
-      return;
+      return tree.nodes[parent_idx].children[child_pos];
     }
   }
 
@@ -415,15 +417,16 @@ fn fill_child(tree: &mut BTree, parent_idx: Int, child_pos: Int, min_keys: Int) 
     var right_sib_idx = parent.children[child_pos + 1];
     if tree.nodes[right_sib_idx].keys.len() > min_keys {
       borrow_from_right(tree, parent_idx, child_pos);
-      return;
+      return tree.nodes[parent_idx].children[child_pos];
     }
   }
 
   if child_pos > 0 {
     merge_children(tree, parent_idx, child_pos - 1);
-  } elif child_pos < parent.children.len() - 1 {
-    merge_children(tree, parent_idx, child_pos);
+    return tree.nodes[parent_idx].children[child_pos - 1];
   }
+  merge_children(tree, parent_idx, child_pos);
+  return tree.nodes[parent_idx].children[child_pos];
 }
 
 fn borrow_from_left(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
@@ -436,7 +439,6 @@ fn borrow_from_left(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
 
   child.keys.push(0);
   child.values.push(0);
-  child.children.push(0);
 
   var i = child.keys.len() - 1;
   while i > 0 {
@@ -448,6 +450,10 @@ fn borrow_from_left(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
   child.values[0] = parent.values[child_pos - 1];
 
   if left.children.len() > 0 {
+    // Internal nodes only: carry the sibling's last child pointer across.
+    // (The old code pushed the placeholder even for leaf children, leaving
+    // a spurious child index on every leaf borrow.)
+    child.children.push(0);
     i = child.children.len() - 1;
     while i > 0 {
       child.children[i] = child.children[i - 1];

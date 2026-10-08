@@ -1310,6 +1310,96 @@ fn test_btree_large_insert() -> TestResult {
 }
 
 // ===========================================================================
+// B-tree churn: randomized insert/delete/search against a reference model.
+// Regression lock for the delete/underflow fixes (child-index contract of
+// fill_child, borrow_from_left leaf children, min_keys for odd orders).
+// Extended soak lives in tests/probes/probe_btree_churn.xi.
+// ===========================================================================
+
+fn churn_rand(state: &mut Int) -> Int {
+  *state = (*state * 1103515245 + 12345) % 2147483648;
+  return *state;
+}
+
+fn run_btree_churn(order: Int, ops: Int, n: Int, seed: Int) -> Int {
+  var tree = btree_new(order);
+  var present = Vec[Int].new();
+  var values = Vec[Int].new();
+  var i = 0;
+  while i < n {
+    present.push(0);
+    values.push(0);
+    i = i + 1;
+  }
+  var state = seed;
+  var step = 0;
+  while step < ops {
+    let key = churn_rand(&mut state) % n;
+    let action = churn_rand(&mut state) % 10;
+    if action < 4 {
+      let want = present[key] == 0;
+      let got = btree_insert(&mut tree, key, key * 7 + 1);
+      if got != want { return 1; }
+      if want {
+        present[key] = 1;
+        values[key] = key * 7 + 1;
+      }
+    } elif action < 7 {
+      let want = present[key] == 1;
+      let got = btree_delete(&mut tree, key);
+      if got != want { return 2; }
+      if want { present[key] = 0; }
+    } else {
+      let got = btree_search(&tree, key);
+      if present[key] == 1 {
+        match got {
+          None => { return 3; }
+          Some(v) => { if v != values[key] { return 4; } }
+        }
+      } else {
+        match got {
+          Some(_) => { return 5; }
+          None => {}
+        }
+      }
+    }
+    step = step + 1;
+  }
+
+  var expected = 0;
+  var k = 0;
+  while k < n {
+    if present[k] == 1 { expected = expected + 1; }
+    k = k + 1;
+  }
+  if btree_size(&tree) != expected { return 6; }
+  let vals = btree_to_vec(&tree);
+  if vals.len() != expected { return 7; }
+  var idx = 0;
+  k = 0;
+  while k < n {
+    if present[k] == 1 {
+      if vals[idx] != values[k] { return 8; }
+      idx = idx + 1;
+    }
+    k = k + 1;
+  }
+  return 0;
+}
+
+fn test_btree_churn_order4() -> TestResult {
+  let rc = run_btree_churn(4, 400, 128, 12345);
+  if rc == 0 { return assert(true, "btree: churn order 4 vs model (insert/delete/search)"); }
+  return assert(false, "btree: churn order 4 failed");
+}
+
+fn test_btree_churn_order5() -> TestResult {
+  let rc = run_btree_churn(5, 400, 128, 2026);
+  if rc == 0 { return assert(true, "btree: churn order 5 vs model (odd-order min-keys)"); }
+  return assert(false, "btree: churn order 5 failed");
+}
+
+// ===========================================================================
 // Integration: Engine + Database facade
 // ===========================================================================
 
@@ -1867,6 +1957,10 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r72.passed, r72.name);
   let r73 = test_btree_large_insert();
   total = total + 1; failed = failed + report(r73.passed, r73.name);
+  let r73b = test_btree_churn_order4();
+  total = total + 1; failed = failed + report(r73b.passed, r73b.name);
+  let r73c = test_btree_churn_order5();
+  total = total + 1; failed = failed + report(r73c.passed, r73c.name);
 
   // Integration: Engine + Database
   let r74 = test_engine_new();
