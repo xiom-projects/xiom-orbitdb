@@ -59,7 +59,9 @@ pub const TUPLE_MAGIC: Int = 0xDB;
 pub const TUPLE_VERSION: Int = 1;
 pub const TUPLE_MAX_FIELDS: Int = 255;
 
-fn push_int_le(out: &mut Vec[Int], v: Int) {
+// Exported for the snapshot node-page codec in the engine (one LE layout for
+// every on-disk codec); keep the byte order in lockstep with TUPLE_VERSION.
+pub fn tuple_push_int_le(out: &mut Vec[Int], v: Int) {
   var k = 0;
   while k < 8 {
     out.push((v >> (8 * k)) & 0xFF);
@@ -69,8 +71,8 @@ fn push_int_le(out: &mut Vec[Int], v: Int) {
 
 // Reconstruct an i64 from 8 little-endian bytes without ever leaving the
 // signed 64-bit range (top byte first, seven magnitude bits before the low
-// seven bytes; sign applied last).
-fn read_int_le(buf: &Vec[Int], at: Int) -> Int {
+// seven bytes; sign applied last). Exported with `tuple_push_int_le`.
+pub fn tuple_read_int_le(buf: &Vec[Int], at: Int) -> Int {
   let top = buf[at + 7] & 0xFF;
   let sign = (top & 0x80) == 0x80;
   var v = top & 0x7F;
@@ -103,11 +105,11 @@ fn tuple_encode_bytes(row: &Row) -> Vec[Int] {
   out.push(TUPLE_VERSION);
   out.push(row.data.len() + 1);
   out.push(0x01);
-  push_int_le(&mut out, row.id);
+  tuple_push_int_le(&mut out, row.id);
   var i = 0;
   while i < row.data.len() {
     out.push(0x01);
-    push_int_le(&mut out, row.data[i]);
+    tuple_push_int_le(&mut out, row.data[i]);
     i = i + 1;
   }
   return out;
@@ -165,11 +167,11 @@ pub fn tuple_decode(buf: &Vec[Int]) -> DbResult[Row] {
     i = i + 1;
   }
 
-  let id = read_int_le(buf, 4);
+  let id = tuple_read_int_le(buf, 4);
   var data = Vec[Int].new();
   var j = 1;
   while j < count {
-    data.push(read_int_le(buf, 4 + 9 * j));
+    data.push(tuple_read_int_le(buf, 4 + 9 * j));
     j = j + 1;
   }
   return Ok(Row{ id: id, data: data });

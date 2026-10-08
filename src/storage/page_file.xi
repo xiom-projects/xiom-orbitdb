@@ -155,6 +155,62 @@ pub fn page_file_read(pf: &PageFile, page_id: Int) -> Option[Page] {
   }
 }
 
+// Every valid page in file order, from ONE scan of the file (malformed and
+// checksum-invalid lines are skipped). Whole-set readers -- the checkpoint
+// snapshot loader -- use this instead of one `page_file_read` scan per page.
+pub fn page_file_read_all(pf: &PageFile) -> Vec[Page] {
+  var out = Vec[Page].new();
+  let lines_r = io.read_file_lines(pf.path);
+  match lines_r {
+    Err(_) => { return out; }
+    Ok(lines) => {
+      let all: Vec[Str] = lines;
+      var i = 0;
+      while i < all.len() {
+        let raw = trim.str_trim(all[i]);
+        if raw != "" {
+          match parse_page_line(raw) {
+            None => {}
+            Some(p) => {
+              let pg: Page = p;
+              if pg.is_valid() { out.push(pg); }
+            }
+          }
+        }
+        i = i + 1;
+      }
+      return out;
+    }
+  }
+}
+
+// Replace the ENTIRE page set with `pages` in one temp write + atomic rename
+// (upserts in `page_file_write` keep unlisted pages; this does not). This is
+// the snapshot install path: a crash before the rename leaves the previous
+// page set fully intact, so a checkpoint is all-or-nothing.
+pub fn page_file_write_batch(pf: &PageFile, pages: Vec[Page]) -> Bool {
+  var body = "";
+  var i = 0;
+  while i < pages.len() {
+    let p = pages[i];
+    body = body + format_page_line(&p) + "\n";
+    i = i + 1;
+  }
+
+  var tmp = pf.path + ".tmp";
+  let _ = io.remove_file(tmp);
+  let wrote = io.write_file(tmp, body);
+  match wrote {
+    Err(_) => { return false; }
+    Ok(_) => {}
+  }
+  let moved = io.rename(tmp, pf.path);
+  match moved {
+    Ok(_) => { return true; }
+    Err(_) => { return false; }
+  }
+}
+
 // Upsert a page: rebuild the file into a temp, then atomically replace.
 // Returns false on any IO failure (the original file is left untouched).
 pub fn page_file_write(pf: &PageFile, page: Page) -> Bool {

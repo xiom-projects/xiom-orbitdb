@@ -5,7 +5,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0
 
 # Storage Layout
 
-> **Status:** Phase 0 -- entirely in-memory. This document describes the current in-memory representation and the intended on-disk layout it is designed to become. No file format exists yet.
+> **Status:** Phase 0/1 -- the pager layer is still in-memory, but two durable text codecs exist: the page file (`storage/page_file.xi`, CRC32C-verified, atomic rewrite) and the checkpoint snapshot built on it (see `wal-and-recovery.md`). The target layout below is the fixed-block form these seams will be swapped for.
 
 The storage layer (`src/storage/`) owns bytes: pages, the buffer that caches them, the free-space accounting that places rows, and the tuple codec that turns rows into bytes.
 
@@ -49,6 +49,24 @@ Row = { id: UInt64, data: Vec[Int] }
 `ResultSet { columns: Vec[Str], rows: Vec[Row] }` is the columnar container returned by higher layers. (Note: the column vector uses the correct `Vec[Str]` bracket syntax; the previous `Vec<Str>` form was a bug and has been fixed.)
 
 **Phase 1** replaces the flat-integer codec with a byte-packed, length-prefixed record that respects `DatabaseConfig.page_size` and the column types declared in the catalog.
+
+## Durable page file v1 -- `storage/page_file.xi`
+
+One line per page (UTF-8 text; bytes are 0..255 integers):
+
+```
+page_id|len|checksum|b0,b1,...
+```
+
+| Function | Semantics |
+|----------|-----------|
+| `page_file_write(pf, page)` | Upsert one page; unlisted pages survive. Rebuilds the file into a temp and atomically replaces it. |
+| `page_file_write_batch(pf, pages)` | Replace the **entire** page set in one temp write + atomic rename. All-or-nothing; the snapshot install path. |
+| `page_file_read(pf, id)` | One page by id; torn/malformed/checksum-invalid lines are not pages. |
+| `page_file_read_all(pf)` | Every valid page in file order from a single scan (whole-set loaders). |
+| `page_file_sync(pf)` | Durability seam; no-op until the stdlib fsync wrapper lands. |
+
+Integrity is CRC32C over the byte view (`Page.is_valid`); a structurally complete but checksum-invalid line is dropped on read. `tuple_push_int_le` / `tuple_read_int_le` (exported from `storage/tuple.xi`) are the shared little-endian integer helpers for every on-disk codec.
 
 ## Free-space map -- `storage/free_space_map.xi` *(scaffold)*
 

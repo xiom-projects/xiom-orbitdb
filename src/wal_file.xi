@@ -281,7 +281,20 @@ pub fn wal_file_truncate(path: Str, from_lsn: Int) -> Bool {
     if rec.lsn >= from_lsn {
       body = body + convert.int_to_string(rec.lsn) + "|" + convert.int_to_string(wal_op_code(rec.op))
            + "|" + convert.int_to_string(rec.key) + "|" + convert.int_to_string(rec.value)
-           + "|" + convert.int_to_string(rec.timestamp) + "\n";
+           + "|" + convert.int_to_string(rec.timestamp);
+      // Payload must survive the rewrite (the Checkpoint record kept by a
+      // checkpoint truncation carries [generation, node_count, order]; dropping
+      // it would silently mutate a kept record).
+      if rec.payload.len() > 0 {
+        body = body + "|";
+        var j = 0;
+        while j < rec.payload.len() {
+          if j > 0 { body = body + ","; }
+          body = body + convert.int_to_string(rec.payload[j]);
+          j = j + 1;
+        }
+      }
+      body = body + "\n";
     }
     i = i + 1;
   }
