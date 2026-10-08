@@ -12,6 +12,8 @@
 #      tail write, torn tail, reopen recovers N from the snapshot alone.
 #   C. snapshot + tail: writer checkpoints after N, appends Tail more keys,
 #      hard-kill mid-tail, reopen recovers N+Tail (snapshot + tail replay).
+# After every recovery the harness runs `qverify`: key-range + value-filter
+# queries must return the correct values from the recovered tree.
 #
 # Usage: .\scripts\db_crash_test.ps1 [-Keys 20] [-Tail 3] [-TimeoutSec 90]
 # Exit:  0 = green, 1 = failed.
@@ -120,6 +122,8 @@ Write-Host ("crash: killed writer, segment={0} bytes, torn tail appended" -f (Ge
 # --- phase 3: reopen, replay must recover exactly Keys keys ----------------
 $rc = Invoke-DbMode -Mode "verify" -N $Keys
 Check "reopen recovers $Keys keys (WAL replay, torn skipped)" ($rc -eq 0)
+$rc = Invoke-DbMode -Mode "qverify" -N $Keys
+Check "query after WAL replay: range + filter correct" ($rc -eq 0)
 
 # --- phase 4: heal + put one more key --------------------------------------
 $rc = Invoke-DbMode -Mode "put1" -N $Keys
@@ -142,6 +146,8 @@ Add-Content -LiteralPath $ckptWal -Value "torn|" -NoNewline
 
 $rc = Invoke-DbMode -Mode "verify" -N $Keys -Path $ckptWal
 Check "ckpt reopen recovers $Keys keys from snapshot alone (torn ignored)" ($rc -eq 0)
+$rc = Invoke-DbMode -Mode "qverify" -N $Keys -Path $ckptWal
+Check "query after snapshot-only recovery: range + filter correct" ($rc -eq 0)
 $rc = Invoke-DbMode -Mode "put1" -N $Keys -Path $ckptWal
 Check "ckpt put after snapshot recovery heals tail (put1 exit 0)" ($rc -eq 0)
 $rc = Invoke-DbMode -Mode "verify" -N ($Keys + 1) -LastKey "9999" -LastVal "99990" -Path $ckptWal
@@ -160,6 +166,8 @@ Add-Content -LiteralPath $tailWal -Value "torn|" -NoNewline
 
 $rc = Invoke-DbMode -Mode "verify" -N ($Keys + $Tail) -Path $tailWal
 Check "ckpt+tail reopen recovers $($Keys + $Tail) keys (snapshot + tail replay)" ($rc -eq 0)
+$rc = Invoke-DbMode -Mode "qverify" -N ($Keys + $Tail) -Path $tailWal
+Check "query after snapshot+tail recovery: range + filter correct" ($rc -eq 0)
 $rc = Invoke-DbMode -Mode "put1" -N ($Keys + $Tail) -Path $tailWal
 Check "ckpt+tail put after recovery heals tail (put1 exit 0)" ($rc -eq 0)
 $rc = Invoke-DbMode -Mode "verify" -N ($Keys + $Tail + 1) -LastKey "9999" -LastVal "99990" -Path $tailWal

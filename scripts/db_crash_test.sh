@@ -12,6 +12,8 @@
 #      tail write, torn tail, reopen recovers N from the snapshot alone.
 #   C. snapshot + tail: writer checkpoints after N, appends Tail more keys,
 #      hard-kill mid-tail, reopen recovers N+Tail (snapshot + tail replay).
+# After every recovery the harness runs `qverify`: key-range + value-filter
+# queries must return the correct values from the recovered tree.
 #
 # Usage: scripts/db_crash_test.sh [--keys N] [--tail T] [--timeout-sec S]
 # Exit:  0 = green, 1 = failed.
@@ -96,6 +98,8 @@ printf 'crash: killed writer, segment=%s bytes, torn tail appended\n' "$(wc -c <
 # --- phase 3: reopen, replay must recover exactly KEYS keys ----------------
 invoke_mode verify "$KEYS" >/dev/null 2>&1
 check "reopen recovers $KEYS keys (WAL replay, torn skipped)" "$?"
+invoke_mode qverify "$KEYS" >/dev/null 2>&1
+check "query after WAL replay: range + filter correct" "$?"
 
 # --- phase 4: heal + put one more key --------------------------------------
 invoke_mode put1 "$KEYS" >/dev/null 2>&1
@@ -134,6 +138,8 @@ printf 'torn|' >> "$CKPT_WAL"
 
 invoke_mode verify "$KEYS" "" "" "$CKPT_WAL" >/dev/null 2>&1
 check "ckpt reopen recovers $KEYS keys from snapshot alone (torn ignored)" "$?"
+invoke_mode qverify "$KEYS" "" "" "$CKPT_WAL" >/dev/null 2>&1
+check "query after snapshot-only recovery: range + filter correct" "$?"
 invoke_mode put1 "$KEYS" "" "" "$CKPT_WAL" >/dev/null 2>&1
 check "ckpt put after snapshot recovery heals tail (put1 exit 0)" "$?"
 invoke_mode verify "$((KEYS + 1))" "9999" "99990" "$CKPT_WAL" >/dev/null 2>&1
@@ -168,6 +174,8 @@ printf 'torn|' >> "$TAIL_WAL"
 
 invoke_mode verify "$((KEYS + TAIL))" "" "" "$TAIL_WAL" >/dev/null 2>&1
 check "ckpt+tail reopen recovers $((KEYS + TAIL)) keys (snapshot + tail replay)" "$?"
+invoke_mode qverify "$((KEYS + TAIL))" "" "" "$TAIL_WAL" >/dev/null 2>&1
+check "query after snapshot+tail recovery: range + filter correct" "$?"
 invoke_mode put1 "$((KEYS + TAIL))" "" "" "$TAIL_WAL" >/dev/null 2>&1
 check "ckpt+tail put after recovery heals tail (put1 exit 0)" "$?"
 invoke_mode verify "$((KEYS + TAIL + 1))" "9999" "99990" "$TAIL_WAL" >/dev/null 2>&1

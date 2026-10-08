@@ -9,7 +9,8 @@
 //
 // Env:
 //   ORBITDB_DB_FILE      WAL segment path (required)
-//   ORBITDB_DB_MODE      write | verify | put1 | ckpt | soak  (default: verify)
+//   ORBITDB_DB_MODE      write | verify | put1 | ckpt | qverify | soak
+//                        (default: verify)
 //   ORBITDB_DB_N         key count for write / verify / ckpt   (default: 20)
 //   ORBITDB_DB_TAIL      ckpt mode: keys appended AFTER the checkpoint (default 0)
 //   ORBITDB_DB_CKPT_EVERY soak mode: checkpoint cadence (default 250)
@@ -87,6 +88,49 @@ fn run_verify(path: Str, n: Int) -> Int {
     }
   }
   io.println("verify: OK n=" + convert.int_to_string(n));
+  return 0;
+}
+
+// Query-after-recovery: the recovered handle must answer key-range and
+// value-filter queries correctly. The checks hold for every scenario shape
+// (WAL-only, snapshot-only, snapshot+tail) and are independent of the
+// optional 9999/99990 probe key (it sorts last, past every checked window).
+fn run_qverify(path: Str, n: Int) -> Int {
+  var db = db_file_open(path, 4);
+
+  // Key range [3, 6] -> values 30..60 in key order.
+  let r = db_file_range(&db, 3, 6);
+  if r.len() != 4 { io.println("qverify: range len"); return 1; }
+  if r[0] != 30 { io.println("qverify: range 0"); return 1; }
+  if r[1] != 40 { io.println("qverify: range 1"); return 1; }
+  if r[2] != 50 { io.println("qverify: range 2"); return 1; }
+  if r[3] != 60 { io.println("qverify: range 3"); return 1; }
+
+  // Last sequential key: range [n, n] -> n*10.
+  let rn = db_file_range(&db, n, n);
+  if rn.len() != 1 { io.println("qverify: range n len"); return 1; }
+  if rn[0] != n * 10 { io.println("qverify: range n value"); return 1; }
+
+  // Value filter: >= 10, offset 2, limit 3 -> [30, 40, 50].
+  var q = query_new();
+  query_where(&mut q, QueryOp.Gte, 10);
+  query_offset(&mut q, 2);
+  query_limit(&mut q, 3);
+  let f = db_file_query(&db, &q);
+  if f.len() != 3 { io.println("qverify: filter len"); return 1; }
+  if f[0] != 30 { io.println("qverify: filter 0"); return 1; }
+  if f[1] != 40 { io.println("qverify: filter 1"); return 1; }
+  if f[2] != 50 { io.println("qverify: filter 2"); return 1; }
+
+  // Value filter: < 30 -> [10, 20].
+  var q2 = query_new();
+  query_where(&mut q2, QueryOp.Lt, 30);
+  let s = db_file_query(&db, &q2);
+  if s.len() != 2 { io.println("qverify: lt len"); return 1; }
+  if s[0] != 10 { io.println("qverify: lt 0"); return 1; }
+  if s[1] != 20 { io.println("qverify: lt 1"); return 1; }
+
+  io.println("qverify: OK n=" + convert.int_to_string(n));
   return 0;
 }
 
@@ -215,6 +259,9 @@ fn main() -> Int {
   }
   if mode == "soak" {
     return run_soak(path, n);
+  }
+  if mode == "qverify" {
+    return run_qverify(path, n);
   }
   if mode == "put1" {
     var db = db_file_open(path, 4);
