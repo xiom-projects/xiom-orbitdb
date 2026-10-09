@@ -107,6 +107,11 @@ Scoreboard changelog:
   `docs/checklists/production-release.md`): workstreams M1-M8, gates
   P-alpha -> 1.0, benchmark targets, release signal for the owner's public
   setup. No score change: 66.5.
+- 2026-10-09: consumer integration handshakes published -- PULSE
+  (`docs/PULSE-INTEGRATION.md`: embedding API + snippets, pin `ef872b0`,
+  platform matrix, crash semantics, conformance proposal, cross-asks) and
+  XVECTOR (`docs/XVECTOR-INTEGRATION.md` + `docs/RELAY-XVECTOR-ORBITDB.md`:
+  row-first hybrid contract). No score change: 66.5.
 - 2026-10-09: isolation decision + multi-handle stale-write guard -- 
   `docs/ISOLATION.md` (single-writer, open-time snapshot, MVCC deferred with 
   prerequisites); every write path (`put`/`delete`/`txn_*`/`checkpoint`) 

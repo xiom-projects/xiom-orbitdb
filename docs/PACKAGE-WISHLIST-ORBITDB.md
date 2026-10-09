@@ -99,3 +99,8 @@ into reusable packages as they harden.
   ORBITDB).
 - **No new package defects from ORBITDB**; the registry gate from the PULSE
   lane remains the only tracked consumer-blocking item we know of.
+- **Consumer demand raised (2026-10-09):** PULSE wants `xiom.db` as its
+  embedded/relational driver (framework 0.3, `open/exec/query/tx`) and
+  XVECTOR is the hybrid-join counterpart. `xiom.db` publish priority
+  follows the production plan's M6; the API promise is exactly
+  `docs/PULSE-INTEGRATION.md` (no more).

@@ -209,6 +209,13 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   RESOLVED (both citing our relay); fsync (stubs), append-handle, truncate,
   byte-IO, tail-check remain open. Package docs carry the `xiom.wal`/
   `xiom.btree` decisions.
+  Consumer handshakes (new): PULSE (`docs/PULSE-INTEGRATION.md`, answering
+  `xiom-pulse/docs/ORBITDB-RELAY-PULSE.md`) -- PULSE builds
+  `probe_pkg_orbitdb` and uses us as its 0.3 embedded/relational driver
+  (`open/exec/query/tx`); XVECTOR (`docs/XVECTOR-INTEGRATION.md` +
+  `docs/RELAY-XVECTOR-ORBITDB.md`) -- asks for
+  `xiom-xvector/docs/ORBITDB-INTEGRATION.md`, then the hybrid row+vector
+  join probe.
 - **Next action (priority order, per `docs/PRODUCTION-PLAN.md` section 13):**
   1. **M1.1 paged node store** (A5 groundwork): NodeStore behind the B-tree
      with page identity + dirty tracking, then lazy load; keep churn/fuzz/
