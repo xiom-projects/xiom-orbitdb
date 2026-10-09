@@ -14,7 +14,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0
 
 xiom-db is an embedded database engine in pure XIOM. It provides a B-Tree storage index, a write-ahead log (WAL) for crash recovery, and a query engine with filtering / pagination -- all with contract-guaranteed integrity. As of `0.2.0` the package is organized as a **layered architecture** and depends on `xiom-core` for shared IDs, errors, config, contracts, and metrics.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the module tree and ownership rules, [ROADMAP.md](ROADMAP.md) for the phased plan, and [`docs/`](docs/) for subsystem deep-dives.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the module tree and ownership rules, [ROADMAP.md](ROADMAP.md) for the phased plan, and [`docs/`](docs/) for subsystem deep-dives. Start with [API.md](docs/API.md) (public API reference), [RUNBOOK.md](docs/RUNBOOK.md) (commands, recovery, gotchas), and [FORMATS.md](docs/FORMATS.md) (versioned on-disk formats).
 
 ## Installation
 ```bash
