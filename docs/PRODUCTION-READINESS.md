@@ -3,7 +3,8 @@
 # ORBITDB -- Production-Readiness Tracking
 
 > Single source of truth for "how close to production grade". ROADMAP.md is the
-> phase plan; THIS file is the scoreboard. Every score change must cite
+> phase plan; THIS file is the scoreboard; `docs/PRODUCTION-PLAN.md` is the
+> strategy and gates. Every score change must cite
 > evidence that exists in the repo (suite/probe/soak/crash harness) and be
 > committed in the same change that earns it.
 
@@ -102,6 +103,10 @@ Scoreboard changelog:
   OK; all seven repro bundles green unchanged. Stdlib rows 1-2 resolved
   upstream (linear `str_split`/`read_file_lines` + CR stripping, citing our
   relay): 20k-record WAL replay 61.6 s -> 9.9 s. No score change: 66.5.
+- 2026-10-09: production plan published (`docs/PRODUCTION-PLAN.md` +
+  `docs/checklists/production-release.md`): workstreams M1-M8, gates
+  P-alpha -> 1.0, benchmark targets, release signal for the owner's public
+  setup. No score change: 66.5.
 - 2026-10-09: isolation decision + multi-handle stale-write guard -- 
   `docs/ISOLATION.md` (single-writer, open-time snapshot, MVCC deferred with 
   prerequisites); every write path (`put`/`delete`/`txn_*`/`checkpoint`) 

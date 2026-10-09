@@ -9,6 +9,11 @@ SPDX-License-Identifier: MIT OR Apache-2.0
 
 Legend: [OK] done - [WIP] in progress - [WIP] scaffolded (types + stubs, `TODO(Phase N)`) - [FAIL] not started
 
+> **Production track:** `docs/PRODUCTION-PLAN.md` -- the strategy from these
+> phases to a production release (workstreams M1-M8, gates P-alpha -> 1.0,
+> benchmark targets, release signal), executed via
+> `docs/checklists/production-release.md`.
+
 ---
 
 ## Phase 0 -- In-memory engine  [OK] DONE

@@ -149,6 +149,12 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   - Reference docs (new): `docs/API.md` (pub surfaces + contracts),
     `docs/RUNBOOK.md` (commands/recovery/gotchas), `docs/FORMATS.md`
     (versioned v1 formats + version policy); linked from README.
+  - Production plan (new): `docs/PRODUCTION-PLAN.md` (mission, architecture
+    target, workstreams M1-M8, gates P-alpha -> 1.0, benchmark targets,
+    release signal) + `docs/checklists/production-release.md`; linked from
+    README/ROADMAP/readiness. The owner sets up the public release when the
+    release signal fires, and the owner's benchmark suite becomes the
+    release gate.
   - Validation (new): `db_path_valid` (non-empty, <= 4096 chars, no CR/LF)
     and `db_file_open_checked(path, order) -> Result[DBFile, DbError]`
     (`Err(ConstraintViolation)` on bad path or order < 3); `db_file_open`
@@ -203,15 +209,15 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   RESOLVED (both citing our relay); fsync (stubs), append-handle, truncate,
   byte-IO, tail-check remain open. Package docs carry the `xiom.wal`/
   `xiom.btree` decisions.
-- **Next action (priority order):**
-  1. **Node-per-page paged access** -- the remaining A5 gap, tied to the
-     pager seam (C3); keep the pager-seam watch (C-PULSE-02).
-  2. **Checkpoint dirty-tracking diff** (avoid the full encode/compare scan).
-  3. **Durability (B5/B6) when stdlib fsync lands**: wire `wal_file_flush`/
-     `page_file_sync` to a real sync and run a power-loss matrix; until then
-     keep the honest wording.
-  4. MVCC engine (D3) once the pager/concurrency prerequisites exist; keep
-     readiness + relay docs current; commit signed at every logical step.
+- **Next action (priority order, per `docs/PRODUCTION-PLAN.md` section 13):**
+  1. **M1.1 paged node store** (A5 groundwork): NodeStore behind the B-tree
+     with page identity + dirty tracking, then lazy load; keep churn/fuzz/
+     crash/soak green x2 both platforms.
+  2. **M4.1 planner pushdown** (key-range/point + cost estimate).
+  3. **M1.2 byte-page v2 design** now; implement when the stdlib byte-IO row
+     lands.
+  4. **M2.1 fsync wiring** when the stdlib row lands; MVCC design per M3;
+     keep readiness + relay docs current; commit signed at every step.
 
 ## 1. Consumer-lane rules (non-negotiable)
 
@@ -326,7 +332,9 @@ committed txn recovered) x2 Win + WSL, each recovery followed by qverify
 stdlib); bench harness live; readiness
 66.5/100 (docs/PRODUCTION-READINESS.md -- recompute + changelog every wrap);
 reference docs docs/API.md + docs/RUNBOOK.md + docs/FORMATS.md +
-docs/ISOLATION.md. Durable pieces: src/wal_file.xi (segment +
+docs/ISOLATION.md; production plan docs/PRODUCTION-PLAN.md +
+docs/checklists/production-release.md (M1-M8, gates P-alpha -> 1.0, release
+signal). Durable pieces: src/wal_file.xi (segment +
 Begin/Commit/Abort txn records, LSN resume, heal-state, truncate seam keeping
 payloads), src/storage/page_file.xi (CRC32C text page store + append-only
 page log: append/latest-wins/compact), src/storage/tuple.xi codec v1 (LE
@@ -342,15 +350,15 @@ scans all resident nodes; transactions single-active, no MVCC (single-writer
 model in docs/ISOLATION.md); buffer pool in-memory only and live tree still
 resident (pager seam C3 pending); fuzz runs per wrap (CI cadence awaits F3).
 
-TASK ORDER (highest value first):
-1. Node-per-page paged access (A5 gap, pager seam C3); keep the pager-seam
-   watch (C-PULSE-02).
-2. Checkpoint dirty-tracking diff (avoid the full encode/compare scan).
-3. Durability (B5/B6) when stdlib fsync lands: wire wal_file_flush /
-   page_file_sync to a real sync and run a power-loss matrix.
-4. MVCC engine (D3) once the pager/concurrency prerequisites exist; keep
-   SESSION.md STATE, relay docs and PRODUCTION-READINESS updated at every
-   wrap; commit signed per step.
+TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
+1. M1.1 paged node store (A5 groundwork): NodeStore behind the B-tree with
+   page identity + dirty tracking, then lazy load; evidence x2 both
+   platforms.
+2. M4.1 planner pushdown (key-range/point + cost).
+3. M1.2 byte-page format v2 design; implement when stdlib byte IO lands.
+4. M2.1 fsync wiring when stdlib lands; MVCC design per M3; keep SESSION.md
+   STATE, relay docs and PRODUCTION-READINESS updated at every wrap; commit
+   signed per step.
 
 DISCIPLINE (v0.64.2; C-ORBIT workarounds DROPPED -- see COMPILER-FINDINGS):
 - Consumer modules: module-qualify enum variants when a same-named enum is
