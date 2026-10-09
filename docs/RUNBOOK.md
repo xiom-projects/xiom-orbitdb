@@ -27,10 +27,11 @@ Shell scripts and `.xi` files must stay LF; `.ps1` files are CRLF
 
 | Purpose | Command | Notes |
 |---------|---------|-------|
-| Conformance suite | `scripts/run.ps1 tests\test_conformance.xi -TimeoutSec 300` | 117 tests; expect `117/117` and exit 0. |
+| Conformance suite | `scripts/run.ps1 tests\test_conformance.xi -TimeoutSec 300` | 123 tests; expect `123/123` and exit 0. |
 | WAL crash harness | `scripts\crash_test.ps1 -Events 20 -TimeoutSec 90` | writer -> hard kill -> torn tail -> reopen -> verify -> heal -> verify+1. |
 | Page crash harness | `scripts\page_crash_test.ps1 -Pages 20 -TimeoutSec 120` | Use 120s: the writer's first compile can exceed 90s under load. |
 | DB crash harness | `scripts\db_crash_test.ps1 -Keys 20 -Tail 3 -Tx 5 -TimeoutSec 90` | Five scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn, committed txn); 25 checks. |
+| Hybrid crash harness | `scripts\hybrid_crash_test.ps1 -Keys 1000 -TimeoutSec 240` | ORBITDB <-> XVECTOR: one writer drives both stores, hard kill, torn row tail, reopen + repair + 100% join integrity; second verify idempotent. Needs the sibling `xiom-xvector` checkout (source roots in `tests/hybrid/xiom.toml`). |
 | Fuzz/property | `scripts\fuzz.ps1 -TimeoutSec 600` | Deterministic; see section 4. |
 | Benchmarks | `scripts\bench.ps1 -N 10000` | Numbers summarized in the readiness doc G1 row (`docs/PRODUCTION-READINESS.md`). |
 | App build (icon) | `scripts\build.ps1 <source.xi> [-Out out\orbitdb-app.exe]` | Compiles one source into an app binary and embeds `assets/orbitdb.ico` via `--icon` (verified on v0.64.2; `llvm-rc`). `scripts/build.sh` is the Linux/WSL twin (PE icons are Windows-only). |
@@ -53,6 +54,9 @@ killed); harnesses print `GREEN`/`RED` and exit 0/1.
 | `tests/probes/probe_btree_churn.xi` | `ORBITDB_CHURN_ORDER/OPS/N/SEED` | B-tree churn vs model + structural validator. |
 | `tests/probes/probe_fuzz.xi` | `ORBITDB_FUZZ_*` | Section 4. |
 | `tests/probes/probe_wal_file.xi`, `probe_page_file.xi` | Mode envs per file header | Crash drivers for WAL/page harnesses. |
+| `tests/hybrid/probe_hybrid.xi` | `ORBITDB_HYBRID_MODE=full/writer/verify` | ORBITDB <-> XVECTOR hybrid acceptance (source-level composition via `tests/hybrid/xiom.toml`). `full` = 36-check in-process run; `writer`/`verify` are driven by the hybrid crash harness. |
+| | `ORBITDB_HYBRID_ROWS`, `ORBITDB_HYBRID_VEC`, `ORBITDB_HYBRID_N`, `ORBITDB_HYBRID_DIM`, `ORBITDB_HYBRID_SKIP`, `ORBITDB_HYBRID_LAG`, `ORBITDB_HYBRID_CHUNK`, `ORBITDB_HYBRID_Q`, `ORBITDB_HYBRID_K` | Row-store path, vector-WAL path and scale knobs (defaults 1000 / 8 / 10 / 3 / 200 / 8 / 20). |
+| `tests/hybrid/repro_chain.xi` | paths are repo-relative | XV-ORBITDB-01 repro: chained persist -> load -> recover -> persist -> load (load2 loses the log; see `docs/XVECTOR-INTEGRATION.md` section 7). |
 
 Standard soak (policy checkpoints every 250 records):
 
@@ -124,8 +128,9 @@ scripts\run.ps1 tests\probes\probe_db_file.xi -TimeoutSec 180
 
 - `-Quiet` on `run.ps1` suppresses program output; use it only when the exit
   code is all you need.
-- `read_file_lines` / `str_split` are quadratic in the stdlib today (filed):
-  keep bench inputs at N=10k and avoid huge segments until the fix lands.
+- `read_file_lines` / `str_split` are **linear** since stdlib wave 96/97 (they
+  were quadratic on v0.64.1); 20k-record WAL replay is ~9.9 s. `-N 20000`
+  remains the bench reference.
 - Hang loops need a side-effecting call (`io.sleep`); empty spin loops are
   optimized away.
 - Harness flake: a single page-crash `observed=2`-style start miss under load
@@ -146,4 +151,6 @@ scripts\run.ps1 tests\probes\probe_db_file.xi -TimeoutSec 180
 - `docs/wal-and-recovery.md`, `docs/storage-layout.md`,
   `docs/query-pipeline.md` -- subsystem deep-dives.
 - `docs/PRODUCTION-READINESS.md` -- scoreboard, changelog, checklist.
+- `docs/XVECTOR-INTEGRATION.md` -- the hybrid contract, cross-ask answers,
+  the standing probe/harness evidence and finding XV-ORBITDB-01.
 - `SESSION.md` -- current state and next actions.

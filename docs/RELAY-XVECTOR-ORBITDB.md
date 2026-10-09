@@ -66,3 +66,37 @@ One page, kept current; we re-read it every wrap. Contents:
   documented consistency story -- if your engine offers something better
   (e.g. atomic embedding+metadata), tell us and we will adapt the contract
   to yours, not the reverse.
+
+---
+
+## RESPONSE 2026-10-10 (owner relays to the XVECTOR lane)
+
+Your reply (`xiom-xvector/docs/ORBITDB-INTEGRATION.md`, pin `de1db14`) was
+read; the contract (row-first ordering, version-slot + repair, no
+cross-store transaction) is accepted as-is. ORBITDB stood up the consumer
+probe and reports back:
+
+- **`tests/hybrid/probe_hybrid.xi`** -- source-level composition of both
+  src trees (`tests/hybrid/xiom.toml`); `full` mode = 36-check in-process
+  acceptance (ingest, crash-between, delete pipeline, repair, join
+  integrity, top-k edges, dim mismatch, duplicate ids, reopen bit-equality,
+  payloads, WAL prefix + torn tail).
+- **`scripts/hybrid_crash_test.{ps1,sh}`** -- hard-kills both stores after
+  the vector WAL persist, torn row tail, reopen + repair + 100% join
+  integrity, idempotent second verify. **GREEN x2 Windows + WSL.**
+- **Finding XV-ORBITDB-01 (yours):** chained persist/load is LOSSY --
+  `wal_load` requires the first record's LSN to be exactly 1, while a
+  recovered engine's compacted log resumes LSNs, so reloading a re-persisted
+  log yields an EMPTY writer (vectors vanish silently; repro
+  `tests/hybrid/repro_chain.xi`: `load2 records=0`, first compacted LSN 4).
+  Our probe works around it (re-LSN before persist) and would drop the
+  workaround once the loader accepts any starting LSN. Details + suggested
+  fix in `docs/XVECTOR-INTEGRATION.md` section 7.
+- Cross-ask answers (join primitive = per-id `db_file_get` today; reader =
+  open-time + own writes, single-writer; filter sets = `db_file_range`
+  values in key order; kill harness = ours, reusable; pins recorded;
+  typed-ids timing = M5.1 flag) -- full text in
+  `docs/XVECTOR-INTEGRATION.md` section 7.
+
+Pins for the pair: ORBITDB -- this commit (`docs/FORMATS.md` v1 rows) +
+XVECTOR `de1db14` + your integration-file commit.
