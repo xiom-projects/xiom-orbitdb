@@ -2,13 +2,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 module xiom.db.error
-use xiom.core.error;
 
 // Typed error domain for xiom-db. Every fallible database operation returns a
 // `DbResult[T]` so there are no hidden failure channels -- callers must discharge
-// the failure explicitly. `DbError` is intentionally coarse-grained and stable;
-// richer diagnostics travel in the message-carrying `xiom.core.error.CoreError`
-// that lower layers raise and that `db_error_from_core` folds into this domain.
+// the failure explicitly. `DbError` is intentionally coarse-grained and stable.
+//
+// The legacy `xiom.core.error.CoreError` boundary fold is RETIRED (2026-10-10):
+// the substrate package was never published, so the fold's parameter type did
+// not exist; the checker tolerated the phantom reference until the hybrid
+// probe put a same-named foreign `CoreError` in the catalog. Re-introduce the
+// fold when `xiom-core` publishes (vector of that decision: D3 session notes).
 
 pub enum DbError {
   NotFound,
@@ -41,23 +44,6 @@ pub fn DbError.is_retryable(err: DbError) -> Bool {
     SchemaMismatch => false,
     StorageError => true,
     Corruption => false,
-  }
-}
-
-// Fold a lower-level xiom-core failure into the database error domain so the
-// public API surface only ever exposes `DbError`.
-pub fn db_error_from_core(e: &CoreError) -> DbError {
-  match e {
-    NotFound => DbError.NotFound,
-    InvalidInput(_) => DbError.ConstraintViolation,
-    OutOfBounds => DbError.StorageError,
-    Corruption(_) => DbError.Corruption,
-    IOFailure(_) => DbError.StorageError,
-    Unsupported(_) => DbError.SchemaMismatch,
-    CapacityExceeded => DbError.StorageError,
-    InvalidState(_) => DbError.ConstraintViolation,
-    ChecksumMismatch => DbError.Corruption,
-    VersionMismatch => DbError.SchemaMismatch,
   }
 }
 

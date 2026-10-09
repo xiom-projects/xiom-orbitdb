@@ -7,6 +7,15 @@ re-test section below; the workarounds are dropped in commit `6f6c3ba`
 (`refactor: drop v0.64.2-fixed workarounds`). One scoping caveat remains for
 C-ORBIT-04 in consumer modules (recorded under the re-test).
 
+**Status 2026-10-10: C-ORBIT-06 filed (OPEN on v0.64.2)** -- phantom imports
+and undeclared signature types are silently accepted; a same-named foreign
+type in the program turns the same file into a hard T001, and bogus W004
+"unreachable match arm" warnings misdirect the triage. Found by composing the
+ORBITDB + XVECTOR source trees for the hybrid probe (bundle
+`docs/repro/phantom-core-import/`). ORBITDB-side fix already applied (the
+dead `db_error_from_core`/`database_config_from_core` folds retired); suite
+123/123 x2 both platforms.
+
 **Relay:** hand this file to the compiler-lane session together with the
 matching `docs/repro/<bundle>/` directories from the ORBITDB repo
 (`E:\xiom-projects\xiom-orbitdb`). ORBITDB is a consumer lane; it does not
@@ -273,6 +282,31 @@ applied then; every one is resolved on v0.64.2 (see the re-test above).
 - **Suggested direction:** `--emit-ir` diff of D vs C around the element copy
   (struct containing Vec fields) inside the nested loop; the copy appears to
   clobber a loop/allocator register at larger iteration counts.
+
+## C-ORBIT-06 -- phantom import silently accepted; foreign twin turns it hard (OPEN, filed 2026-10-10)
+
+- **Bundle:** `docs/repro/phantom-core-import/` (`probe_alone.xi`,
+  `probe_with_twin.xi`, `twin.xi`, README with exact outputs).
+- **Symptom A (silent):** a `use` of a module that exists nowhere
+  (`xiom.core.error`) plus an undeclared type in a signature (`&CoreError`)
+  type-checks green -- with two misleading `W004 unreachable match arm`
+  warnings (29:5, 30:5) pointing at match arms instead of the import.
+- **Symptom B (hard):** with any reachable module declaring a same-named
+  type (`twin.CoreError`; the composite used `xiom.vector.core.shim`'s inline
+  `CoreError`), the very same file fails:
+  `error[T001]: 30:5: match pattern 'Corruption' belongs to 'DbError', not
+  'CoreError'` -- the scrutinee name binds across modules while the bare
+  pattern resolves to the same-module enum; no ambiguity diagnostic.
+- **Impact:** a consumer lane can ship code that cannot type-check in any
+  multi-package composition, while every standalone build is green. The
+  ORBITDB `xiom.db.error` fold was silently dead for months this way.
+- **Workaround (applied):** never keep a `use`/type that does not resolve;
+  removed the dead folds + phantom imports (`2026-10-10`); the composite
+  hybrid probe builds and passes.
+- **Suggested fix:** error on unresolvable `use` (or undeclared types in
+  signatures/field access); prefer the scrutinee's enum for bare pattern
+  variants over the same-module enum when both exist, with an ambiguity
+  diagnostic.
 
 ## Bump procedure used by this lane
 

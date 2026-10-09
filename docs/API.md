@@ -1,6 +1,7 @@
 # ORBITDB Public API Reference
 
-> **Status:** current for the committed tree (compiler v0.64.1). Signatures are
+> **Status:** current for the committed tree (compiler v0.64.2; all C-ORBIT
+> compiler workarounds reverted). Signatures are
 > the `pub` surface of the compiled modules; `requires:` contracts are noted
 > where they gate behavior. Error semantics: functions returning `DbResult[T]`
 > (`Result[T, DbError]`) never panic; `Option[Int]` means absence, and
@@ -177,7 +178,7 @@ needed)` (best-fit: tightest, then lowest id); `fsm_page_count` /
   `StorageError`).
 - `DatabaseConfig` = `{ page_size, buffer_pool_capacity, wal_enabled,
   btree_order }`; `DatabaseConfig.default()` (4096/64/true/4);
-  `database_config_validate`; `database_config_from_core`.
+  `database_config_validate`.
 - `ids`: `RowId` / `TableId` / `PageId` newtypes with `row_id`,
   `row_id_value`, `row_id_eq`, `row_id_next`, `table_id`, `table_id_value`,
   `table_id_eq`, `row_id_to_page_id`.
@@ -189,8 +190,7 @@ needed)` (best-fit: tightest, then lowest id); `fsm_page_count` /
 
 ## Compiler pin
 
-The public API is compiled with **v0.64.1** and the C-ORBIT workarounds
-documented in `COMPILER-FINDINGS-ORBITDB.md` (qualified enum variants, no
-`Vec[Option]` element writes, copy-mutate-writeback for nested receivers,
-Int-only keep-set for struct-vector dedup). Re-test the repro bundles before
-bumping the toolchain.
+The public API is compiled with **v0.64.2** with **all C-ORBIT workarounds
+reverted** (C-ORBIT-01..05 RESOLVED; see `COMPILER-FINDINGS-ORBITDB.md`,
+which also carries the open C-ORBIT-06 phantom-import finding). Re-test the
+repro bundles before bumping the toolchain.

@@ -5,11 +5,11 @@ SPDX-License-Identifier: MIT OR Apache-2.0
 
 # XiomDB Specification
 
-> Version 0.2.0 -- layered architecture on top of the `xiom-core` substrate.
+> Version 0.2.0 -- layered, self-contained architecture (the `xiom-core` substrate extraction is planned; its seams are marked).
 
 ## Architecture Overview
 
-XiomDB is a production-grade embedded database written in pure XIOM. It is organized as a set of layered modules, each owning one concern, and depends on `xiom-core` for the shared durable-systems substrate (IDs, errors, config, contracts, metrics). This document describes the module structure, contracts, and execution model. For the narrative architecture and ownership rules see [ARCHITECTURE.md](ARCHITECTURE.md); for subsystem deep-dives see [`docs/`](docs/).
+XiomDB is a production-grade embedded database written in pure XIOM. It is organized as a set of layered modules, each owning one concern, and is **self-contained** today (the shared `xiom-core` durable-systems substrate -- IDs, errors, config, contracts, metrics -- is the planned extraction; the retired folds are noted below). This document describes the module structure, contracts, and execution model. For the narrative architecture and ownership rules see [ARCHITECTURE.md](ARCHITECTURE.md); for subsystem deep-dives see [`docs/`](docs/).
 
 ### Layer Diagram
 
@@ -28,7 +28,7 @@ XiomDB is a production-grade embedded database written in pure XIOM. It is organ
 |--------------------------------------------------------------|
 |  Foundations: error - ids - config - contracts                |
 |--------------------------------------------------------------|
-|  xiom-core: error - ids - config - limits - contracts - metrics|
+|  (self-contained today; xiom-core substrate extraction planned) |
 `--------------------------------------------------------------+
 ```
 
@@ -43,11 +43,11 @@ wal/wal.xi        ---> wal/wal_record.xi, index/btree.xi
 catalog/schema_validator.xi ---> catalog/schema.xi, error.xi
 storage/page.xi   ---> config.xi
 storage/tuple.xi  ---> error.xi
-storage/free_space_map.xi ---> xiom.core.ids
-config.xi         ---> xiom.core.config, xiom.core.contracts, xiom.core.limits
-contracts.xi      ---> xiom.core.contracts
-error.xi          ---> xiom.core.error
-ids.xi            ---> xiom.core.ids
+storage/free_space_map.xi ---> (self-contained)
+config.xi         ---> (self-contained)
+contracts.xi      ---> (self-contained)
+error.xi          ---> (self-contained)
+ids.xi            ---> (self-contained)
 index/btree.xi    ---> (self-contained)
 txn/transaction.xi---> (self-contained)
 ```
@@ -57,13 +57,13 @@ txn/transaction.xi---> (self-contained)
 ## Foundations
 
 ### `xiom.db.error` -- `src/error.xi`
-Typed error domain. `DbError` = `NotFound | DuplicateKey | ConstraintViolation | SchemaMismatch | StorageError | Corruption`. `DbResult[T] = Result[T, DbError]` is the fallible-return convention for the whole package. `db_error_from_core` folds a `xiom.core.error.CoreError` into this domain; `DbError.is_retryable` marks only `StorageError` as retryable.
+Typed error domain. `DbError` = `NotFound | DuplicateKey | ConstraintViolation | SchemaMismatch | StorageError | Corruption`. `DbResult[T] = Result[T, DbError]` is the fallible-return convention for the whole package; `DbError.is_retryable` marks only `StorageError` as retryable. The `xiom.core.error.CoreError` fold was retired 2026-10-10 (the substrate package was never published; see `docs/COMPILER-FINDINGS-ORBITDB.md` C-ORBIT-06).
 
 ### `xiom.db.ids` -- `src/ids.xi`
-Strongly-typed `RowId` and `TableId` struct wrappers (with `row_id` / `table_id` constructors and accessors). Lower-level identities (`PageId`, `Lsn`, `TxnId`) are re-used from `xiom.core.ids`; `row_id_to_page_id` bridges into the core PageId space.
+Strongly-typed `RowId` and `TableId` struct wrappers (with `row_id` / `table_id` constructors and accessors). Lower-level identities are local wrappers today (`PageId` mirrors the planned `xiom.core.ids.PageId`); `row_id_to_page_id` bridges `RowId` into the PageId space.
 
 ### `xiom.db.config` -- `src/config.xi`
-`DatabaseConfig` (page_size, buffer_pool_capacity, wal_enabled, btree_order) with `default()`, `database_config_validate` (page size valid + capacity >= 1 + order >= 3), and `database_config_from_core` to project a `CoreConfig`.
+`DatabaseConfig` (page_size, buffer_pool_capacity, wal_enabled, btree_order) with `default()`, `database_config_validate` (page size valid + capacity >= 1 + order >= 3). The `CoreConfig` projection was retired 2026-10-10 with the substrate fold.
 
 ### `xiom.db.contracts` -- `src/contracts.xi`
 Shared predicates: `valid_btree_order`, `valid_key`, `sorted_keys` (strictly ascending), `valid_range`, `non_decreasing` (delegates to `xiom.core.contracts.is_sorted_ints`).
@@ -157,7 +157,7 @@ All mutations log to the WAL first, then apply to the index. After a crash, `eng
 The engine uses an internal integer counter (not wall-clock) for WAL ordering -- strict ordering, no clock skew.
 
 ### Error Strategy
-Public operations return `Bool` / `Option[T]`; fallible internal operations return `DbResult[T]`. `DbError` is a stable, coarse domain; message-bearing detail rides `CoreError` from lower layers. See [docs/error-catalog.md](docs/error-catalog.md).
+Public operations return `Bool` / `Option[T]`; fallible internal operations return `DbResult[T]`. `DbError` is a stable, coarse domain. See [docs/error-catalog.md](docs/error-catalog.md).
 
 ---
 

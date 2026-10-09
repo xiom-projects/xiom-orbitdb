@@ -7,7 +7,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0
 
 > The internal design of xiom-db 0.2.0: module tree, ownership rules, contract hotspots, typed error domains, on-disk layout, and the recovery lifecycle.
 
-xiom-db is a **layered** embedded database. Each layer owns exactly one concern and depends only on layers below it. The shared durable-systems substrate (`xiom-core`) sits underneath everything and provides IDs, errors, config, contracts, limits, and metrics so that xiom-db and its sibling engines share one set of primitives.
+xiom-db is a **layered** embedded database. Each layer owns exactly one concern and depends only on layers below it. The tree is **self-contained** today (no external substrate): the shared `xiom-core` substrate (IDs, errors, config, contracts, limits, metrics) remains the planned extraction target, and the seams where it will plug in are marked in the module headers and `docs/storage-layout.md`.
 
 ---
 
@@ -15,9 +15,9 @@ xiom-db is a **layered** embedded database. Each layer owns exactly one concern 
 
 ```
 src/
-|-- error.xi         xiom.db.error             DbError enum, DbResult convention, CoreError bridge
-|-- ids.xi           xiom.db.ids               RowId / TableId wrappers; bridge to core PageId
-|-- config.xi        xiom.db.config            DatabaseConfig, validation, CoreConfig projection
+|-- error.xi         xiom.db.error             DbError enum, DbResult convention
+|-- ids.xi           xiom.db.ids               RowId / TableId wrappers
+|-- config.xi        xiom.db.config            DatabaseConfig, validation
 |-- contracts.xi     xiom.db.contracts         valid_key, sorted_keys, valid_range, order checks
 |
 |-- storage/
@@ -49,7 +49,7 @@ src/
 ```
 
 ### Layering rule
-A module may `use` only modules **below** it in this list (plus `xiom.core.*`). The facade (`api/database`) depends on the engine; the engine depends on index/wal/query; those depend on storage/catalog/foundations; foundations depend only on `xiom-core`. There are **no upward or cyclic imports**.
+A module may `use` only modules **below** it in this list. The facade (`api/database`) depends on the engine; the engine depends on index/wal/query; those depend on storage/catalog/foundations; the foundations are self-contained. There are **no upward or cyclic imports**.
 
 ---
 
@@ -103,7 +103,7 @@ DbError = NotFound | DuplicateKey | ConstraintViolation
 ```
 
 - Every fallible internal operation returns `DbResult[T] = Result[T, DbError]`.
-- Lower layers may raise `xiom.core.error.CoreError` (message-bearing); `db_error_from_core` folds those into `DbError` at the boundary so callers never see two error vocabularies.
+- Every failure is encoded in the return type; there is no second error vocabulary. (The message-bearing `xiom.core.error.CoreError`/`CoreConfig` folds were retired 2026-10-10 -- the substrate package was never published; re-introduce them when `xiom-core` lands.)
 - Public facade methods use `Bool` / `Option[T]` for the common success-or-absence cases; richer failures surface through `DbResult` in the codec/catalog paths.
 
 **Failure domains** (where each class of failure is detected and handled):
