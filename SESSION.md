@@ -79,9 +79,9 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   tracking (suite 121), wrap `caf5706`); M4.1 session `caf5706` -> `164c971`
   (`4e69822` key-range planner pushdown (suite 123), `35757c8` app-build
   icon + WSL guardrails, wrap `164c971`); hybrid-integration session
-  `164c971` -> wrap `TBD` (`68c7637` retire dead xiom-core folds +
+  `164c971` -> wrap `d9ef464` (`68c7637` retire dead xiom-core folds +
   C-ORBIT-06 repro, `150c7fd` hybrid probe + cross-store crash harness +
-  XV-ORBITDB-01, wrap `TBD`).
+  XV-ORBITDB-01, wrap `d9ef464`).
 - **VERSION POLICY (owner): track the LATEST compiler / stdlib / packages.**
   Record exact versions + lane hashes here at every wrap.
   - compiler: **v0.64.2** (released 2026-10-09) -- Windows
