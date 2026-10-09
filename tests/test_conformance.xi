@@ -9,6 +9,7 @@
 
 module xiom_db_conformance
 use xiom.io;
+use xiom.convert;
 use xiom.test;
 use xiom.db.engine;
 use xiom.db.wal_file;
@@ -1329,6 +1330,205 @@ fn test_execute_plan_full_scan() -> TestResult {
   let rc = run_execute_plan_full_scan();
   if rc == 0 { return assert(true, "planner: execute_plan runs full scan"); }
   return assert(false, "planner: execute_plan failed");
+}
+
+fn run_query_planner_kinds() -> Int {
+  var tree = btree_new(4);
+  var i = 1;
+  while i <= 20 {
+    if !btree_insert(&mut tree, i, i * 3 - 7) { return 1; }
+    i = i + 1;
+  }
+
+  // No bounds -> full scan, estimate = tree size.
+  var q = query_new();
+  let p1 = plan_query(&q, &tree);
+  match p1.kind {
+    PlanKind.FullScan => {}
+    PlanKind.IndexRange => { return 1; }
+    PlanKind.PointLookup => { return 1; }
+  }
+  if p1.estimated_rows != 20 { return 1; }
+
+  // Point bounds -> point lookup with a 1-row estimate.
+  var qp = query_new();
+  query_key_range(&mut qp, 7, 7);
+  if !query_has_bounds(&qp) { return 1; }
+  let p2 = plan_query(&qp, &tree);
+  match p2.kind {
+    PlanKind.PointLookup => {}
+    PlanKind.FullScan => { return 1; }
+    PlanKind.IndexRange => { return 1; }
+  }
+  if p2.estimated_rows != 1 { return 1; }
+  if p2.low != 7 { return 1; }
+  if p2.high != 7 { return 1; }
+  query_where(&mut qp, QueryOp.Gt, 0);
+  let r2 = execute_plan(&p2, &qp, &tree);
+  if r2.len() != 1 { return 1; }
+  if r2[0] != 14 { return 1; } // key 7 -> 7*3-7 = 14
+
+  // Range bounds -> index range, estimate = clamped width.
+  var qr = query_new();
+  query_key_range(&mut qr, 3, 9);
+  let p3 = plan_query(&qr, &tree);
+  match p3.kind {
+    PlanKind.IndexRange => {}
+    PlanKind.FullScan => { return 1; }
+    PlanKind.PointLookup => { return 1; }
+  }
+  if p3.estimated_rows != 7 { return 1; }
+  query_where(&mut qr, QueryOp.Gte, 10);
+  let r3 = execute_plan(&p3, &qr, &tree);
+  // keys 3..9 -> values 2,5,8,11,14,17,20; >= 10 -> 11,14,17,20
+  if r3.len() != 4 { return 1; }
+  if r3[0] != 11 { return 1; }
+
+  // Width clamp: estimate never exceeds the tree size.
+  var qc = query_new();
+  query_key_range(&mut qc, -100, 100);
+  let p4 = plan_query(&qc, &tree);
+  if p4.estimated_rows != 20 { return 1; }
+
+  // Reset clears the bounds again.
+  query_reset(&mut qr);
+  if query_has_bounds(&qr) { return 1; }
+  let p5 = plan_query(&qr, &tree);
+  match p5.kind {
+    PlanKind.FullScan => {}
+    PlanKind.IndexRange => { return 1; }
+    PlanKind.PointLookup => { return 1; }
+  }
+  return 0;
+}
+
+fn test_query_planner_kinds() -> TestResult {
+  let rc = run_query_planner_kinds();
+  if rc == 0 { return assert(true, "planner: point/range/full selection + clamped estimate"); }
+  return assert(false, "planner: plan kinds failed");
+}
+
+fn query_model_condition(value: Int, op: QueryOp, target: Int) -> Bool {
+  match op {
+    QueryOp.Eq => value == target,
+    QueryOp.Neq => value != target,
+    QueryOp.Lt => value < target,
+    QueryOp.Lte => value <= target,
+    QueryOp.Gt => value > target,
+    QueryOp.Gte => value >= target,
+  }
+}
+
+fn run_query_planner_property() -> Int {
+  var tree = btree_new(4);
+  var i = 1;
+  while i <= 64 {
+    if !btree_insert(&mut tree, i, i * 3 - 7) { return 1; }
+    i = i + 1;
+  }
+
+  var state = 4242;
+  var it = 0;
+  while it < 200 {
+    state = (state * 1103515245 + 12345) % 2147483648;
+    let mode = (state / 65536) % 3; // 0 full, 1 range, 2 point
+    var q = query_new();
+    var lo = -10;
+    var hi = 80;
+    if mode == 1 {
+      lo = ((state / 65536) % 100) - 10;
+      state = (state * 1103515245 + 12345) % 2147483648;
+      hi = lo + ((state / 65536) % 40);
+      query_key_range(&mut q, lo, hi);
+    } elif mode == 2 {
+      lo = ((state / 65536) % 100) - 10;
+      hi = lo;
+      query_key_range(&mut q, lo, hi);
+    }
+
+    state = (state * 1103515245 + 12345) % 2147483648;
+    let has_cond = (state / 65536) % 2 == 0;
+    var op = QueryOp.Gte;
+    var target = 0;
+    if has_cond {
+      state = (state * 1103515245 + 12345) % 2147483648;
+      let opk = (state / 65536) % 6;
+      match opk {
+        0 => { op = QueryOp.Eq; }
+        1 => { op = QueryOp.Neq; }
+        2 => { op = QueryOp.Lt; }
+        3 => { op = QueryOp.Lte; }
+        4 => { op = QueryOp.Gt; }
+        _ => { op = QueryOp.Gte; }
+      }
+      state = (state * 1103515245 + 12345) % 2147483648;
+      target = ((state / 65536) % 160) - 20;
+      query_where(&mut q, op, target);
+    }
+
+    state = (state * 1103515245 + 12345) % 2147483648;
+    let off = (state / 65536) % 5;
+    query_offset(&mut q, off);
+    state = (state * 1103515245 + 12345) % 2147483648;
+    let lim = (state / 65536) % 8; // 0 = no limit
+    if lim > 0 { query_limit(&mut q, lim); }
+
+    // Brute-force model: key range -> values -> conditions -> offset -> limit.
+    var want = Vec[Int].new();
+    var count = 0;
+    var klo = lo;
+    var khi = hi;
+    if mode == 0 {
+      klo = 1;
+      khi = 64;
+    }
+    var k = klo;
+    while k <= khi {
+      if k >= 1 && k <= 64 {
+        let v = k * 3 - 7;
+        var keep = true;
+        if has_cond { keep = query_model_condition(v, op, target); }
+        if keep {
+          if count >= off { want.push(v); }
+          count = count + 1;
+        }
+      }
+      k = k + 1;
+    }
+    if lim > 0 && want.len() > lim {
+      var cut = Vec[Int].new();
+      var j = 0;
+      while j < lim {
+        cut.push(want[j]);
+        j = j + 1;
+      }
+      want = cut;
+    }
+
+    let plan = plan_query(&q, &tree);
+    let got = execute_plan(&plan, &q, &tree);
+    if got.len() != want.len() {
+      io.println("query planner property: len got=" + convert.int_to_string(got.len())
+        + " want=" + convert.int_to_string(want.len()) + " it=" + convert.int_to_string(it));
+      return 1;
+    }
+    var vi = 0;
+    while vi < got.len() {
+      if got[vi] != want[vi] {
+        io.println("query planner property: value mismatch it=" + convert.int_to_string(it));
+        return 2;
+      }
+      vi = vi + 1;
+    }
+    it = it + 1;
+  }
+  return 0;
+}
+
+fn test_query_planner_property() -> TestResult {
+  let rc = run_query_planner_property();
+  if rc == 0 { return assert(true, "planner: property vs brute force (200 seeded cases)"); }
+  return assert(false, "planner: property failed");
 }
 
 // ===========================================================================
@@ -3231,6 +3431,10 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r65.passed, r65.name);
   let r66 = test_execute_plan_full_scan();
   total = total + 1; failed = failed + report(r66.passed, r66.name);
+  let r66a = test_query_planner_kinds();
+  total = total + 1; failed = failed + report(r66a.passed, r66a.name);
+  let r66b = test_query_planner_property();
+  total = total + 1; failed = failed + report(r66b.passed, r66b.name);
 
   // 12. B-tree
   let r67 = test_btree_new();

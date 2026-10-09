@@ -14,12 +14,26 @@ The query subsystem turns a declarative `Query` into a set of matching values. I
 > deliberate semantics extension (per-condition key/value selector) before the
 > planner can push predicates into the index. Do not silently flip this.
 
+> **Semantics extension decision (M4.1, 2026-10-09 -- resolved additively):**
+> key-range access became a first-class, **additive** query API:
+> `query_key_range(q, low, high)` restricts the scanned key range to
+> `[low, high]` inclusive *before* anything else runs; `QueryCondition` still
+> filters **values**. Both axes compose in a fixed order:
+> **key range -> value conditions -> offset -> limit**. The planner pushes the
+> bounds into the index (`PointLookup` when `low == high`, `IndexRange`
+> otherwise, `FullScan` without bounds) and `estimated_rows` is the clamped
+> range width for bounds plans, the tree size for a full scan. A seeded
+> property test (200 cases) pins plan results equal to a brute-force model.
+> No per-condition key/value selector was added -- conditions stay value-only.
+
 ## Building a query -- `query/query.xi`
 
 ```
 QueryOp       = Eq | Neq | Lt | Lte | Gt | Gte
 QueryCondition= { op: QueryOp, value: Int }
-Query         = { conditions: Vec[QueryCondition], limit: Int, offset: Int }
+Query         = { conditions: Vec[QueryCondition], limit: Int, offset: Int,
+                  has_bounds: Bool, low: Int, high: Int }
+query_key_range(q, low, high)   // additive key bounds (requires low <= high)
 ```
 
 | Builder | Contract | Effect |
@@ -69,7 +83,7 @@ Query         = { conditions: Vec[QueryCondition], limit: Int, offset: Int }
 |------|-----------|
 | `db_file_get(key)` | point lookup (`btree_search`) |
 | `db_file_range(low, high)` | keys in `[low, high]` inclusive, values in key order (`btree_range_query`) |
-| `db_file_query(query)` | value-filter query, identical to `db_query` / `query_execute` |
+| `db_file_query(query)` | planned value-filter query: key bounds (when set) push into the index, then value conditions / offset / limit |
 
 The same value-vs-key split applies: `QueryCondition` filters **values**;
 `db_file_range` is the key-range access. Queries run against the state

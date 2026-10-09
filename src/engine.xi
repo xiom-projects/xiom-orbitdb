@@ -805,11 +805,35 @@ pub type Query = {
   conditions: Vec[QueryCondition];
   limit: Int;
   offset: Int;
+  // Optional additive key bounds (M4.1): when has_bounds, the scan is
+  // restricted to keys in [low, high] BEFORE value conditions/offset/limit.
+  // Conditions still filter VALUES -- bounds are the key-range extension.
+  has_bounds: Bool;
+  low: Int;
+  high: Int;
 }
 
 pub fn query_new() -> Query {
   var conditions = Vec[QueryCondition].new();
-  return Query{ conditions: conditions, limit: 0, offset: 0 };
+  return Query{
+    conditions: conditions, limit: 0, offset: 0,
+    has_bounds: false, low: 0, high: 0,
+  };
+}
+
+// Restrict the scan to keys in [low, high] (inclusive). Additive API: the
+// value-condition semantics are unchanged; this only narrows the key range
+// the planner can push down (M4.1 semantics decision, docs/query-pipeline.md).
+pub fn query_key_range(q: &mut Query, low: Int, high: Int)
+  requires: low <= high
+{
+  q.has_bounds = true;
+  q.low = low;
+  q.high = high;
+}
+
+pub fn query_has_bounds(q: &Query) -> Bool {
+  return q.has_bounds;
 }
 
 pub fn query_where(q: &mut Query, op: QueryOp, value: Int) {
@@ -831,16 +855,20 @@ pub fn query_offset(q: &mut Query, offset: Int)
 
 pub fn query_execute(q: &Query, tree: &BTree) -> Vec[Int] {
   var all_values = btree_to_vec(tree);
+  return apply_filter_values(&all_values, q);
+}
+
+// Value conditions -> offset -> limit over an already-scanned value slice.
+// Shared by the full scan and the key-range scan so both paths have identical
+// semantics.
+fn apply_filter_values(values: &Vec[Int], q: &Query) -> Vec[Int] {
   var results = Vec[Int].new();
-
-  var start_idx = q.offset;
   var count = 0;
-
   var i = 0;
-  while i < all_values.len() {
-    if matches_all_conditions(all_values[i], q.conditions) {
-      if count >= start_idx {
-        results.push(all_values[i]);
+  while i < values.len() {
+    if matches_all_conditions(values[i], q.conditions) {
+      if count >= q.offset {
+        results.push(values[i]);
       }
       count = count + 1;
     }
@@ -898,6 +926,9 @@ pub fn query_reset(q: &mut Query) {
   q.conditions = empty;
   q.limit = 0;
   q.offset = 0;
+  q.has_bounds = false;
+  q.low = 0;
+  q.high = 0;
 }
 
 // ============================================================================
@@ -926,9 +957,29 @@ pub fn query_plan_full_scan() -> QueryPlan {
   };
 }
 
+// Bounds-aware planning (M4.1): key bounds choose an index plan -- a point
+// lookup when low == high, a key-range scan otherwise -- and the estimate is
+// the clamped range width; without bounds it is a full scan estimated at the
+// tree size. The executor applies the value conditions after the key scan.
 pub fn plan_query(q: &Query, tree: &BTree) -> QueryPlan {
   var plan = query_plan_full_scan();
-  plan.estimated_rows = btree_size(tree);
+  let size = btree_size(tree);
+  plan.estimated_rows = size;
+  if q.has_bounds {
+    plan.low = q.low;
+    plan.high = q.high;
+    plan.has_bounds = true;
+    var width = q.high - q.low + 1;
+    if width < 0 { width = 0; } // extreme-bound overflow guard
+    var est = width;
+    if est > size { est = size; }
+    plan.estimated_rows = est;
+    if q.low == q.high {
+      plan.kind = PlanKind.PointLookup;
+    } else {
+      plan.kind = PlanKind.IndexRange;
+    }
+  }
   return plan;
 }
 
@@ -936,10 +987,12 @@ pub fn execute_plan(plan: &QueryPlan, q: &Query, tree: &BTree) -> Vec[Int] {
   match plan.kind {
     FullScan => query_execute(q, tree)
     IndexRange => {
-      query_execute(q, tree)
+      let values = btree_range_query(tree, plan.low, plan.high);
+      apply_filter_values(&values, q)
     }
     PointLookup => {
-      query_execute(q, tree)
+      let values = btree_range_query(tree, plan.low, plan.low);
+      apply_filter_values(&values, q)
     }
   }
 }
@@ -1371,11 +1424,13 @@ pub fn db_file_range(db: &DBFile, low: Int, high: Int) -> Vec[Int]
   return btree_range_query(&db.tree, low, high);
 }
 
-// Value-filter query on the live/recovered tree. Same semantics as
-// `db_query`/`query_execute`: conditions filter VALUES (not keys), the scan
-// is in key order, `offset` skips matching values then `limit` truncates.
+// Value-filter query on the live/recovered tree, planned and executed (M4.1):
+// conditions filter VALUES (not keys), key bounds (query_key_range) restrict
+// the scanned key range first, the scan is in key order, `offset` skips
+// matching values then `limit` truncates.
 pub fn db_file_query(db: &DBFile, query: &Query) -> Vec[Int] {
-  return query_execute(query, &db.tree);
+  let plan = plan_query(query, &db.tree);
+  return execute_plan(&plan, query, &db.tree);
 }
 
 pub fn db_file_size(db: &DBFile) -> Int {
