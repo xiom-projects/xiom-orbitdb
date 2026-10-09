@@ -23,7 +23,7 @@
    can take partial points only where the row defines a fraction.
 5. **Recompute on every wrap.** Add a dated line to the scoreboard changelog.
 
-## Current scoreboard -- 2026-10-09 (v0.64.2 pin, workarounds dropped)
+## Current scoreboard -- 2026-10-10 (v0.64.2 pin, workarounds dropped)
 
 | Area | Weight | Earned | Status summary |
 |---|---|---|---|
@@ -130,6 +130,21 @@ Scoreboard changelog:
   refuses when the WAL changed since this handle's last write (`wal_bytes`; 
   no lock files); suite 119 -> 120 x2 Win + WSL, db_crash 25/25 x2, fuzz OK. 
   No score change (D3 WIP; MVCC engine pending): 66.5.
+- 2026-10-10: hybrid ORBITDB <-> XVECTOR consumer probe + cross-store crash
+  harness (M6.0 step 2) -- `tests/hybrid/probe_hybrid.xi` (source-level
+  composition via `tests/hybrid/xiom.toml`; 36-check in-process acceptance:
+  ingest, crash-between state, delete pipeline, repair pass, join integrity,
+  top-k edges, dim/dup, reopen bit-equality, payloads, WAL prefix + torn
+  tail) and `scripts/hybrid_crash_test.{ps1,sh}` (writer drives both stores,
+  hard kill, torn row tail, reopen + repair + 100% join integrity; second
+  verify idempotent). GREEN x2 Win + WSL; suite 123/123 x2 both. Consumer
+  finding **XV-ORBITDB-01** filed (chained persist/load goes empty; probe
+  carries a documented re-LSN workaround). The composition exposed a dead
+  `xiom.core.error` fold in `src/error.xi` (phantom import silently
+  accepted) -> retired the fold + `CoreConfig` projection, filed
+  **C-ORBIT-06** with a repro bundle, docs coupled. No score change (F2/I2
+  already OK; the hybrid harness extends the existing crash-harness class):
+  69.5.
 
 ## A. Correctness & data structures (20)
 

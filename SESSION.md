@@ -32,12 +32,20 @@ none (pure XIOM through Phase 2).
 **Updated:** 2026-10-09 (M1.1 session): NodeStore dirty tracking + dirty-only
 checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
 **Updated:** 2026-10-09 (M4.1 session): key-range planner pushdown +
-`query_key_range`; app-build `--icon` helper (`assets/orbitdb.ico`); suite
-123/123 x2 Win + WSL; readiness 69.5.
+  `query_key_range`; app-build `--icon` helper (`assets/orbitdb.ico`); suite
+  123/123 x2 Win + WSL; readiness 69.5.
+**Updated:** 2026-10-10 (hybrid-integration session): XVECTOR's reply processed
+  (`xiom-xvector/docs/ORBITDB-INTEGRATION.md`); `tests/hybrid/` consumer probe
+  + `scripts/hybrid_crash_test.{ps1,sh}` (hard kill both stores -> reopen ->
+  repair -> 100% join integrity; idempotent second verify) GREEN x2 Win + WSL;
+  finding **XV-ORBITDB-01** filed (chained persist/load of a recovered engine
+  goes empty; probe carries the re-LSN workaround); composition exposed and
+  retired the dead `xiom.core.*` folds (**C-ORBIT-06** filed with repro);
+  suite 123/123 x2 Win + WSL on the current stdlib.
 **Project:** embedded database engine for XIOM -- B-Tree, WAL, query engine,
 crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
 
-## 0. STATE (2026-10-09)
+## 0. STATE (2026-10-10)
 
 - **Repo:** `E:\xiom-projects\xiom-orbitdb`. **PRIVATE**; no push/remote
   without owner approval. Identity `Lefteris Notas <lefterisnotas@gmail.com>`,
@@ -70,7 +78,10 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   `0ef8572`); M1.1 session `0ef8572` -> `caf5706` (`5757c78` NodeStore dirty
   tracking (suite 121), wrap `caf5706`); M4.1 session `caf5706` -> `164c971`
   (`4e69822` key-range planner pushdown (suite 123), `35757c8` app-build
-  icon + WSL guardrails, wrap `164c971`).
+  icon + WSL guardrails, wrap `164c971`); hybrid-integration session
+  `164c971` -> wrap `TBD` (`68c7637` retire dead xiom-core folds +
+  C-ORBIT-06 repro, `150c7fd` hybrid probe + cross-store crash harness +
+  XV-ORBITDB-01, wrap `TBD`).
 - **VERSION POLICY (owner): track the LATEST compiler / stdlib / packages.**
   Record exact versions + lane hashes here at every wrap.
   - compiler: **v0.64.2** (released 2026-10-09) -- Windows
@@ -80,12 +91,15 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     RESOLVED** (m223/m224/m225/m226/m235). Rollback option if a v0.64.2
     regression appears: v0.64.1 (keep the finding notes in
     `docs/COMPILER-FINDINGS-ORBITDB.md`).
-  - stdlib: `E:\xiom-lang\stdlib` @ `ed6d46c` (2026-10-09; wave 99) =
-    `/mnt/e/xiom-lang/stdlib`. Two ORBITDB rows RESOLVED: `str_split`/
-    `read_file_lines` are linear and a trailing CR is stripped per line (both
-    citing our relay).
-  - compiler lane @ `d481c490` (m249 slice-to-Vec bridge; post-v0.64.2 tag
-    work); packages lane @ `26f7d0ae` (bindings batch 23, eco-v0.1.123).
+  - stdlib: `E:\xiom-lang\stdlib` @ `7e513f9` (2026-10-10; handoff snapshot
+    25) = `/mnt/e/xiom-lang/stdlib`. **stdlib-v0.64.3 RELEASED + registry
+    live** (stdlib lane version, built with compiler v0.64.2; sha256
+    `775496c0...`; the compiler stays v0.64.2 -- our pin is unchanged). Two
+    ORBITDB rows RESOLVED earlier: `str_split`/`read_file_lines` are linear
+    and a trailing CR is stripped per line (both citing our relay).
+  - compiler lane @ `da7798da` (m252 catalog-body check cache; post-v0.64.2
+    tag work continues); packages lane @ `47202b72` (xiom.durable port wrap;
+    152/152 x2).
   - `xiom doctor` shows 2 environment warnings (bundled stdlib older than
     compiler; stale second binary on PATH) -- lane noise: `scripts/dev-env.*`
     sets `XIOM_COMPILER`/`XIOM_STDLIB` explicitly.
@@ -123,6 +137,13 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     `probe_db_file.xi` (policy soak: 2000 keys, `ORBITDB_DB_CKPT_EVERY=250`
     record limit -> 9 checkpoints, reopen + verify + post-recovery write;
     GREEN x2 Win + WSL, WSL scratch on /tmp).
+  - Hybrid (new): `scripts/hybrid_crash_test.{ps1,sh}` -- one writer drives
+    BOTH stores (ORBITDB rows + XVECTOR vectors), hard kill, torn row tail,
+    reopen -> repair -> 100% join integrity; second verify idempotent
+    (`repaired=0`). GREEN x2 Win + WSL. `tests/hybrid/probe_hybrid.xi`
+    `full` mode: 36 checks (join integrity, brute-force exact top-k equality,
+    delete pipeline, reopen bit-equality, WAL prefix + torn tail) x2 Win +
+    WSL. `tests/hybrid/repro_chain.xi` is the XV-ORBITDB-01 evidence run.
 - **What exists (Phase 0 + most of Phase 1):**
   - In-memory: flat-array B-tree (churn-proven delete), query (value
     semantics, pinned in `docs/query-pipeline.md`), clock buffer-pool with
@@ -191,6 +212,20 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     uncommitted crashed generation lingers), clearing flags on commit; the
     suite pins a bounded delta for a one-key update. Lazy load + a bounded
     clock cache are the next slice.
+  - Hybrid integration (new): `tests/hybrid/` -- source-level composition
+    (`tests/hybrid/xiom.toml` source roots: our `src` + `xiom-xvector/src`),
+    `probe_hybrid.xi` (full/writer/verify: rowver/embver version slots,
+    deterministic embeddings, consumer repair pass, join + brute-force
+    checks, delete pipeline, reopen bit-equality, WAL prefix + torn tail) and
+    `scripts/hybrid_crash_test.{ps1,sh}`. XVECTOR's reply processed; cross-ask
+    answers + finding XV-ORBITDB-01 in `docs/XVECTOR-INTEGRATION.md` section 7
+    (+ the owner-relay response in `docs/RELAY-XVECTOR-ORBITDB.md`).
+  - Foundation cleanup (new): the dead `xiom.core.error` fold
+    (`db_error_from_core`) and `xiom.core.config` projection
+    (`database_config_from_core`) are RETIRED -- phantom imports the checker
+    silently tolerated; composition exposed them, C-ORBIT-06 filed with
+    `docs/repro/phantom-core-import/`; SPEC/ARCHITECTURE/API/error-catalog
+    coupled.
   - Index-of-record: `docs/PRODUCTION-READINESS.md` **69.5/100 (~70%)**,
     per-area table + changelog + 100% checklist (v0.3-beta gate needs fsync +
     torn-page matrix + benchmarks at scale).
@@ -227,6 +262,15 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   - Fuzz/property runs per wrap; continuous CI cadence is gated on F3 (CI
     matrix). Probe env parsing falls back to defaults on malformed values
     (only the required DB path errors out).
+  - XV-ORBITDB-01 (XVECTOR side): chained persist/load is LOSSY -- a
+    recovered engine's compacted WAL resumes LSNs while `wal_load` requires
+    the first LSN to be 1, so re-persisting reloads EMPTY (vectors vanish
+    while row-side version slots stay advanced). The hybrid probe works
+    around it in `persist_recovered` (re-LSN through a fresh writer); drop
+    the workaround once XVECTOR relaxes the loader (relay sent).
+  - Hybrid composition needs the sibling `xiom-xvector` checkout at
+    `E:\xiom-projects\xiom-xvector` (relative paths in `tests/hybrid/xiom.toml`);
+    the probe is source-level until both packages publish (M6/F4).
   - Multi-handle safety is optimistic: the `wal_bytes` stale-write guard
     refuses lagging writers but is not a lock (external appends are detected
     only on the next write); no MVCC -- see `docs/ISOLATION.md`.
@@ -245,9 +289,13 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   `xiom-pulse/docs/ORBITDB-RELAY-PULSE.md`) -- PULSE builds
   `probe_pkg_orbitdb` and uses us as its 0.3 embedded/relational driver
   (`open/exec/query/tx`); XVECTOR (`docs/XVECTOR-INTEGRATION.md` +
-  `docs/RELAY-XVECTOR-ORBITDB.md`) -- asks for
-  `xiom-xvector/docs/ORBITDB-INTEGRATION.md`, then the hybrid row+vector
-  join probe.
+  `docs/RELAY-XVECTOR-ORBITDB.md`) -- reply RECEIVED and processed
+  (`xiom-xvector/docs/ORBITDB-INTEGRATION.md`, pin `de1db14`); the hybrid
+  probe + crash harness stand and are green (our section 7 answers their
+  cross-asks); finding **XV-ORBITDB-01** relayed back to them (chained
+  persist/load goes empty; the probe carries a documented re-LSN
+  workaround). New compiler finding **C-ORBIT-06** filed (phantom imports
+  silently accepted; C-ORBIT-01..05 stay RESOLVED).
 - **Next action (priority order, per `docs/PRODUCTION-PLAN.md` section 13):**
   1. **M1.2 byte-page format v2 design** now (generation-stamped pages, byte
      codec); implement when the stdlib byte-IO row lands.
@@ -257,6 +305,10 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   4. **M2.1 fsync wiring** when stdlib lands; **M1.1b** lazy load once
      random-access page reads exist; MVCC per M3; keep readiness + relay docs
      current; commit signed at every step.
+  5. **Hybrid regression guard:** re-run `scripts/hybrid_crash_test.*` +
+     probe `full` x2 both platforms at every wrap, and whenever the XVECTOR
+     pin moves; drop the `persist_recovered` workaround once XV-ORBITDB-01
+     is fixed upstream.
 
 ## 1. Consumer-lane rules (non-negotiable)
 
@@ -334,24 +386,31 @@ Ops rules:
   C-PULSE-10 Linux-only gate. ORBITDB still zero-dep and has no `xiom.toml`
   (add with CI only when going public).
 - **Expected external inputs (check at the start of every session):**
-  - `xiom-xvector/docs/ORBITDB-INTEGRATION.md` -- XVECTOR's reply to our
-    handshake; when present, read it and stand up the hybrid join probe per
-    `docs/XVECTOR-INTEGRATION.md` (row-first ordering, version-slot repair).
+  - `xiom-xvector/docs/ORBITDB-INTEGRATION.md` (or a newer xvector pin) --
+    PROCESSED 2026-10-10: the hybrid probe stands (green x2); next, watch
+    for their XV-ORBITDB-01 fix (chained persist/load) and re-run the probe
+    when the xvector pin moves.
   - `xiom-pulse` `probe_pkg_orbitdb` and/or an updated
     `ORBITDB-RELAY-PULSE.md` -- PULSE's probe results; treat as acceptance,
     fix reds with minimal repros through the relay.
-  - A newer compiler/stdlib archive (v0.64.3+): run the full bump procedure
+  - A newer COMPILER archive (v0.64.3+): run the full bump procedure
     (`docs/COMPILER-FINDINGS-ORBITDB.md`) -- seven repro bundles unchanged +
-    suite x2 + crash/fuzz/soak -- BEFORE other work.
+    suite x2 + crash/fuzz/soak -- BEFORE other work. (stdlib-v0.64.3 is the
+    stdlib lane's release, built with compiler v0.64.2: no compiler bump;
+    the shared stdlib checkout moving is re-verified by suite x2 at wrap.)
   - The owner's benchmark-suite contract: build the ORBITDB adapter when it
     lands (`docs/PRODUCTION-PLAN.md` section 10).
 
 ## 4. Relay documents (owner relays; keep current every wrap)
 
 - `docs/COMPILER-FINDINGS-ORBITDB.md` + `docs/RELAY-COMPILER-ORBITDB.md`
-  (C-ORBIT-01..05 RESOLVED on v0.64.2; historical v0.64.0/0.64.1 sections;
-  repro bundles `docs/repro/`; incoming relay
+  (C-ORBIT-01..05 RESOLVED on v0.64.2; **C-ORBIT-06 OPEN** -- phantom
+  imports; bundle `docs/repro/phantom-core-import/`; historical
+  v0.64.0/0.64.1 sections; incoming relay
   `docs/COMPILER-RELAY-2026-10-09-v0.64.2.md`).
+- `docs/XVECTOR-INTEGRATION.md` + `docs/RELAY-XVECTOR-ORBITDB.md` (reply
+  processed; cross-ask answers; XV-ORBITDB-01 relayed; hybrid harness +
+  pins; section 7).
 - `docs/STDLIB-WISHLIST-ORBITDB.md` + `docs/RELAY-STDLIB-ORBITDB.md`.
 - `docs/PACKAGE-WISHLIST-ORBITDB.md` + `docs/RELAY-PACKAGES-ORBITDB.md` +
   `docs/RELAY-PACKAGES-RESPONSE-ORBITDB.md` (xiom.wal API proposal).
@@ -383,16 +442,24 @@ probe-logs out of commits (gitignored).
 Release signal: when the production plan's gates pass (P-rc), tell the owner
 explicitly "ORBITDB is ready for public release" -- the owner then sets up
 the public repo/CI/registry and adds ORBITDB to the benchmark suite.
-WATCH each session: XVECTOR's `docs/ORBITDB-INTEGRATION.md` reply (then the
-hybrid join probe), PULSE's `probe_pkg_orbitdb` results, and any newer
-compiler/stdlib archive (re-test the seven repro bundles + suite first).
+WATCH each session: XVECTOR's next pin / fix for XV-ORBITDB-01 (the hybrid
+probe stands; re-run it when their pin moves), PULSE's `probe_pkg_orbitdb`
+results, and any newer COMPILER archive (re-test the seven repro bundles +
+suite first). (XVECTOR's integration reply was processed 2026-10-10.)
 
 CURRENT STATE: v0.64.2 pin; all C-ORBIT compiler workarounds REVERTED and the
 suite is green on the native forms -- conformance 123/123 x2 Win + WSL (see
 the findings file for the one consumer-qualification caveat); db_crash five
 scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn discarded,
 committed txn recovered) x2 Win + WSL, each recovery followed by qverify
-(range + value-filter queries; 25 checks); fuzz/property harness
+(range + value-filter queries; 25 checks); hybrid ORBITDB <-> XVECTOR probe
+`tests/hybrid/probe_hybrid.xi` (36 checks: join integrity, brute-force
+top-k, delete pipeline, reopen bit-equality, prefix/torn tail) +
+`scripts/hybrid_crash_test.{ps1,sh}` (hard-kill both stores -> repair ->
+100% join integrity, idempotent) x2 Win + WSL; C-ORBIT-06 OPEN (phantom
+imports -- never keep an unresolvable `use`); XV-ORBITDB-01 OPEN on the
+XVECTOR side (chained persist/load goes empty; the probe works around it in
+`persist_recovered`); fuzz/property harness
 `scripts/fuzz.{ps1,sh}` (seeds=4 ops/seed=4000) x2 Win + WSL; policy soak
 2000 keys / 9 checkpoints x2 Win + WSL; 20k-record WAL replay ~9.9 s (linear
 stdlib); bench harness live; app build `scripts/build.ps1` embeds
@@ -427,10 +494,14 @@ TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
 2. M4.2 secondary indexes (catalog IndexDef) + ORDER/LIMIT execution.
 3. M5.1 typed values v2 (type-tagged tuples; text at least).
 4. M2.1 fsync wiring when stdlib lands; M1.1b lazy load once random-access
-   page reads exist; MVCC per M3; keep SESSION.md STATE, relay docs and
-   PRODUCTION-READINESS updated at every wrap; commit signed per step.
+   page reads exist; MVCC per M3; keep the hybrid harness green at every
+   wrap (and when the XVECTOR pin moves); keep SESSION.md STATE, relay docs
+   and PRODUCTION-READINESS updated at every wrap; commit signed per step.
 
 DISCIPLINE (v0.64.2; C-ORBIT workarounds DROPPED -- see COMPILER-FINDINGS):
+- Never keep an unresolvable `use` or an undeclared type (C-ORBIT-06): it
+  type-checks standalone with bogus W004s, then hard-fails once any module in
+  the program declares a same-named type.
 - Consumer modules: module-qualify enum variants when a same-named enum is
   anywhere in the program (m225 consumer-scope caveat; no ambiguity error).
 - Prefer parallel vectors over Vec[Option] element writes for hot caches
