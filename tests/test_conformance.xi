@@ -2980,6 +2980,59 @@ fn test_db_file_stale_handle() -> TestResult {
   return assert(false, "db_file: stale-handle guard failed");
 }
 
+fn run_db_file_dirty_flush() -> Int {
+  let path = "orbitdb-suite-db-dirty.wal";
+  let snap = "orbitdb-suite-db-dirty.wal.snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+
+  var db = db_file_open(path, 4);
+  var i = 1;
+  while i <= 12 {
+    if !db_file_put(&mut db, i, i * 10) { return 1; }
+    i = i + 1;
+  }
+  let c1 = db_file_checkpoint(&mut db);
+  if c1 < 0 { return 1; }
+  let pf = page_file_open(snap);
+  let entries1 = page_log_len(&pf);
+  if entries1 < 5 { return 1; } // several nodes + header
+
+  // One key update (delete+insert) must flush only the touched path nodes.
+  if !db_file_put(&mut db, 5, 55) { return 1; }
+  let c2 = db_file_checkpoint(&mut db);
+  if c2 <= c1 { return 1; }
+  let entries2 = page_log_len(&pf);
+  let delta = entries2 - entries1;
+  if delta < 2 { return 1; }      // header + at least one node
+  if delta > 4 { return 1; }      // a few path nodes, never a full rewrite
+  if delta >= entries1 { return 1; }
+
+  // A no-op checkpoint still appends the header only.
+  let c3 = db_file_checkpoint(&mut db);
+  if c3 <= c2 { return 1; }
+  let entries3 = page_log_len(&pf);
+  if entries3 - entries2 != 1 { return 1; }
+
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 12 { return 1; }
+  let v5 = db_file_get(&db2, 5);
+  match v5 {
+    None => { return 1; }
+    Some(x) => { if x != 55 { return 1; } }
+  }
+
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  return 0;
+}
+
+fn test_db_file_dirty_flush() -> TestResult {
+  let rc = run_db_file_dirty_flush();
+  if rc == 0 { return assert(true, "db_file: checkpoint flushes only dirty nodes (bounded delta)"); }
+  return assert(false, "db_file: dirty-flush failed");
+}
+
 fn run_result_set_ops() -> Int {
   var cols = Vec[Str].new();
   cols.push("id");
@@ -3284,6 +3337,8 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r99b.passed, r99b.name);
   let r99c = test_db_file_stale_handle();
   total = total + 1; failed = failed + report(r99c.passed, r99c.name);
+  let r100 = test_db_file_dirty_flush();
+  total = total + 1; failed = failed + report(r100.passed, r100.name);
   let r93 = test_result_set_ops();
   total = total + 1; failed = failed + report(r93.passed, r93.name);
 

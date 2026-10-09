@@ -39,7 +39,7 @@ fn value_of(key: Int) -> Int {
 //  - all leaves at the same depth
 // min_keys follows the split scheme: (order - 2) / 2.
 fn validate_node(tree: &BTree, idx: Int, depth: Int, leaf_depth: &mut Int, is_root: Bool) -> Int {
-  var node = tree.nodes[idx];
+  var node = tree.store.nodes[idx];
   var max_keys = tree.order - 1;
   var min_keys = (tree.order - 2) / 2;
 
@@ -91,7 +91,7 @@ fn dump_path(tree: &BTree, key: Int) {
   var depth = 0;
   var done = false;
   while !done {
-    var node = tree.nodes[node_idx];
+    var node = tree.store.nodes[node_idx];
     out = out + " d" + convert.int_to_string(depth)
         + ":n" + convert.int_to_string(node_idx)
         + " k" + convert.int_to_string(node.keys.len());
@@ -111,7 +111,7 @@ fn dump_path(tree: &BTree, key: Int) {
     }
   }
   io.println(out);
-  var leaf = tree.nodes[node_idx];
+  var leaf = tree.store.nodes[node_idx];
   var s = "leaf keys:";
   var i = 0;
   while i < leaf.keys.len() {

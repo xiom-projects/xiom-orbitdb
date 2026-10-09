@@ -85,10 +85,12 @@ The same file doubles as an **append-only page log** for incremental writes:
 | `page_log_len(pf)` | Raw well-formed entry count (compaction trigger measures physical growth). |
 | `page_log_heal_tail(pf)` | Terminate a torn trailing line so the next append cannot merge with it. |
 
-Commit rule: a writer appends new versions of only the pages that changed and
-then appends the header page **last**; a reader resolves the newest committed
-version (see the generation scheme under checkpoint snapshot layout).
-Compaction rewrites one version per page with `page_file_write_batch`.
+Commit rule: a writer appends new versions of only the pages that changed
+(since M1.1 the checkpoint drives this from the NodeStore dirty flags, not a
+byte diff) and then appends the header page **last**; a reader resolves the
+newest committed version (see the generation scheme under checkpoint snapshot
+layout). Compaction rewrites one version per page with
+`page_file_write_batch`.
 
 Integrity is CRC32C over the byte view (`Page.is_valid`); a structurally complete but checksum-invalid line is dropped on read. `tuple_push_int_le` / `tuple_read_int_le` (exported from `storage/tuple.xi`) are the shared little-endian integer helpers for every on-disk codec.
 
@@ -104,8 +106,10 @@ page g*2^32 + i + 1     B-tree node i as of generation g
 
 Node codec v1: magic `'O'`, version 1, kind byte `'H'` (header) / `'N'` (node),
 then little-endian i64 fields (LE helpers exported from `storage/tuple.xi`).
-A checkpoint appends new versions of only the **changed** nodes, then appends
-the header page **last** as the commit point; readers resolve, per node, the
+A checkpoint appends new versions of only the **dirty** nodes (every tree
+mutation marks its nodes in the NodeStore; a successful commit clears the
+flags), then appends the header page **last** as the commit point; readers
+resolve, per node, the
 newest generation <= the committed header generation, so pages from an
 uncommitted crash window are ignored and the previous snapshot stays fully
 valid. When the log grows past `node_count + 64` entries it is compacted with

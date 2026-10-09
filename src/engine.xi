@@ -22,10 +22,50 @@ use xiom.db.contracts;
 // B-TREE INDEX (from xiom.db.index.btree)
 // ============================================================================
 
+// NodeStore: the node arena behind a B-tree. `dirty[i]` marks node i as
+// changed since the last successful snapshot flush; checkpoints encode only
+// dirty nodes (M1.1). The store is fully resident for now -- lazy load and a
+// bounded cache arrive in the next slice of the storage spine.
+pub type NodeStore = {
+  nodes: Vec[BTreeNode];
+  dirty: Vec[Bool];
+}
+
+pub fn ns_len(store: &NodeStore) -> Int {
+  return store.nodes.len();
+}
+
+// Read a node copy.
+pub fn ns_get(store: &NodeStore, idx: Int) -> BTreeNode {
+  return store.nodes[idx];
+}
+
+// Overwrite a node in place and mark it dirty.
+pub fn ns_set(store: &mut NodeStore, idx: Int, node: BTreeNode) {
+  store.nodes[idx] = node;
+  store.dirty[idx] = true;
+}
+
+// Append a node (new nodes start dirty); returns its index.
+pub fn ns_push(store: &mut NodeStore, node: BTreeNode) -> Int {
+  store.nodes.push(node);
+  store.dirty.push(true);
+  return store.nodes.len() - 1;
+}
+
+// Mark every node clean after a successful snapshot commit (or after a load).
+pub fn ns_mark_clean(store: &mut NodeStore) {
+  var i = 0;
+  while i < store.dirty.len() {
+    store.dirty[i] = false;
+    i = i + 1;
+  }
+}
+
 pub type BTree = {
   root: Int;
   order: Int;
-  nodes: Vec[BTreeNode];
+  store: NodeStore;
 }
 
 pub type BTreeNode = {
@@ -53,9 +93,12 @@ pub fn btree_new(order: Int) -> BTree
   requires: order >= 3
 {
   var nodes = Vec[BTreeNode].new();
-  var leaf = new_leaf_node();
-  nodes.push(leaf);
-  return BTree{ root: 0, order: order, nodes: nodes };
+  var dirty = Vec[Bool].new();
+  var store = NodeStore{ nodes: nodes, dirty: dirty };
+  let leaf = new_leaf_node();
+  // The initial leaf must be persisted by the first checkpoint.
+  let _ = ns_push(&mut store, leaf);
+  return BTree{ root: 0, order: order, store: store };
 }
 
 pub fn btree_search(tree: &BTree, key: Int) -> Option[Int] {
@@ -63,7 +106,7 @@ pub fn btree_search(tree: &BTree, key: Int) -> Option[Int] {
 }
 
 fn search_node(tree: &BTree, node_idx: Int, key: Int) -> Option[Int] {
-  var node = tree.nodes[node_idx];
+  var node = tree.store.nodes[node_idx];
   var i = 0;
   while i < node.keys.len() {
     if key == node.keys[i] {
@@ -92,14 +135,14 @@ pub fn btree_insert(tree: &mut BTree, key: Int, value: Int) -> Bool {
     None => {}
   }
   var max_keys = tree.order - 1;
-  if tree.nodes[tree.root].keys.len() >= max_keys {
+  if tree.store.nodes[tree.root].keys.len() >= max_keys {
     split_root(tree);
   }
   return insert_nonfull(tree, tree.root, key, value);
 }
 
 fn split_root(tree: &mut BTree) {
-  var old_root = tree.nodes[tree.root];
+  var old_root = tree.store.nodes[tree.root];
   var new_root = new_internal_node();
   var mid = old_root.keys.len() / 2;
 
@@ -134,23 +177,20 @@ fn split_root(tree: &mut BTree) {
     right.children.push(old_root.children[old_root.keys.len()]);
   }
 
-  var left_idx = tree.nodes.len();
-  tree.nodes.push(left);
-  var right_idx = tree.nodes.len();
-  tree.nodes.push(right);
+  var left_idx = ns_push(&mut tree.store, left);
+  var right_idx = ns_push(&mut tree.store, right);
 
   new_root.keys.push(old_root.keys[mid]);
   new_root.values.push(old_root.values[mid]);
   new_root.children.push(left_idx);
   new_root.children.push(right_idx);
 
-  var root_idx = tree.nodes.len();
-  tree.nodes.push(new_root);
+  var root_idx = ns_push(&mut tree.store, new_root);
   tree.root = root_idx;
 }
 
 fn insert_nonfull(tree: &mut BTree, node_idx: Int, key: Int, value: Int) -> Bool {
-  var node = tree.nodes[node_idx];
+  var node = tree.store.nodes[node_idx];
   var max_keys = tree.order - 1;
 
   if node.is_leaf {
@@ -169,22 +209,22 @@ fn insert_nonfull(tree: &mut BTree, node_idx: Int, key: Int, value: Int) -> Bool
 
   if pos < node.children.len() {
     var child_idx = node.children[pos];
-    if tree.nodes[child_idx].keys.len() >= max_keys {
+    if tree.store.nodes[child_idx].keys.len() >= max_keys {
       split_child(tree, node_idx, pos);
-      var up_node = tree.nodes[node_idx];
+      var up_node = tree.store.nodes[node_idx];
       if pos < up_node.keys.len() && up_node.keys[pos] < key {
         pos = pos + 1;
       }
     }
-    var new_child_idx = tree.nodes[node_idx].children[pos];
+    var new_child_idx = tree.store.nodes[node_idx].children[pos];
     return insert_nonfull(tree, new_child_idx, key, value);
   }
   return false;
 }
 
 fn split_child(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
-  var child_idx = tree.nodes[parent_idx].children[child_pos];
-  var child = tree.nodes[child_idx];
+  var child_idx = tree.store.nodes[parent_idx].children[child_pos];
+  var child = tree.store.nodes[child_idx];
   var mid = child.keys.len() / 2;
 
   var new_child = new_leaf_node();
@@ -203,8 +243,7 @@ fn split_child(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
     new_child.children.push(child.children[child.keys.len()]);
   }
 
-  var new_child_idx = tree.nodes.len();
-  tree.nodes.push(new_child);
+  var new_child_idx = ns_push(&mut tree.store, new_child);
 
   var mid_key = child.keys[mid];
   var mid_val = child.values[mid];
@@ -219,8 +258,8 @@ fn split_child(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
     }
   }
 
-  tree.nodes[child_idx] = child;
-  tree.nodes[new_child_idx] = new_child;
+  ns_set(&mut tree.store, child_idx, child);
+  ns_set(&mut tree.store, new_child_idx, new_child);
 
   insert_at_pos(tree, parent_idx, child_pos, mid_key, mid_val);
 
@@ -229,7 +268,7 @@ fn split_child(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
   // silent no-op, which orphaned the new sibling and corrupted the tree at
   // the first internal split (product defect found by probe_core_diag:
   // insert failed from key 8, size=6 of 100).
-  var parent = tree.nodes[parent_idx];
+  var parent = tree.store.nodes[parent_idx];
   parent.children.push(0);
   var j = parent.children.len() - 1;
   while j > child_pos + 1 {
@@ -237,11 +276,11 @@ fn split_child(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
     j = j - 1;
   }
   parent.children[child_pos + 1] = new_child_idx;
-  tree.nodes[parent_idx] = parent;
+  ns_set(&mut tree.store, parent_idx, parent);
 }
 
 fn insert_at_pos(tree: &mut BTree, node_idx: Int, pos: Int, key: Int, value: Int) {
-  var node = tree.nodes[node_idx];
+  var node = tree.store.nodes[node_idx];
   node.keys.push(0);
   node.values.push(0);
   var i = node.keys.len() - 1;
@@ -252,7 +291,7 @@ fn insert_at_pos(tree: &mut BTree, node_idx: Int, pos: Int, key: Int, value: Int
   }
   node.keys[pos] = key;
   node.values[pos] = value;
-  tree.nodes[node_idx] = node;
+  ns_set(&mut tree.store, node_idx, node);
 }
 
 pub fn btree_delete(tree: &mut BTree, key: Int) -> Bool {
@@ -265,7 +304,7 @@ pub fn btree_delete(tree: &mut BTree, key: Int) -> Bool {
 }
 
 fn delete_from_node(tree: &mut BTree, node_idx: Int, key: Int) -> Bool {
-  var node = tree.nodes[node_idx];
+  var node = tree.store.nodes[node_idx];
   // Split scheme: a full node has order-1 keys and splits into halves that
   // differ by one, so the true floor is (order-2)/2 (same as the old formula
   // for even orders, one lower for odd orders -- the old value left order-5
@@ -291,7 +330,7 @@ fn delete_from_node(tree: &mut BTree, node_idx: Int, key: Int) -> Bool {
   if idx >= node.children.len() { return false; }
   var child_idx = node.children[idx];
 
-  if tree.nodes[child_idx].keys.len() <= min_keys {
+  if tree.store.nodes[child_idx].keys.len() <= min_keys {
     // fill_child returns the NODE INDEX of the (possibly relocated) target
     // child: a merge at child_pos-1 shifts it left. Recursing with the old
     // position instead descended an unrelated node (churn repro op=148).
@@ -302,7 +341,7 @@ fn delete_from_node(tree: &mut BTree, node_idx: Int, key: Int) -> Bool {
 }
 
 fn remove_from_leaf(tree: &mut BTree, node_idx: Int, pos: Int) {
-  var node = tree.nodes[node_idx];
+  var node = tree.store.nodes[node_idx];
   var i = pos;
   while i < node.keys.len() - 1 {
     node.keys[i] = node.keys[i + 1];
@@ -311,29 +350,29 @@ fn remove_from_leaf(tree: &mut BTree, node_idx: Int, pos: Int) {
   }
   node.keys.pop();
   node.values.pop();
-  tree.nodes[node_idx] = node;
+  ns_set(&mut tree.store, node_idx, node);
 }
 
 fn remove_from_internal(tree: &mut BTree, node_idx: Int, pos: Int, min_keys: Int) {
-  var node = tree.nodes[node_idx];
+  var node = tree.store.nodes[node_idx];
   var key = node.keys[pos];
   var left_child_idx = node.children[pos];
   var right_child_idx = node.children[pos + 1];
 
-  if tree.nodes[left_child_idx].keys.len() > min_keys {
+  if tree.store.nodes[left_child_idx].keys.len() > min_keys {
     var pred = get_predecessor(tree, left_child_idx);
     node.keys[pos] = pred.0;
     node.values[pos] = pred.1;
-    tree.nodes[node_idx] = node;
+    ns_set(&mut tree.store, node_idx, node);
     delete_from_node(tree, left_child_idx, pred.0);
     return;
   }
 
-  if tree.nodes[right_child_idx].keys.len() > min_keys {
+  if tree.store.nodes[right_child_idx].keys.len() > min_keys {
     var succ = get_successor(tree, right_child_idx);
     node.keys[pos] = succ.0;
     node.values[pos] = succ.1;
-    tree.nodes[node_idx] = node;
+    ns_set(&mut tree.store, node_idx, node);
     delete_from_node(tree, right_child_idx, succ.0);
     return;
   }
@@ -343,7 +382,7 @@ fn remove_from_internal(tree: &mut BTree, node_idx: Int, pos: Int, min_keys: Int
 }
 
 fn get_predecessor(tree: &BTree, node_idx: Int) -> (Int, Int) {
-  var node = tree.nodes[node_idx];
+  var node = tree.store.nodes[node_idx];
   if node.is_leaf {
     var last = node.keys.len() - 1;
     return (node.keys[last], node.values[last]);
@@ -353,7 +392,7 @@ fn get_predecessor(tree: &BTree, node_idx: Int) -> (Int, Int) {
 }
 
 fn get_successor(tree: &BTree, node_idx: Int) -> (Int, Int) {
-  var node = tree.nodes[node_idx];
+  var node = tree.store.nodes[node_idx];
   if node.is_leaf {
     return (node.keys[0], node.values[0]);
   }
@@ -362,12 +401,12 @@ fn get_successor(tree: &BTree, node_idx: Int) -> (Int, Int) {
 }
 
 fn merge_children(tree: &mut BTree, parent_idx: Int, pos: Int) {
-  var parent = tree.nodes[parent_idx];
+  var parent = tree.store.nodes[parent_idx];
   var left_idx = parent.children[pos];
   var right_idx = parent.children[pos + 1];
 
-  var left = tree.nodes[left_idx];
-  var right = tree.nodes[right_idx];
+  var left = tree.store.nodes[left_idx];
+  var right = tree.store.nodes[right_idx];
 
   left.keys.push(parent.keys[pos]);
   left.values.push(parent.values[pos]);
@@ -385,7 +424,7 @@ fn merge_children(tree: &mut BTree, parent_idx: Int, pos: Int) {
     i = i + 1;
   }
 
-  tree.nodes[left_idx] = left;
+  ns_set(&mut tree.store, left_idx, left);
 
   i = pos;
   while i < parent.keys.len() - 1 {
@@ -403,7 +442,7 @@ fn merge_children(tree: &mut BTree, parent_idx: Int, pos: Int) {
   }
   parent.children.pop();
 
-  tree.nodes[parent_idx] = parent;
+  ns_set(&mut tree.store, parent_idx, parent);
 
   if parent.keys.len() == 0 && parent_idx == tree.root {
     tree.root = left_idx;
@@ -411,38 +450,38 @@ fn merge_children(tree: &mut BTree, parent_idx: Int, pos: Int) {
 }
 
 fn fill_child(tree: &mut BTree, parent_idx: Int, child_pos: Int, min_keys: Int) -> Int {
-  var parent = tree.nodes[parent_idx];
+  var parent = tree.store.nodes[parent_idx];
 
   if child_pos > 0 {
     var left_sib_idx = parent.children[child_pos - 1];
-    if tree.nodes[left_sib_idx].keys.len() > min_keys {
+    if tree.store.nodes[left_sib_idx].keys.len() > min_keys {
       borrow_from_left(tree, parent_idx, child_pos);
-      return tree.nodes[parent_idx].children[child_pos];
+      return tree.store.nodes[parent_idx].children[child_pos];
     }
   }
 
   if child_pos < parent.children.len() - 1 {
     var right_sib_idx = parent.children[child_pos + 1];
-    if tree.nodes[right_sib_idx].keys.len() > min_keys {
+    if tree.store.nodes[right_sib_idx].keys.len() > min_keys {
       borrow_from_right(tree, parent_idx, child_pos);
-      return tree.nodes[parent_idx].children[child_pos];
+      return tree.store.nodes[parent_idx].children[child_pos];
     }
   }
 
   if child_pos > 0 {
     merge_children(tree, parent_idx, child_pos - 1);
-    return tree.nodes[parent_idx].children[child_pos - 1];
+    return tree.store.nodes[parent_idx].children[child_pos - 1];
   }
   merge_children(tree, parent_idx, child_pos);
-  return tree.nodes[parent_idx].children[child_pos];
+  return tree.store.nodes[parent_idx].children[child_pos];
 }
 
 fn borrow_from_left(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
-  var parent = tree.nodes[parent_idx];
+  var parent = tree.store.nodes[parent_idx];
   var child_idx = parent.children[child_pos];
   var left_idx = parent.children[child_pos - 1];
-  var child = tree.nodes[child_idx];
-  var left = tree.nodes[left_idx];
+  var child = tree.store.nodes[child_idx];
+  var left = tree.store.nodes[left_idx];
   var left_last = left.keys.len() - 1;
 
   child.keys.push(0);
@@ -476,17 +515,17 @@ fn borrow_from_left(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
   left.keys.pop();
   left.values.pop();
 
-  tree.nodes[parent_idx] = parent;
-  tree.nodes[child_idx] = child;
-  tree.nodes[left_idx] = left;
+  ns_set(&mut tree.store, parent_idx, parent);
+  ns_set(&mut tree.store, child_idx, child);
+  ns_set(&mut tree.store, left_idx, left);
 }
 
 fn borrow_from_right(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
-  var parent = tree.nodes[parent_idx];
+  var parent = tree.store.nodes[parent_idx];
   var child_idx = parent.children[child_pos];
   var right_idx = parent.children[child_pos + 1];
-  var child = tree.nodes[child_idx];
-  var right = tree.nodes[right_idx];
+  var child = tree.store.nodes[child_idx];
+  var right = tree.store.nodes[right_idx];
 
   child.keys.push(parent.keys[child_pos]);
   child.values.push(parent.values[child_pos]);
@@ -516,9 +555,9 @@ fn borrow_from_right(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
     right.children.pop();
   }
 
-  tree.nodes[parent_idx] = parent;
-  tree.nodes[child_idx] = child;
-  tree.nodes[right_idx] = right;
+  ns_set(&mut tree.store, parent_idx, parent);
+  ns_set(&mut tree.store, child_idx, child);
+  ns_set(&mut tree.store, right_idx, right);
 }
 
 pub fn btree_range_query(tree: &BTree, low: Int, high: Int) -> Vec[Int]
@@ -530,7 +569,7 @@ pub fn btree_range_query(tree: &BTree, low: Int, high: Int) -> Vec[Int]
 }
 
 fn collect_range(tree: &BTree, node_idx: Int, low: Int, high: Int, results: &mut Vec[Int]) {
-  var node = tree.nodes[node_idx];
+  var node = tree.store.nodes[node_idx];
   if node.is_leaf {
     var i = 0;
     while i < node.keys.len() {
@@ -565,7 +604,7 @@ pub fn btree_size(tree: &BTree) -> Int {
 }
 
 fn count_keys(tree: &BTree, node_idx: Int) -> Int {
-  var node = tree.nodes[node_idx];
+  var node = tree.store.nodes[node_idx];
   var total = node.keys.len();
   if !node.is_leaf {
     var i = 0;
@@ -579,11 +618,11 @@ fn count_keys(tree: &BTree, node_idx: Int) -> Int {
 
 pub fn btree_min(tree: &BTree) -> Option[Int] {
   var node_idx = tree.root;
-  var node = tree.nodes[node_idx];
+  var node = tree.store.nodes[node_idx];
   while !node.is_leaf {
     if node.children.len() == 0 { return None; }
     node_idx = node.children[0];
-    node = tree.nodes[node_idx];
+    node = tree.store.nodes[node_idx];
   }
   if node.keys.len() == 0 { return None; }
   return Some(node.values[0]);
@@ -591,11 +630,11 @@ pub fn btree_min(tree: &BTree) -> Option[Int] {
 
 pub fn btree_max(tree: &BTree) -> Option[Int] {
   var node_idx = tree.root;
-  var node = tree.nodes[node_idx];
+  var node = tree.store.nodes[node_idx];
   while !node.is_leaf {
     if node.children.len() == 0 { return None; }
     node_idx = node.children[node.children.len() - 1];
-    node = tree.nodes[node_idx];
+    node = tree.store.nodes[node_idx];
   }
   if node.keys.len() == 0 { return None; }
   return Some(node.values[node.keys.len() - 1]);
@@ -608,7 +647,7 @@ pub fn btree_to_vec(tree: &BTree) -> Vec[Int] {
 }
 
 fn traverse_inorder(tree: &BTree, node_idx: Int, results: &mut Vec[Int]) {
-  var node = tree.nodes[node_idx];
+  var node = tree.store.nodes[node_idx];
   if node.is_leaf {
     var i = 0;
     while i < node.keys.len() {
@@ -1393,16 +1432,6 @@ fn snap_page_id_for(gen: Int, node_idx: Int) -> Int {
   return gen * SNAP_PAGE_STRIDE + node_idx + 1;
 }
 
-fn snap_bytes_equal(a: &Vec[Int], b: &Vec[Int]) -> Bool {
-  if a.len() != b.len() { return false; }
-  var i = 0;
-  while i < a.len() {
-    if a[i] != b[i] { return false; }
-    i = i + 1;
-  }
-  return true;
-}
-
 type SnapshotMeta = {
   root: Int;
   order: Int;
@@ -1587,58 +1616,48 @@ fn snap_resolve_pages(pages: &Vec[Page], node_count: Int,
 // Atomic compaction: one page per node + the header at generation `gen`,
 // installed through page_file_write_batch (single rename). Used when the log
 // has grown past node_count + slack.
-fn snap_compact(path: Str, tree: &BTree, checkpoint_lsn: Int, gen: Int) -> Bool {
+fn snap_compact(path: Str, tree: &mut BTree, checkpoint_lsn: Int, gen: Int) -> Bool {
   var pages = Vec[Page].new();
   var i = 0;
-  while i < tree.nodes.len() {
-    let node = tree.nodes[i];
+  while i < tree.store.nodes.len() {
+    let node = tree.store.nodes[i];
     let data = snap_node_page_bytes(&node);
     if data.len() > SNAP_PAGE_MAX_BYTES { return false; }
     pages.push(Page.new(snap_page_id_for(gen, i), data, page_compute_checksum(&data)));
     i = i + 1;
   }
-  let hdr = snap_header_page_bytes(tree.root, tree.order, tree.nodes.len(),
+  let hdr = snap_header_page_bytes(tree.root, tree.order, tree.store.nodes.len(),
                                    checkpoint_lsn, gen);
   if hdr.len() > SNAP_PAGE_MAX_BYTES { return false; }
   pages.push(Page.new(0, hdr, page_compute_checksum(&hdr)));
   let pf = page_file_open(path);
-  return page_file_write_batch(&pf, pages);
+  let wrote = page_file_write_batch(&pf, pages);
+  if wrote { ns_mark_clean(&mut tree.store); }
+  return wrote;
 }
 
-// Commit a checkpoint incrementally: append new versions of only the nodes
-// that differ from the committed snapshot, then append the header page (id 0,
-// generation = prior + 1) LAST as the commit point. Returns the committed
-// generation, or -1 when nothing was committed; the previous snapshot stays
-// valid in every failure mode.
-fn snap_flush(path: Str, tree: &BTree, checkpoint_lsn: Int) -> Int {
+// Commit a checkpoint incrementally: append new versions of only the DIRTY
+// nodes (tracked by the NodeStore), then append the header page (id 0,
+// generation = prior + 1) LAST as the commit point. Forces a full write when
+// there is no valid prior snapshot or when pages of an uncommitted crashed
+// generation linger (they must never become the only version of a node).
+// Returns the committed generation, or -1 when nothing was committed; the
+// previous snapshot stays valid in every failure mode.
+fn snap_flush(path: Str, tree: &mut BTree, checkpoint_lsn: Int) -> Int {
   let pf = page_file_open(path);
   let pages = page_log_read_all(&pf);
   let meta_found = snap_read_meta(&pages);
   var prior_gen = 0;
-  var best = Vec[Page].new();
   var have_prior = false;
   match meta_found {
     None => {}
     Some(m) => {
       let mm: SnapshotMeta = m;
       prior_gen = mm.generation;
-      let resolved = snap_resolve_pages(&pages, mm.node_count, mm.generation);
-      match resolved {
-        None => {}
-        Some(v) => {
-          let vv: Vec[Page] = v;
-          best = vv;
-          have_prior = true;
-        }
-      }
+      have_prior = true;
     }
   }
 
-  // A crashed checkpoint may have appended pages at generation prior_gen + 1
-  // without committing them. They are ignored on load, but if this checkpoint
-  // commits the same generation a diff would skip unchanged nodes and leave
-  // the stale pages as their only committed version. Detect leftovers and
-  // force a full write of the new generation in that case (rare, safe).
   var has_uncommitted = false;
   var q = 0;
   while q < pages.len() {
@@ -1650,37 +1669,37 @@ fn snap_flush(path: Str, tree: &BTree, checkpoint_lsn: Int) -> Int {
     }
     q = q + 1;
   }
-  if has_uncommitted { have_prior = false; }
+  let write_all = !have_prior || has_uncommitted;
 
   let gen = prior_gen + 1;
   let entries = page_log_len(&pf);
-  if entries > tree.nodes.len() + SNAP_COMPACT_SLACK {
+  if entries > tree.store.nodes.len() + SNAP_COMPACT_SLACK {
     if snap_compact(path, tree, checkpoint_lsn, gen) { return gen; }
     return -1;
   }
 
   var i = 0;
-  while i < tree.nodes.len() {
-    let node = tree.nodes[i];
-    let data = snap_node_page_bytes(&node);
-    if data.len() > SNAP_PAGE_MAX_BYTES { return -1; }
-    var unchanged = false;
-    if have_prior && i < best.len() {
-      let bp = best[i];
-      if snap_bytes_equal(&bp.data, &data) { unchanged = true; }
-    }
-    if !unchanged {
+  while i < tree.store.nodes.len() {
+    var should_write = write_all;
+    if !should_write { should_write = tree.store.dirty[i]; }
+    if should_write {
+      let node = tree.store.nodes[i];
+      let data = snap_node_page_bytes(&node);
+      if data.len() > SNAP_PAGE_MAX_BYTES { return -1; }
       let pg = Page.new(snap_page_id_for(gen, i), data, page_compute_checksum(&data));
       if !page_log_append(&pf, pg) { return -1; }
     }
     i = i + 1;
   }
 
-  let hdr = snap_header_page_bytes(tree.root, tree.order, tree.nodes.len(),
+  let hdr = snap_header_page_bytes(tree.root, tree.order, tree.store.nodes.len(),
                                    checkpoint_lsn, gen);
   if hdr.len() > SNAP_PAGE_MAX_BYTES { return -1; }
   let hp = Page.new(0, hdr, page_compute_checksum(&hdr));
-  if page_log_append(&pf, hp) { return gen; }
+  if page_log_append(&pf, hp) {
+    ns_mark_clean(&mut tree.store);
+    return gen;
+  }
   return -1;
 }
 
@@ -1744,7 +1763,15 @@ fn snap_load(path: Str) -> Option[Snapshot] {
     j = j + 1;
   }
 
-  var tree = BTree{ root: meta.root, order: meta.order, nodes: nodes };
+  // Loaded nodes are clean: their pages are already committed.
+  var dirty = Vec[Bool].new();
+  var di = 0;
+  while di < nodes.len() {
+    dirty.push(false);
+    di = di + 1;
+  }
+  var store = NodeStore{ nodes: nodes, dirty: dirty };
+  var tree = BTree{ root: meta.root, order: meta.order, store: store };
   return Some(Snapshot{ tree: tree, checkpoint_lsn: meta.checkpoint_lsn, generation: meta.generation });
 }
 
@@ -1767,12 +1794,12 @@ pub fn db_file_checkpoint(db: &mut DBFile) -> Int {
   let _ = page_log_heal_tail(&pf);
 
   let snap_lsn = wal_file_next_lsn(&db.wal) - 1;
-  let gen = snap_flush(snap_path, &db.tree, snap_lsn);
+  let gen = snap_flush(snap_path, &mut db.tree, snap_lsn);
   if gen < 0 { return -1; }
 
   var payload = Vec[Int].new();
   payload.push(gen);
-  payload.push(db.tree.nodes.len());
+  payload.push(db.tree.store.nodes.len());
   payload.push(db.tree.order);
   let anchor = wal_file_append_tagged(&mut db.wal, WALOpKind.Checkpoint,
                                       snap_lsn, db.tree.root, payload, 0);

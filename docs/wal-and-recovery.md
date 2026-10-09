@@ -98,8 +98,9 @@ replays the whole segment.
 `db_file_checkpoint(db)` commits an incremental snapshot and bounds replay:
 
 ```
-1. append new versions of only the CHANGED tree nodes at the next generation
-   (page id = generation*2^32 + node_idx + 1) into <wal path>.snap
+1. append new versions of only the DIRTY tree nodes (NodeStore dirty flags,
+   set by every mutation and cleared after a successful commit) at the next
+   generation (page id = generation*2^32 + node_idx + 1) into <wal path>.snap
 2. append the header page LAST (generation, root, order, node_count,
    snapshot_lsn) -- the highest-generation header commits the generation
 3. append the Checkpoint anchor:
