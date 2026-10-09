@@ -65,6 +65,8 @@ Make durability real.
 | Checkpointing | [OK] (2026-10-08) | Incremental generation-committed snapshot (`db_file_checkpoint`: only changed nodes, header page commits, compaction at node_count+64) + `db_file_maybe_checkpoint(limit)` policy; uncommitted-generation and torn-tail crash states in the suite; 2000-key policy soak (9 checkpoints) x2 Win + WSL |
 | Durable transactions (D2) | [OK] (2026-10-08) | WAL Begin/Commit/Abort kinds (8/9/10) + `db_file_txn_*` (log-then-buffer, apply at commit, abort discards); replay applies committed windows, drops unterminated ones and finalizes a dangling window with an Abort record; checkpoint + auto-commit rejected mid-txn; crash scenarios D/E x2 Win + WSL |
 | Torn-page / crash recovery test suite | [OK] (2026-10-08) | `crash_test.{ps1,sh}` (WAL), `page_crash_test.{ps1,sh}`, `db_crash_test.{ps1,sh}` -- GREEN x2 Windows + WSL; power-loss leg blocked on fsync |
+| Fuzz/property harness (H3) | [OK] (2026-10-09) | `scripts/fuzz.{ps1,sh}` + `probe_fuzz.xi`: deterministic seeds for tuple codec, WAL parser, page log, B-tree vs model; x2 Win + WSL |
+| API / runbook / format reference (I3) | [OK] (2026-10-09) | `docs/API.md` + `docs/RUNBOOK.md` + `docs/FORMATS.md` (v1 formats, version policy), linked from the README doc index |
 
 ---
 

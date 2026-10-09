@@ -33,9 +33,9 @@
 | E. Query & schema | 10 | 3.0 | Value-filter query + DBFile range/query bindings done; planner scaffold; no secondary indexes/typed values |
 | F. Operations & tooling | 10 | 4.0 | ps1/sh runners, crash harness, probes; no CI/packaging/version stamp |
 | G. Performance & limits | 5 | 3.0 | Benchmarks published (v0.64.1); WAL segment size policy live (`maybe_checkpoint`); replay constrained by the filed stdlib `str_split` quadratic; page/cache bounds pending |
-| H. Security & integrity | 5 | 2.0 | Checksums + validation; no fuzz, no encryption, no supply-chain pinning |
-| I. Documentation & evidence | 5 | 4.0 | Full doc set + relay docs + repro bundles; public API reference pending |
-| **Total** | **100** | **64.0** | **~64% -- alpha-track, durable log + pages + checkpoints + transactions + clock replacer, benchmarks live** |
+| H. Security & integrity | 5 | 4.0 | Checksums + validation + deterministic fuzz harness; encryption/supply-chain pinning pending |
+| I. Documentation & evidence | 5 | 5.0 | Full doc set + relay docs + repro bundles + public API/runbook/format reference |
+| **Total** | **100** | **66.0** | **~66% -- alpha-track, durable log + pages + checkpoints + transactions + clock replacer + fuzz, benchmarks live** |
 
 Scoreboard changelog:
 - 2026-10-08: bootstrap complete (suite migrated, engine defects fixed, WAL
@@ -85,6 +85,12 @@ Scoreboard changelog:
   rejects stats (no Vec[Option] element writes). Suite clock-order + pinning
   tests; suite 117/117 x2 Win + WSL; page/WAL crash x2 + soak. C4 3 pts ->
   C area 11.0: 64.0.
+- 2026-10-09: fuzz/property harness (H3) -- deterministic seeded fuzz of the
+  tuple codec, WAL parser, page log and B-tree vs model, with runners; x2 Win
+  + WSL; suite 117/117 x2 both. H3 1 pt.
+- 2026-10-09: public API reference + operations runbook + versioned format
+  spec (I3), linked from the README doc index. I3 1 pt -> I area 5.0; H area
+  4.0: 66.0.
 
 ## A. Correctness & data structures (20)
 
@@ -159,7 +165,7 @@ Scoreboard changelog:
 |---|---|---|---|---|
 | H1 | Integrity: checksums on pages, strict decode, no partial rows | 2 | OK | CRC32C + codec KATs |
 | H2 | Input validation (paths, sizes, field counts) | 1 | 0.5 | budget/refusals exist; path/env validation partial |
-| H3 | Fuzz/property testing (codec, WAL parser, B-tree vs model at scale) | 1 | -- | churn model is property-based but not fuzzed continuously |
+| H3 | Fuzz/property testing (codec, WAL parser, B-tree vs model at scale) | 1 | OK | `scripts/fuzz.{ps1,sh}` + `probe_fuzz.xi`: deterministic LCG seeds -- tuple roundtrip/byte-flip/truncation, WAL records + garbage + torn tails + heal-append, page-log latest-wins/CRC rejection, B-tree vs model over orders 4/5 x2 Win + WSL. Continuous CI cadence awaits F3 |
 | H4 | Supply chain: package signature verification, pinned toolchain | 1 | 0.5 | dev-env pins versions; registry adoption not started |
 
 ## I. Documentation & evidence (5)
@@ -168,7 +174,7 @@ Scoreboard changelog:
 |---|---|---|---|---|
 | I1 | README/SPEC/ARCHITECTURE/ROADMAP/AUDIT + docs/ set | 2 | OK | current + honest |
 | I2 | Relay docs (compiler findings, stdlib/package wishlists, per-lane messages) | 2 | OK | kept current every wrap |
-| I3 | Public API reference / runbooks / format spec versioning | 1 | -- | codec v1 documented; no external API doc yet |
+| I3 | Public API reference / runbooks / format spec versioning | 1 | OK | `docs/API.md` (all pub surfaces + contracts/error semantics), `docs/RUNBOOK.md` (commands, recovery, gotchas), `docs/FORMATS.md` (versioned WAL/page-log/snapshot/tuple v1 + CRC32C + version policy); linked from README |
 
 ## Phase gates (mapping to ROADMAP.md)
 
@@ -186,6 +192,7 @@ Scoreboard changelog:
 - [ ] fsync wired (stdlib row) and power-loss matrix run.
 - [x] Engine on disk: WAL-before-ack, recovery from real files, checkpoint.
 - [x] Durable page file + replacement policy (clock + pinning).
+- [x] Fuzz/property harness (codec, WAL parser, page log, B-tree vs model).
 - [ ] Pager substrate; torn-page detection.
 - [x] Redo/undo with committed/uncommitted classification (crash scenarios D/E).
 - [ ] MVCC story decided.

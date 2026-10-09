@@ -32,7 +32,7 @@ Shell scripts and `.xi` files must stay LF; `.ps1` files are CRLF
 | Page crash harness | `scripts\page_crash_test.ps1 -Pages 20 -TimeoutSec 120` | Use 120s: the writer's first compile can exceed 90s under load. |
 | DB crash harness | `scripts\db_crash_test.ps1 -Keys 20 -Tail 3 -Tx 5 -TimeoutSec 90` | Five scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn, committed txn); 25 checks. |
 | Fuzz/property | `scripts\fuzz.ps1 -TimeoutSec 600` | Deterministic; see section 4. |
-| Benchmarks | `scripts\bench.ps1 -N 10000` | Numbers recorded in `docs/PERF-HISTORY` rows of the readiness doc. |
+| Benchmarks | `scripts\bench.ps1 -N 10000` | Numbers summarized in the readiness doc G1 row (`docs/PRODUCTION-READINESS.md`). |
 | Soaks | probe `soak` mode, section 3 | 2000-key policy soak is the standard long path. |
 
 Twin `.sh` scripts accept the kebab-case flags (`--events`, `--pages`,

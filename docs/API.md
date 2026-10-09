@@ -71,7 +71,7 @@ the `Database` facade is separate from `DBFile` (durable) today.
 
 | Area | Calls |
 |------|-------|
-| Engine | `engine_new(order)` / `engine_default()`; `engine_insert` / `engine_update` / `engine_delete` / `engine_get` / `engine_query` / `engine_range_query` / `engine_size` / `engine_wal_size`; `engine_recover()` (replay in-memory WAL); `engine_flush_wal()` (drop WAL after data is durable in RAM); `engine_truncate_wal(before_timestamp)`. |
+| Engine | `engine_new(order)`; `engine_insert` / `engine_update` / `engine_delete` / `engine_get` / `engine_query` / `engine_range_query` / `engine_size` / `engine_wal_size`; `engine_recover()` (replay in-memory WAL); `engine_flush_wal()` (drop WAL after data is durable in RAM); `engine_truncate_wal(before_timestamp)`. |
 | Database | `db_open(order)` / `db_open_with(config)`; `db_insert` / `db_update` / `db_delete` / `db_get` / `db_range` / `db_query` / `db_size` / `db_recover` / `db_close`; closed handles reject reads and writes. |
 | In-memory WAL | `wal_new()` / `wal_append(entry)` / `wal_replay(tree)` / `wal_clear()` / `wal_truncate(before_timestamp)` / `wal_len()` / `wal_is_empty()` / `wal_entry_count(op_filter)`; `wal_entry_new(op, key, value, timestamp)`; `WALOpType` = `InsertOp` / `UpdateOp` / `DeleteOp`. |
 
