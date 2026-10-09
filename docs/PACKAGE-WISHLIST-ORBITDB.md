@@ -6,8 +6,9 @@
 packages from the registry only (never vendored, never edited). Evidence
 paths are from `E:\xiom-projects\xiom-orbitdb`.
 
-**Pin (2026-10-09):** compiler **v0.64.2**, stdlib `82ac2f3`, registry
-`https://registry.xiom-lang.org` (packages lane eco-v0.1.115-era).
+**Pin (2026-10-09):** compiler **v0.64.2**, stdlib `e7896ff`, registry
+`https://registry.xiom-lang.org` (packages lane @ `6bb40bb0`; its wishlist
+ledger notes all three consumer lanes green on v0.64.2, no new asks).
 
 **Context:** ORBITDB (formerly xiom-db) is the embedded database engine --
 B-Tree, WAL, query engine, crash recovery. It is zero-dependency and, as of

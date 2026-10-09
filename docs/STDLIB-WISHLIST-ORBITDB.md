@@ -8,7 +8,8 @@ lane; it never edits `E:\xiom-lang\stdlib`. Evidence paths are from
 the pin below.
 
 **Pin (2026-10-09):** compiler **v0.64.2**, stdlib `E:\xiom-lang\stdlib` @
-`82ac2f3` (wave 97 + the lane's own wishlist sweep), `XIOM_RUNTIME_DIR`
+`e7896ff` (wave 97 + the lane's own wishlist sweep + relay consumption;
+linear-split/CR fixes in the code state since `82ac2f3`), `XIOM_RUNTIME_DIR`
 retired (env-free).
 
 **Context:** ORBITDB is a durable embedded database: append-only WAL segment

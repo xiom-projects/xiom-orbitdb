@@ -19,7 +19,7 @@ located while triaging and are evidence, not patches.
 |---|---|
 | compiler | **v0.64.2** (2026-10-09; installed in place, Windows `%LOCALAPPDATA%\xiom.new` + WSL) |
 | compiler history | v0.64.0 (2026-10-08) -> v0.64.1 (same-day re-test) -> v0.64.2 (this re-test) |
-| stdlib | `E:\xiom-lang\stdlib` @ `82ac2f3` (2026-10-09; lane wave 97 + wishlist sweep) |
+| stdlib | `E:\xiom-lang\stdlib` @ `e7896ff` (2026-10-09; lane wave 97 + wishlist sweep + relay consumption) |
 | compiler lane | `d9f146cb` (`v0.64.2-2-gd9f146cb`; the v0.64.2 tag is cut) |
 | env | `XIOM_STDLIB=E:\xiom-lang\stdlib`; `XIOM_RUNTIME_DIR` retired (env-free, installed R65 layout) |
 

@@ -2,7 +2,7 @@
 
 **From:** ORBITDB lane (`E:\xiom-projects\xiom-orbitdb`, embedded database
 engine; formerly xiom-db). **Pin (current 2026-10-09):** compiler v0.64.2,
-stdlib `82ac2f3`; the body below was written on v0.64.0. Full table:
+stdlib `e7896ff`; the body below was written on v0.64.0. Full table:
 `docs/PACKAGE-WISHLIST-ORBITDB.md`.
 
 Hi packages lane -- ORBITDB is the embedded DB consumer lane (B-Tree, WAL,

@@ -23,10 +23,13 @@ table + pinning semantics (C4); suite 117/117; page/WAL crash x2 + soak.
 input validation; suite 119/119; readiness 66.5.
 **Updated:** 2026-10-09 (D3 session): stale-handle write guard + isolation
 decision record (`docs/ISOLATION.md`); suite 120/120.
+**Updated:** 2026-10-09 (v0.64.2 re-test session): all five C-ORBIT findings
+RESOLVED; compiler workarounds dropped (`6f6c3ba`); suite 120/120 x2 Win +
+WSL with the native forms; relay/wishlists swept.
 **Project:** embedded database engine for XIOM -- B-Tree, WAL, query engine,
 crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
 
-## 0. STATE (2026-10-08)
+## 0. STATE (2026-10-09)
 
 - **Repo:** `E:\xiom-projects\xiom-orbitdb`. **PRIVATE**; no push/remote
   without owner approval. Identity `Lefteris Notas <lefterisnotas@gmail.com>`,
@@ -50,29 +53,35 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   `5159b84` -> `823c6bc` (`48f7101` fuzz harness + runners, `4f8f0b2`
   API/runbook/format docs, wrap `823c6bc`); H2 session `823c6bc` -> `2d37588`
   (`1ea7073` path/order validation (suite 119), wrap `2d37588`); D3 session
-  `2d37588` -> HEAD (`10109e1` stale-handle guard + `docs/ISOLATION.md`
-  (suite 120), then the wrap commit).
+  `2d37588` -> `18b4818` (`10109e1` stale-handle guard + `docs/ISOLATION.md`
+  (suite 120), wrap `18b4818`); v0.64.2 re-test session `18b4818` -> HEAD
+  (`6f6c3ba` compiler workarounds dropped (suite 120/120 x2 both),
+  `00ed7dd` relay findings/wishlist sweep, then the wrap commit).
 - **VERSION POLICY (owner): track the LATEST compiler / stdlib / packages.**
   Record exact versions + lane hashes here at every wrap.
-  - compiler: **v0.64.1** -- Windows `%LOCALAPPDATA%\xiom.new\bin\xiom.exe`,
-    WSL `~/.local/bin/xiom`; `XIOM_RUNTIME_DIR` retired. Re-tested
-    2026-10-08: **C-ORBIT-01..05 all still open**; lane regression clean;
-    the false W004 warning from v0.64.0 is gone. The lane is mid "v0.64.2
-    lane sweep" (`ba19be61`): **watch for the v0.64.2 archive and re-test
-    all five bundles + suite before other work.**
-  - stdlib: `E:\xiom-lang\stdlib` @ `82444e5` (2026-10-08) = `/mnt/e/xiom-lang/stdlib`.
-  - compiler lane @ `c8eda1e8`: **v0.64.2 final gate run GREEN (all seven
-    suites)** -- the release is imminent; no archive installed yet
-    (v0.64.1 is current; latest tag v0.64.1). The C-ORBIT-05 candidates
-    remain m234 Vec-element strides + m235 loop-body static allocas: re-test
-    the repro unchanged as soon as the archive lands. stdlib lane @
-    `d54929d` (wave 97); packages lane @ `180ce90a` (eco-v0.1.115).
+  - compiler: **v0.64.2** (released 2026-10-09) -- Windows
+    `%LOCALAPPDATA%\xiom.new\bin\xiom.exe`, WSL `~/.local/bin/xiom`;
+    `XIOM_RUNTIME_DIR` retired. Re-tested today with **all five C-ORBIT
+    workarounds reverted**: suites/crash/fuzz/soak green; **C-ORBIT-01..05
+    RESOLVED** (m223/m224/m225/m226/m235). Rollback option if a v0.64.2
+    regression appears: v0.64.1 (keep the finding notes in
+    `docs/COMPILER-FINDINGS-ORBITDB.md`).
+  - stdlib: `E:\xiom-lang\stdlib` @ `e7896ff` (2026-10-09; wave 97 + wishlist
+    sweep + relay consumption; the linear-split/CR fixes are in the code
+    state since `82ac2f3`) = `/mnt/e/xiom-lang/stdlib`. Two ORBITDB rows
+    RESOLVED: `str_split`/`read_file_lines` are linear and a trailing CR is
+    stripped per line (both citing our relay).
+  - compiler lane @ `d9f146cb` (`v0.64.2-2-gd9f146cb`; v0.64.2 tag cut);
+    packages lane @ `6bb40bb0` -- its wishlist ledger notes all three
+    consumer lanes (PULSE/ORBITDB/XVECTOR) green on v0.64.2 and no new
+    package asks.
   - `xiom doctor` shows 2 environment warnings (bundled stdlib older than
     compiler; stale second binary on PATH) -- lane noise: `scripts/dev-env.*`
     sets `XIOM_COMPILER`/`XIOM_STDLIB` explicitly.
 - **Green evidence (exact commands; all GREEN x2 Windows + WSL unless noted):**
   - Suite: `scripts/run.ps1 tests/test_conformance.xi -TimeoutSec 300` ->
-    **120/120, exit 0** (x2 Win + WSL). Composition: 93 base + 2 churn +
+    **120/120, exit 0** (x2 Win + WSL; v0.64.2 with **all C-ORBIT workarounds
+    reverted**). Composition: 93 base + 2 churn +
     CRC32C KAT + 3 tuple-codec + 2 FSM + 2 page-file + 1 page-log + 14 db-file
     (roundtrip, checkpoint, churn, query/range, incremental, uncommitted
     generation, policy, compaction, txn commit, txn abort/guards, dangling
@@ -90,11 +99,12 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   - Fuzz/property: `scripts/fuzz.ps1` / `fuzz.sh` (deterministic LCG seeds) ->
     `fuzz: OK seeds=4 ops/seed=4000 n=512`, x2 Win + WSL; sections cover the
     tuple codec, WAL parser, page log and B-tree vs model.
-  - Benchmarks: `scripts/bench.ps1 -N 10000` / `scripts/bench.sh` ->
-    `probe-logs/bench-*.txt`. v0.64.1 N=10k: Win insert 1.25M/s, search
-    3.3M/s, delete 1.67M/s, tuple 714k/s, WAL append 2.9k/s, replay 0.94k/s;
-    WSL(native fs) append 26k/s, replay 1.97k/s. `bench.sh` writes scratch
-    WAL to `/tmp` (DrvFs on `/mnt/e` skews append ~20x).
+  - Benchmarks: `scripts/bench.ps1 -N 20000` (v0.64.2): btree insert 1.25M/s,
+    search 3.3M/s, delete 1.67M/s, tuple 1.11M/s, WAL append 3.5k/s, WAL
+    replay 2.0k/s -- **20k-record replay now ~9.9 s (was 61.6 s on v0.64.1;
+    stdlib `read_file_lines` is linear)**. WSL(native fs) append ~26k/s.
+    `bench.sh` writes scratch WAL to `/tmp` (DrvFs on `/mnt/e` skews append
+    ~20x).
   - Model soaks: `probe_btree_churn.xi` (orders 4/5/6 x 20k ops + seed
     matrix), `probe_fsm.xi` (50k ops, 256 pages), `probe_crc32c.xi`,
     `probe_tuple_codec.xi`, `probe_page_file.xi`, `probe_wal_file.xi`,
@@ -152,12 +162,13 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     per-area table + changelog + 100% checklist (v0.3-beta gate needs fsync +
     torn-page matrix + benchmarks at scale).
 - **Known limitations / risks (read before touching storage):**
-  - **No fsync** (stdlib row 1): process-crash safe only; never claim
-    power-loss durability. `wal_file_flush`/`page_file_sync` are the seams.
-  - **WAL replay is quadratic** because stdlib `str_split` /
-    `io.read_file_lines` is O(n^2) (filed; bench evidence). A checkpoint bounds
-    the replayed tail, but snapshot load also reads the whole page file; keep
-    inputs modest until fixed.
+  - **No fsync**: process-crash safe only; never claim power-loss durability.
+    The stdlib surface exists but is stubbed (`os/fs_ffi.fsync` +
+    `os/sync_io.sync_fd` return Err); `wal_file_flush`/`page_file_sync` are
+    the seams.
+  - **WAL replay is linear now** (stdlib `str_split`/`read_file_lines` fixed,
+    wave 96/97): 20k records replay in ~9.9 s (was 61.6 s). Remaining cost is
+    per-record parsing; checkpoints still bound the replayed tail.
   - **Checkpointing is incremental but still O(nodes) per call**: each
     checkpoint encodes + byte-compares every resident node (the diff) and
     reads the whole page log twice; the tree stays fully resident in memory.
@@ -185,19 +196,20 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     value-only.
 - **Relay status:** all per-lane messages delivered (owner relays).
   `docs/COMPILER-FINDINGS-ORBITDB.md` + `docs/RELAY-COMPILER-ORBITDB.md`
-  carry C-ORBIT-01..05 (05 = new: nested `Vec[Struct-with-Vec]` + push
-  aborts v0.64.1) and the v0.64.1 re-test; `docs/STDLIB-WISHLIST-ORBITDB.md`
-  + `docs/RELAY-STDLIB-ORBITDB.md` carry the fsync/byte-IO/CR gaps **and the
-  new `str_split` quadratic + append-handle findings**; package docs carry
-  the `xiom.wal`/`xiom.btree` decisions.
+  now record **C-ORBIT-01..05 RESOLVED on v0.64.2** (m223/m224/m225/m226/
+  m235; one consumer-scope caveat on m225) plus the incoming relay
+  `docs/COMPILER-RELAY-2026-10-09-v0.64.2.md`. Stdlib wishlist: the
+  `str_split`/`read_file_lines` quadratic **and** the CR-strip row are
+  RESOLVED (both citing our relay); fsync (stubs), append-handle, truncate,
+  byte-IO, tail-check remain open. Package docs carry the `xiom.wal`/
+  `xiom.btree` decisions.
 - **Next action (priority order):**
-  1. **Check for the v0.64.2 archive first** (lane gate run GREEN; release
-     imminent): when it installs, re-test all five C-ORBIT bundles +
-     `docs/repro/vec-push-nested/probe.xi` unchanged + full suite on it and
-     update findings/relay docs before other work.
-  2. **Node-per-page paged access** -- the remaining A5 gap, tied to the
-     pager seam (C3).
-  3. Checkpoint dirty-tracking diff (avoid the full encode/compare scan).
+  1. **Node-per-page paged access** -- the remaining A5 gap, tied to the
+     pager seam (C3); keep the pager-seam watch (C-PULSE-02).
+  2. **Checkpoint dirty-tracking diff** (avoid the full encode/compare scan).
+  3. **Durability (B5/B6) when stdlib fsync lands**: wire `wal_file_flush`/
+     `page_file_sync` to a real sync and run a power-loss matrix; until then
+     keep the honest wording.
   4. MVCC engine (D3) once the pager/concurrency prerequisites exist; keep
      readiness + relay docs current; commit signed at every logical step.
 
@@ -211,7 +223,7 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
 - Packages only from the registry; never vendor. Extraction candidates go to
   `docs/PACKAGE-WISHLIST-ORBITDB.md`.
 
-## 2. Pin discipline that bites (v0.64.1)
+## 2. Pin discipline that bites (v0.64.2: compiler workarounds dropped)
 
 Base rules:
 - Initialize every local at declaration; every **struct literal lists every
@@ -225,26 +237,18 @@ Base rules:
   (`use xiom.string.split;` -> `split.str_split`; `xiom.convert.parse` ->
   `parse.parse_int`).
 
-**C-ORBIT workarounds (keep until the compiler lane fixes them):**
-- **C-ORBIT-01:** rebind a match-bound payload of a cross-module generic
-  `Result` through an explicitly typed local before any access:
-  `let d: Row = decoded;` (applies to `io.read_file_lines`, `tuple_decode`,
-  `tuple_encode_checked`, `db_file_*`, ...). Explicit receiver form
-  `Row.get_column(&decoded, 0)` also works but raw-binding zero-arg calls
-  still hit codegen C001.
-- **C-ORBIT-02:** never index-assign an `Option` into a `Vec[Option[T]]`
-  element; rebuild the Vec and assign it (`BufferPool.put` pattern).
-- **C-ORBIT-03:** never call a `&mut` method on a nested field receiver;
-  copy out, mutate, write back (`StorageEngine.cache_page` pattern).
-- **C-ORBIT-04:** module-qualify enum variants in constructors **and**
-  patterns when another module in the graph has same-named variants
-  (`WALOpKind.Insert` vs txn's `WALOp.Insert`); unqualified constructors
-  lower against the wrong enum -> clang IR type mismatch.
-- **C-ORBIT-05:** never copy `Vec` elements of structs that own Vec fields
-  (`Vec[Page]`) inside a nested loop that also pushes into a `Vec` -- v0.64.1
-  aborts (access violation, no diagnostic). Workaround: keep-set over a
-  parallel `Vec[Int]` + one non-nested push pass (`page_log_read_all`);
-  repro `docs/repro/vec-push-nested/probe.xi`.
+**v0.64.2 status: the C-ORBIT workarounds are DROPPED** (commit `6f6c3ba`;
+findings RESOLVED, see `docs/COMPILER-FINDINGS-ORBITDB.md`). Rules that
+remain -- now design rules, not workarounds:
+- Never index-assign an `Option` into a `Vec[Option[T]]` element; use
+  parallel vectors or rebuild (`BufferPool` design). m226 fixed the language
+  bug, but the parallel-vector frame table is the better hot-cache shape.
+- Module-qualify enum variants in CONSUMER modules when a same-named enum is
+  anywhere in the program (`WALOpKind.Insert` vs txn's `WALOp.Insert`):
+  m225 fixed declaring-module resolution, but cross-import ambiguity in
+  consumers still resolves to the wrong twin with no diagnostic.
+- Deep container equality is live (m239): `==` compares `Vec`/`Str` content;
+  legacy `vec_eq` helpers may be retired opportunistically.
 
 Ops rules:
 - Every run through `scripts/run.{ps1,sh}` with a `-TimeoutSec` watchdog and
@@ -256,27 +260,34 @@ Ops rules:
   skip key-N checks when a LAST_* env is set; `trim.str_trim` every line
   (CRLF); `heal_tail` semantics live in the `WALFile` handle now
   (`heal_needed`) -- do not re-add a per-append rescan.
-- Benchmarks: `read_file_lines`/`str_split` are quadratic -- keep bench N
-  modest (10k) and file sizes small until the stdlib fix lands.
+- Benchmarks: `read_file_lines`/`str_split` are linear now (v0.64.2);
+  `-N 20000` is the current reference (replay ~9.9 s).
 - Harness flake: `page_crash_test`'s writer can exceed the default 90s start
   window under heavy load (compile + many chained runs). Re-run with
   `-TimeoutSec 120`; a single `observed=2`-style start miss is environmental,
   not a code fail -- confirm with a clean x2.
 
-## 3. Known ecosystem status (2026-10-08, v0.64.1)
+## 3. Known ecosystem status (2026-10-09, v0.64.2)
 
-- Compiler: C-PULSE-02 (registry source-roots) open; C-PULSE-04/05/06/07
-  open; ORBITDB adds **C-ORBIT-01..04** (all reproduce on v0.64.1).
-- Stdlib: `str_split`/`read_file_lines` quadratic (new, filed); fsync,
-  byte-IO, truncate, append-handle rows open.
-- Packages: `xiom.wal` standalone decision; `xiom.btree` gate MET; registry
-  carry `xiom.kv` 0.1.0 with the C-PULSE-10 Linux-only gate. ORBITDB still
-  zero-dep and has no `xiom.toml` (add with CI only when going public).
+- Compiler: **C-ORBIT-01..05 RESOLVED** on v0.64.2 (workarounds dropped);
+  one follow-up requested -- cross-import enum ambiguity in consumer modules
+  still resolves to the wrong twin (no diagnostic). C-PULSE-02 (registry
+  source-roots) and C-PULSE-04/05/06/07 remain on the PULSE lane; m239 deep
+  container equality is live (verified).
+- Stdlib: linear `str_split`/`read_file_lines` + trailing-CR stripping landed
+  (RESOLVED, both citing our relay); real fsync is still a stub; append
+  handle, truncate, byte-IO, tail-check open.
+- Packages: `xiom.wal` gate not met (stdlib fsync still open); `xiom.btree`
+  gate MET + fuzz coverage; registry carries `xiom.kv` 0.1.0 with the
+  C-PULSE-10 Linux-only gate. ORBITDB still zero-dep and has no `xiom.toml`
+  (add with CI only when going public).
 
 ## 4. Relay documents (owner relays; keep current every wrap)
 
 - `docs/COMPILER-FINDINGS-ORBITDB.md` + `docs/RELAY-COMPILER-ORBITDB.md`
-  (C-ORBIT-01..04, v0.64.1 re-test, repro bundles `docs/repro/`).
+  (C-ORBIT-01..05 RESOLVED on v0.64.2; historical v0.64.0/0.64.1 sections;
+  repro bundles `docs/repro/`; incoming relay
+  `docs/COMPILER-RELAY-2026-10-09-v0.64.2.md`).
 - `docs/STDLIB-WISHLIST-ORBITDB.md` + `docs/RELAY-STDLIB-ORBITDB.md`.
 - `docs/PACKAGE-WISHLIST-ORBITDB.md` + `docs/RELAY-PACKAGES-ORBITDB.md` +
   `docs/RELAY-PACKAGES-RESPONSE-ORBITDB.md` (xiom.wal API proposal).
@@ -295,7 +306,7 @@ E:\xiom-packages\packages. Repo PRIVATE; no pushes without owner approval.
 Identity "Lefteris Notas <lefterisnotas@gmail.com>"; conventional commits,
 DCO sign-off (git commit -s). Owner relays upstream messages.
 
-TOOLCHAIN (latest-tracking): compiler v0.64.1 Windows + WSL; stdlib
+TOOLCHAIN (latest-tracking): compiler v0.64.2 Windows + WSL; stdlib
 E:\xiom-lang\stdlib; XIOM_RUNTIME_DIR retired. Dot-source scripts\dev-env.ps1
 (or scripts/dev-env.sh); run everything via scripts\run.ps1 / run.sh with a
 -TimeoutSec watchdog and exit-code gate. Native .sh twins must stay LF.
@@ -304,12 +315,15 @@ WSL: the default distro is docker-desktop (no bash) -- run via
 Evidence rules: green suites x2, crash harnesses x2, soak long paths, keep
 probe-logs out of commits (gitignored).
 
-CURRENT STATE: conformance 120/120 x2 Win + WSL; WAL/page crash x2 both;
-db_crash five scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted
-txn discarded, committed txn recovered) x2 Win + WSL, each recovery followed
-by qverify (range + value-filter queries; 25 checks); fuzz/property harness
+CURRENT STATE: v0.64.2 pin; all C-ORBIT compiler workarounds REVERTED and the
+suite is green on the native forms -- conformance 120/120 x2 Win + WSL (see
+the findings file for the one consumer-qualification caveat); db_crash five
+scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn discarded,
+committed txn recovered) x2 Win + WSL, each recovery followed by qverify
+(range + value-filter queries; 25 checks); fuzz/property harness
 `scripts/fuzz.{ps1,sh}` (seeds=4 ops/seed=4000) x2 Win + WSL; policy soak
-2000 keys / 9 checkpoints x2 Win + WSL; bench harness live; readiness
+2000 keys / 9 checkpoints x2 Win + WSL; 20k-record WAL replay ~9.9 s (linear
+stdlib); bench harness live; readiness
 66.5/100 (docs/PRODUCTION-READINESS.md -- recompute + changelog every wrap);
 reference docs docs/API.md + docs/RUNBOOK.md + docs/FORMATS.md +
 docs/ISOLATION.md. Durable pieces: src/wal_file.xi (segment +
@@ -329,29 +343,25 @@ model in docs/ISOLATION.md); buffer pool in-memory only and live tree still
 resident (pager seam C3 pending); fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first):
-1. Check for the v0.64.2 archive first (lane gate run GREEN, release
-   imminent): re-test all five C-ORBIT bundles (incl.
-   docs/repro/vec-push-nested/) unchanged + full suite + fuzz; update
-   findings/relay docs before other work.
-2. Node-per-page paged access (A5 gap, pager seam C3).
-3. Checkpoint dirty-tracking diff (avoid the full encode/compare scan).
+1. Node-per-page paged access (A5 gap, pager seam C3); keep the pager-seam
+   watch (C-PULSE-02).
+2. Checkpoint dirty-tracking diff (avoid the full encode/compare scan).
+3. Durability (B5/B6) when stdlib fsync lands: wire wal_file_flush /
+   page_file_sync to a real sync and run a power-loss matrix.
 4. MVCC engine (D3) once the pager/concurrency prerequisites exist; keep
    SESSION.md STATE, relay docs and PRODUCTION-READINESS updated at every
    wrap; commit signed per step.
 
-DISCIPLINE (v0.64.1 workarounds, all still needed):
-- Rebind cross-module generic Result payloads through an annotated local
-  (let d: Row = decoded;) -- C-ORBIT-01.
-- Never index-assign Option into Vec[Option[T]]; rebuild the Vec -- C-ORBIT-02.
-- No &mut methods on nested-field receivers; copy-mutate-writeback -- C-ORBIT-03.
-- Module-qualify enum variants in constructors AND patterns when variant
-  names repeat across modules -- C-ORBIT-04.
-- Never copy Vec elements of structs with Vec fields in a nested loop that
-  also pushes into a Vec -- v0.64.1 aborts (C-ORBIT-05); use an Int keep-set
-  + a single non-nested push pass.
+DISCIPLINE (v0.64.2; C-ORBIT workarounds DROPPED -- see COMPILER-FINDINGS):
+- Consumer modules: module-qualify enum variants when a same-named enum is
+  anywhere in the program (m225 consumer-scope caveat; no ambiguity error).
+- Prefer parallel vectors over Vec[Option] element writes for hot caches
+  (design choice; m226 fixed the language bug).
+- Deep equality works (m239): Vec/Str == compare by content; hand-written
+  vec_eq helpers may be retired opportunistically.
 - Struct literals list every field; init locals at declaration; no
   const-receiver .to_str(); explicit *p for &mut Int; trim every read line;
-  hang loops need io.sleep; keep read_file_lines inputs small (quadratic).
+  hang loops need io.sleep.
 Commits: conventional + `-s`; docs coupled to code in the same commit;
 record lane HEAD hashes in SESSION.md at every wrap.
 ```

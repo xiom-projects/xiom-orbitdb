@@ -2,7 +2,7 @@
 
 **From:** ORBITDB lane (`E:\xiom-projects\xiom-orbitdb`, embedded database
 engine: B-Tree, WAL, crash recovery). **Pin (current 2026-10-09):** compiler
-v0.64.2, stdlib `82ac2f3`. The body below was written on v0.64.0; a status
+v0.64.2, stdlib `e7896ff`. The body below was written on v0.64.0; a status
 footer records what has landed since. Full table:
 `docs/STDLIB-WISHLIST-ORBITDB.md`.
 

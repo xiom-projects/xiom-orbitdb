@@ -22,7 +22,7 @@
    can take partial points only where the row defines a fraction.
 5. **Recompute on every wrap.** Add a dated line to the scoreboard changelog.
 
-## Current scoreboard -- 2026-10-08
+## Current scoreboard -- 2026-10-09 (v0.64.2 pin, workarounds dropped)
 
 | Area | Weight | Earned | Status summary |
 |---|---|---|---|
@@ -95,6 +95,13 @@ Scoreboard changelog:
   `db_file_open_checked` with Err(ConstraintViolation) on bad path/order;
   suite 117 -> 119, x2 Win + WSL; db_crash 25/25 x2 both as regression. H2
   0.5 -> 1.0 (H area 4.5): 66.5.
+- 2026-10-09: v0.64.2 re-test -- all five C-ORBIT findings RESOLVED
+  (m223/m224/m225/m226/m235); the compiler workarounds are dropped
+  (`6f6c3ba`) and the lane is green on the native forms: suite 120/120 x2
+  Win + WSL, db_crash 25/25 x2, WAL/page crash x2, fuzz OK, 2000-key soak
+  OK; all seven repro bundles green unchanged. Stdlib rows 1-2 resolved
+  upstream (linear `str_split`/`read_file_lines` + CR stripping, citing our
+  relay): 20k-record WAL replay 61.6 s -> 9.9 s. No score change: 66.5.
 - 2026-10-09: isolation decision + multi-handle stale-write guard -- 
   `docs/ISOLATION.md` (single-writer, open-time snapshot, MVCC deferred with 
   prerequisites); every write path (`put`/`delete`/`txn_*`/`checkpoint`) 
