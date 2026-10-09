@@ -35,9 +35,9 @@
 
 ## M4 -- Query & indexes
 
-- [ ] Semantics decision recorded (key predicates vs value-only) -- ours to make
-- [ ] Planner: key-range pushdown + point lookup + cost estimate
-- [ ] Executor uses index paths; results equal brute-force model
+- [x] Semantics decision recorded: additive `query_key_range` (key range -> value conditions -> offset -> limit)
+- [x] Planner: key-range pushdown + point lookup + cost estimate
+- [x] Executor uses index paths; results equal brute-force model (200-case seeded property)
 - [ ] Secondary indexes (catalog-driven) + fuzz vs model
 - [ ] ORDER/LIMIT execution
 

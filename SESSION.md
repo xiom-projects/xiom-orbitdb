@@ -31,6 +31,9 @@ WSL with the native forms; relay/wishlists swept.
 none (pure XIOM through Phase 2).
 **Updated:** 2026-10-09 (M1.1 session): NodeStore dirty tracking + dirty-only
 checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
+**Updated:** 2026-10-09 (M4.1 session): key-range planner pushdown +
+`query_key_range`; app-build `--icon` helper (`assets/orbitdb.ico`); suite
+123/123 x2 Win + WSL; readiness 69.5.
 **Project:** embedded database engine for XIOM -- B-Tree, WAL, query engine,
 crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
 
@@ -64,8 +67,10 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   `00ed7dd` relay findings/wishlist sweep, wrap `ef872b0`); plan session
   `ef872b0` -> `93bc50f` (production plan + checklist, wrap `93bc50f`);
   integration session `93bc50f` -> `0ef8572` (PULSE/XVECTOR handshakes, wrap
-  `0ef8572`); M1.1 session `0ef8572` -> HEAD (`5757c78` NodeStore dirty
-  tracking (suite 121), then the wrap commit).
+  `0ef8572`); M1.1 session `0ef8572` -> `caf5706` (`5757c78` NodeStore dirty
+  tracking (suite 121), wrap `caf5706`); M4.1 session `caf5706` -> HEAD
+  (`4e69822` key-range planner pushdown (suite 123), `35757c8` app-build
+  icon + WSL guardrails, then the wrap commit).
 - **VERSION POLICY (owner): track the LATEST compiler / stdlib / packages.**
   Record exact versions + lane hashes here at every wrap.
   - compiler: **v0.64.2** (released 2026-10-09) -- Windows
@@ -75,27 +80,25 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     RESOLVED** (m223/m224/m225/m226/m235). Rollback option if a v0.64.2
     regression appears: v0.64.1 (keep the finding notes in
     `docs/COMPILER-FINDINGS-ORBITDB.md`).
-  - stdlib: `E:\xiom-lang\stdlib` @ `e7896ff` (2026-10-09; wave 97 + wishlist
-    sweep + relay consumption; the linear-split/CR fixes are in the code
-    state since `82ac2f3`) = `/mnt/e/xiom-lang/stdlib`. Two ORBITDB rows
-    RESOLVED: `str_split`/`read_file_lines` are linear and a trailing CR is
-    stripped per line (both citing our relay).
-  - compiler lane @ `d9f146cb` (`v0.64.2-2-gd9f146cb`; v0.64.2 tag cut);
-    packages lane @ `6bb40bb0` -- its wishlist ledger notes all three
-    consumer lanes (PULSE/ORBITDB/XVECTOR) green on v0.64.2 and no new
-    package asks.
+  - stdlib: `E:\xiom-lang\stdlib` @ `ed6d46c` (2026-10-09; wave 99) =
+    `/mnt/e/xiom-lang/stdlib`. Two ORBITDB rows RESOLVED: `str_split`/
+    `read_file_lines` are linear and a trailing CR is stripped per line (both
+    citing our relay).
+  - compiler lane @ `d481c490` (m249 slice-to-Vec bridge; post-v0.64.2 tag
+    work); packages lane @ `26f7d0ae` (bindings batch 23, eco-v0.1.123).
   - `xiom doctor` shows 2 environment warnings (bundled stdlib older than
     compiler; stale second binary on PATH) -- lane noise: `scripts/dev-env.*`
     sets `XIOM_COMPILER`/`XIOM_STDLIB` explicitly.
 - **Green evidence (exact commands; all GREEN x2 Windows + WSL unless noted):**
   - Suite: `scripts/run.ps1 tests/test_conformance.xi -TimeoutSec 300` ->
-    **121/121, exit 0** (x2 Win + WSL; v0.64.2 with **all C-ORBIT workarounds
+    **123/123, exit 0** (x2 Win + WSL; v0.64.2 with **all C-ORBIT workarounds
     reverted**). Composition: 93 base + 2 churn +
     CRC32C KAT + 3 tuple-codec + 2 FSM + 2 page-file + 1 page-log + 15 db-file
     (roundtrip, checkpoint, churn, query/range, incremental, uncommitted
     generation, policy, compaction, txn commit, txn abort/guards, dangling
     txn, path validation, checked open, stale handle, dirty flush) + 2
-    buffer-pool (clock order, pinning/reject).
+    buffer-pool (clock order, pinning/reject) + 2 planner (plan kinds,
+    200-case property vs brute force).
   - Crash/recovery harnesses: `scripts/crash_test.ps1 -Events 20` (WAL; 200
     soak), `scripts/page_crash_test.ps1 -Pages 20`, `scripts/db_crash_test.ps1
     -Keys 20 -Tail 3 -Tx 5` (five scenarios: WAL-only, snapshot-only,
@@ -158,6 +161,11 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   - Reference docs (new): `docs/API.md` (pub surfaces + contracts),
     `docs/RUNBOOK.md` (commands/recovery/gotchas), `docs/FORMATS.md`
     (versioned v1 formats + version policy); linked from README.
+  - Planner (new, M4.1): `query_key_range(q, low, high)` additive key bounds;
+    plan kinds PointLookup/IndexRange/FullScan with bounds-aware
+    `estimated_rows`; `execute_plan` scans `btree_range_query` then applies
+    value conditions/offset/limit; `db_file_query` is planned; pinned by a
+    200-case seeded property test vs brute force.
   - Production plan (new): `docs/PRODUCTION-PLAN.md` (mission, architecture
     target, workstreams M1-M8, gates P-alpha -> 1.0, benchmark targets,
     release signal) + `docs/checklists/production-release.md`; linked from
@@ -183,7 +191,7 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     uncommitted crashed generation lingers), clearing flags on commit; the
     suite pins a bounded delta for a one-key update. Lazy load + a bounded
     clock cache are the next slice.
-  - Index-of-record: `docs/PRODUCTION-READINESS.md` **66.5/100 (~67%)**,
+  - Index-of-record: `docs/PRODUCTION-READINESS.md` **69.5/100 (~70%)**,
     per-area table + changelog + 100% checklist (v0.3-beta gate needs fsync +
     torn-page matrix + benchmarks at scale).
 - **Known limitations / risks (read before touching storage):**
@@ -194,9 +202,12 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   - **WAL replay is linear now** (stdlib `str_split`/`read_file_lines` fixed,
     wave 96/97): 20k records replay in ~9.9 s (was 61.6 s). Remaining cost is
     per-record parsing; checkpoints still bound the replayed tail.
-  - **Checkpointing is incremental but still O(nodes) per call**: each
-    checkpoint encodes + byte-compares every resident node (the diff) and
-    reads the whole page log twice; the tree stays fully resident in memory.
+  - **Checkpointing is incremental and dirty-only** (M1.1): unchanged nodes
+    are skipped via NodeStore flags; the dirty set is encoded once per
+    checkpoint and the page log is read twice per call. The tree stays fully
+    resident: lazy load + a bounded node cache (M1.1b) are deferred until the
+    stdlib exposes random-access page reads (byte IO/seek) -- with the text
+    page codec every lazy miss would rescan the whole page file (O(n^2)).
     Truncate keeps the Checkpoint anchor -- NEVER truncate to empty (next_lsn
     lives in the segment). Snapshot path is `<wal>.snap`; dedup on load is
     quadratic in log entries (bounded by compaction).
@@ -236,14 +247,14 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   `xiom-xvector/docs/ORBITDB-INTEGRATION.md`, then the hybrid row+vector
   join probe.
 - **Next action (priority order, per `docs/PRODUCTION-PLAN.md` section 13):**
-  1. **M1.1b lazy load + bounded node cache** (finish plan slice 1): load
-     nodes on demand from snapshot pages; clock cache with write-back reusing
-     C4 semantics; keep the public API surface stable.
-  2. **M4.1 planner pushdown** (key-range/point + cost estimate).
-  3. **M1.2 byte-page format v2 design** now; implement when the stdlib
-     byte-IO row lands.
-  4. **M2.1 fsync wiring** when the stdlib row lands; MVCC design per M3;
-     keep readiness + relay docs current; commit signed at every step.
+  1. **M1.2 byte-page format v2 design** now (generation-stamped pages, byte
+     codec); implement when the stdlib byte-IO row lands.
+  2. **M4.2 secondary indexes** (catalog `IndexDef`, index-vs-model fuzz) +
+     ORDER/LIMIT execution.
+  3. **M5.1 typed values v2** (type-tagged tuples; text at least).
+  4. **M2.1 fsync wiring** when stdlib lands; **M1.1b** lazy load once
+     random-access page reads exist; MVCC per M3; keep readiness + relay docs
+     current; commit signed at every step.
 
 ## 1. Consumer-lane rules (non-negotiable)
 
@@ -350,20 +361,22 @@ E:\xiom-lang\stdlib; XIOM_RUNTIME_DIR retired. Dot-source scripts\dev-env.ps1
 (or scripts/dev-env.sh); run everything via scripts\run.ps1 / run.sh with a
 -TimeoutSec watchdog and exit-code gate. Native .sh twins must stay LF.
 WSL: the default distro is docker-desktop (no bash) -- run via
-`wsl.exe -d Ubuntu bash -lc '...'`.
+`wsl.exe -d Ubuntu bash -lc '...'`; the VM is shared with other lanes --
+check `ps`/`free` and run at most ONE heavy harness per command.
 Evidence rules: green suites x2, crash harnesses x2, soak long paths, keep
 probe-logs out of commits (gitignored).
 
 CURRENT STATE: v0.64.2 pin; all C-ORBIT compiler workarounds REVERTED and the
-suite is green on the native forms -- conformance 120/120 x2 Win + WSL (see
+suite is green on the native forms -- conformance 123/123 x2 Win + WSL (see
 the findings file for the one consumer-qualification caveat); db_crash five
 scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn discarded,
 committed txn recovered) x2 Win + WSL, each recovery followed by qverify
 (range + value-filter queries; 25 checks); fuzz/property harness
 `scripts/fuzz.{ps1,sh}` (seeds=4 ops/seed=4000) x2 Win + WSL; policy soak
 2000 keys / 9 checkpoints x2 Win + WSL; 20k-record WAL replay ~9.9 s (linear
-stdlib); bench harness live; readiness
-66.5/100 (docs/PRODUCTION-READINESS.md -- recompute + changelog every wrap);
+stdlib); bench harness live; app build `scripts/build.ps1` embeds
+assets/orbitdb.ico (--icon verified); readiness
+69.5/100 (docs/PRODUCTION-READINESS.md -- recompute + changelog every wrap);
 reference docs docs/API.md + docs/RUNBOOK.md + docs/FORMATS.md +
 docs/ISOLATION.md; production plan docs/PRODUCTION-PLAN.md +
 docs/checklists/production-release.md (M1-M8, gates P-alpha -> 1.0, release
@@ -378,21 +391,21 @@ db_file_maybe_checkpoint policy + durable transactions: db_file_txn_*,
 committed/uncommitted classification, dangling-window abort on open;
 db_file_range + db_file_query; db_path_valid + db_file_open_checked
 validation; wal_bytes stale-handle write guard; NodeStore dirty tracking =
-dirty-only checkpoint flush (M1.1)). Known limits: no fsync
+dirty-only checkpoint flush (M1.1); key-range planner pushdown +
+query_key_range, point/range plans (M4.1)). Known limits: no fsync
 (process-crash safe only); replay/O(n^2) line IO (filed); checkpoint diff
 scans all resident nodes; transactions single-active, no MVCC (single-writer
 model in docs/ISOLATION.md); buffer pool in-memory only and live tree still
 resident (pager seam C3 pending); fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-1. M1.1b lazy load + bounded node cache (finish slice 1): on-demand loads
-   from snapshot pages, clock cache with write-back; evidence x2 both
-   platforms.
-2. M4.1 planner pushdown (key-range/point + cost).
-3. M1.2 byte-page format v2 design; implement when stdlib byte IO lands.
-4. M2.1 fsync wiring when stdlib lands; MVCC design per M3; keep SESSION.md
-   STATE, relay docs and PRODUCTION-READINESS updated at every wrap; commit
-   signed per step.
+1. M1.2 byte-page format v2 design (generation-stamped pages, byte codec);
+   implement when the stdlib byte-IO row lands.
+2. M4.2 secondary indexes (catalog IndexDef) + ORDER/LIMIT execution.
+3. M5.1 typed values v2 (type-tagged tuples; text at least).
+4. M2.1 fsync wiring when stdlib lands; M1.1b lazy load once random-access
+   page reads exist; MVCC per M3; keep SESSION.md STATE, relay docs and
+   PRODUCTION-READINESS updated at every wrap; commit signed per step.
 
 DISCIPLINE (v0.64.2; C-ORBIT workarounds DROPPED -- see COMPILER-FINDINGS):
 - Consumer modules: module-qualify enum variants when a same-named enum is
