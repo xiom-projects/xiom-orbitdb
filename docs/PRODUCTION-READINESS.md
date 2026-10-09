@@ -33,9 +33,9 @@
 | E. Query & schema | 10 | 3.0 | Value-filter query + DBFile range/query bindings done; planner scaffold; no secondary indexes/typed values |
 | F. Operations & tooling | 10 | 4.0 | ps1/sh runners, crash harness, probes; no CI/packaging/version stamp |
 | G. Performance & limits | 5 | 3.0 | Benchmarks published (v0.64.1); WAL segment size policy live (`maybe_checkpoint`); replay constrained by the filed stdlib `str_split` quadratic; page/cache bounds pending |
-| H. Security & integrity | 5 | 4.0 | Checksums + validation + deterministic fuzz harness; encryption/supply-chain pinning pending |
+| H. Security & integrity | 5 | 4.5 | Checksums + full input validation + deterministic fuzz harness; encryption/supply-chain pinning pending |
 | I. Documentation & evidence | 5 | 5.0 | Full doc set + relay docs + repro bundles + public API/runbook/format reference |
-| **Total** | **100** | **66.0** | **~66% -- alpha-track, durable log + pages + checkpoints + transactions + clock replacer + fuzz, benchmarks live** |
+| **Total** | **100** | **66.5** | **~67% -- alpha-track, durable log + pages + checkpoints + transactions + clock replacer + fuzz + validation, benchmarks live** |
 
 Scoreboard changelog:
 - 2026-10-08: bootstrap complete (suite migrated, engine defects fixed, WAL
@@ -91,6 +91,10 @@ Scoreboard changelog:
 - 2026-10-09: public API reference + operations runbook + versioned format
   spec (I3), linked from the README doc index. I3 1 pt -> I area 5.0; H area
   4.0: 66.0.
+- 2026-10-09: input validation completed (H2) -- `db_path_valid` +
+  `db_file_open_checked` with Err(ConstraintViolation) on bad path/order;
+  suite 117 -> 119, x2 Win + WSL; db_crash 25/25 x2 both as regression. H2
+  0.5 -> 1.0 (H area 4.5): 66.5.
 
 ## A. Correctness & data structures (20)
 
@@ -164,7 +168,7 @@ Scoreboard changelog:
 | # | Item | Pts | Status | Evidence / gate |
 |---|---|---|---|---|
 | H1 | Integrity: checksums on pages, strict decode, no partial rows | 2 | OK | CRC32C + codec KATs |
-| H2 | Input validation (paths, sizes, field counts) | 1 | 0.5 | budget/refusals exist; path/env validation partial |
+| H2 | Input validation (paths, sizes, field counts) | 1 | OK | `db_path_valid` (non-empty, <= 4096, no CR/LF) + `db_file_open_checked` (Err(ConstraintViolation) on bad path/order); sizes/field counts already gated (4096 page contract, 255-field codec, `tuple_fits_page`); suite validation tests x2 Win + WSL |
 | H3 | Fuzz/property testing (codec, WAL parser, B-tree vs model at scale) | 1 | OK | `scripts/fuzz.{ps1,sh}` + `probe_fuzz.xi`: deterministic LCG seeds -- tuple roundtrip/byte-flip/truncation, WAL records + garbage + torn tails + heal-append, page-log latest-wins/CRC rejection, B-tree vs model over orders 4/5 x2 Win + WSL. Continuous CI cadence awaits F3 |
 | H4 | Supply chain: package signature verification, pinned toolchain | 1 | 0.5 | dev-env pins versions; registry adoption not started |
 
