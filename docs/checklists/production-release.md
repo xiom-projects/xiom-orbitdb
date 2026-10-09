@@ -49,6 +49,7 @@
 
 ## M6 -- API & bindings
 
+- [x] App build helper embeds `assets/orbitdb.ico` (`--icon`, verified on v0.64.2)
 - [ ] Cursor API + prepared statements
 - [ ] Stable error taxonomy (`docs/API.md`)
 - [ ] C-ABI surface + binding package spike

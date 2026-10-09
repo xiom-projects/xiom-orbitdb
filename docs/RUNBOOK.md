@@ -33,6 +33,7 @@ Shell scripts and `.xi` files must stay LF; `.ps1` files are CRLF
 | DB crash harness | `scripts\db_crash_test.ps1 -Keys 20 -Tail 3 -Tx 5 -TimeoutSec 90` | Five scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn, committed txn); 25 checks. |
 | Fuzz/property | `scripts\fuzz.ps1 -TimeoutSec 600` | Deterministic; see section 4. |
 | Benchmarks | `scripts\bench.ps1 -N 10000` | Numbers summarized in the readiness doc G1 row (`docs/PRODUCTION-READINESS.md`). |
+| App build (icon) | `scripts\build.ps1 <source.xi> [-Out out\orbitdb-app.exe]` | Compiles one source into an app binary and embeds `assets/orbitdb.ico` via `--icon` (verified on v0.64.2; `llvm-rc`). `scripts/build.sh` is the Linux/WSL twin (PE icons are Windows-only). |
 | Soaks | probe `soak` mode, section 3 | 2000-key policy soak is the standard long path. |
 
 Twin `.sh` scripts accept the kebab-case flags (`--events`, `--pages`,
@@ -129,6 +130,11 @@ scripts\run.ps1 tests\probes\probe_db_file.xi -TimeoutSec 180
   optimized away.
 - Harness flake: a single page-crash `observed=2`-style start miss under load
   is environmental; re-run with `-TimeoutSec 120` and confirm with a clean x2.
+- WSL memory/contention: other lanes (PULSE/XVECTOR) share the WSL VM. Before
+  chained WSL harness runs check `ps aux --sort=-rss | head` and `free -m`,
+  run at most ONE heavy harness per command, and pause/retry if the VM is
+  busy. The VM restarted twice under load on 2026-10-09 -- treat a restart as
+  a reason to check, not to hammer.
 - Identity/commits: conventional commits with DCO sign-off
   (`git commit -s`, `Lefteris Notas <lefterisnotas@gmail.com>`).
 

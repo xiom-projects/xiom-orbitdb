@@ -164,6 +164,10 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     README/ROADMAP/readiness. The owner sets up the public release when the
     release signal fires, and the owner's benchmark suite becomes the
     release gate.
+  - App build (new): `scripts/build.ps1` compiles a source into an app binary
+    and embeds `assets/orbitdb.ico` via `--icon` (verified on v0.64.2 with
+    llvm-rc); `scripts/build.sh` is the no-icon Linux/WSL twin. M6 checklist
+    line ticked.
   - Validation (new): `db_path_valid` (non-empty, <= 4096 chars, no CR/LF)
     and `db_file_open_checked(path, order) -> Result[DBFile, DbError]`
     (`Err(ConstraintViolation)` on bad path or order < 3); `db_file_open`
@@ -294,6 +298,13 @@ Ops rules:
   window under heavy load (compile + many chained runs). Re-run with
   `-TimeoutSec 120`; a single `observed=2`-style start miss is environmental,
   not a code fail -- confirm with a clean x2.
+- WSL guardrail (2026-10-09 memory incident): the WSL VM is shared with other
+  lanes (PULSE was compiling/running in it; the VM restarted twice under
+  load). Before chained WSL harness runs check `ps aux --sort=-rss | head`
+  and `free -m`; run at most ONE heavy harness per command; pause and retry
+  when another lane is active. No runaway process from this lane was found
+  (checked Windows + WSL: only the interrupted runs' writers, cleared by the
+  restarts).
 
 ## 3. Known ecosystem status (2026-10-09, v0.64.2)
 
