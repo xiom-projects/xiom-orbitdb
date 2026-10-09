@@ -2842,6 +2842,86 @@ fn test_db_file_dangling_txn_abort() -> TestResult {
   return assert(false, "db_file: dangling txn finalize failed");
 }
 
+fn run_db_path_validation() -> Int {
+  if db_path_valid("") { return 1; }
+  if !db_path_valid("orbitdb-suite-path.wal") { return 1; }
+  if !db_path_valid("sub/dir/db.wal") { return 1; }
+  if db_path_valid("bad\nname.wal") { return 1; }
+  if db_path_valid("bad\rname.wal") { return 1; }
+
+  var long = "";
+  var i = 0;
+  while i < 4100 {
+    long = long + "a";
+    i = i + 1;
+  }
+  if db_path_valid(long) { return 1; }
+  return 0;
+}
+
+fn test_db_path_validation() -> TestResult {
+  let rc = run_db_path_validation();
+  if rc == 0 { return assert(true, "db_file: path validation (empty/CR/LF/overlong)"); }
+  return assert(false, "db_file: path validation failed");
+}
+
+fn run_db_file_open_checked() -> Int {
+  let path = "orbitdb-suite-db-checked.wal";
+  let snap = "orbitdb-suite-db-checked.wal.snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+
+  let bad_path = db_file_open_checked("", 4);
+  match bad_path {
+    Ok(_) => { return 1; }
+    Err(_) => {}
+  }
+  let bad_order = db_file_open_checked(path, 2);
+  match bad_order {
+    Ok(_) => { return 1; }
+    Err(_) => {}
+  }
+  let bad_newline = db_file_open_checked("bad\nname.wal", 4);
+  match bad_newline {
+    Ok(_) => { return 1; }
+    Err(_) => {}
+  }
+
+  // Valid input: the Ok payload (cross-module generic -- C-ORBIT-01 rebind)
+  // really is a usable handle.
+  let good = db_file_open_checked(path, 4);
+  var usable = false;
+  match good {
+    Err(_) => {}
+    Ok(d) => {
+      let handle: DBFile = d;
+      if db_file_size(&handle) == 0 { usable = true; }
+    }
+  }
+  if !usable { return 1; }
+
+  var db = db_file_open(path, 4);
+  if !db_file_put(&mut db, 1, 10) { return 1; }
+  if db_file_checkpoint(&mut db) < 0 { return 1; }
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 1 { return 1; }
+  let v = db_file_get(&db2, 1);
+  match v {
+    None => { return 1; }
+    Some(x) => { if x != 10 { return 1; } }
+  }
+
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  return 0;
+}
+
+fn test_db_file_open_checked() -> TestResult {
+  let rc = run_db_file_open_checked();
+  if rc == 0 { return assert(true, "db_file: checked open rejects bad path/order, accepts valid"); }
+  return assert(false, "db_file: checked open failed");
+}
+
 fn run_result_set_ops() -> Int {
   var cols = Vec[Str].new();
   cols.push("id");
@@ -3140,6 +3220,10 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r98b.passed, r98b.name);
   let r98c = test_db_file_dangling_txn_abort();
   total = total + 1; failed = failed + report(r98c.passed, r98c.name);
+  let r99a = test_db_path_validation();
+  total = total + 1; failed = failed + report(r99a.passed, r99a.name);
+  let r99b = test_db_file_open_checked();
+  total = total + 1; failed = failed + report(r99b.passed, r99b.name);
   let r93 = test_result_set_ops();
   total = total + 1; failed = failed + report(r93.passed, r93.name);
 

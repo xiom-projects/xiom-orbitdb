@@ -7,6 +7,8 @@ use xiom.db.wal_file;
 use xiom.db.storage.page;
 use xiom.db.storage.page_file;
 use xiom.db.storage.tuple;
+use xiom.db.error;
+use xiom.db.contracts;
 
 // ============================================================================
 // XIOM-DB: Consolidated Engine -- B-Tree + WAL + Query + Engine + Database API
@@ -1218,6 +1220,33 @@ pub fn db_file_open(path: Str, order: Int) -> DBFile {
   var ops = Vec[TxOp].new();
   return DBFile{ path: path, order: tree.order, tree: tree, wal: wal,
                  records_since_ckpt: 0, txn_active: false, txn_ops: ops };
+}
+
+// ---------------------------------------------------------------------------
+// Input validation (H2): a path is a filename, not data -- reject empty,
+// overlong, and line-terminator-carrying paths before creating a handle (the
+// codecs are line-oriented, so CR/LF would corrupt diagnostics and tooling).
+// ---------------------------------------------------------------------------
+
+pub fn db_path_valid(path: Str) -> Bool {
+  if str_len(path) == 0 { return false; }
+  if str_len(path) > 4096 { return false; }
+  if str_contains(path, "\n") { return false; }
+  if str_contains(path, "\r") { return false; }
+  return true;
+}
+
+// Validated open: Err(ConstraintViolation) for an invalid path or a btree
+// order below 3; otherwise Ok with a handle from `db_file_open` (which is kept
+// unchanged for existing callers).
+pub fn db_file_open_checked(path: Str, order: Int) -> Result[DBFile, DbError] {
+  if !db_path_valid(path) {
+    return Err(DbError.ConstraintViolation);
+  }
+  if !valid_btree_order(order) {
+    return Err(DbError.ConstraintViolation);
+  }
+  return Ok(db_file_open(path, order));
 }
 
 // Upsert with WAL-before-ack: append (Insert for new keys, Update for
