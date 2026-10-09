@@ -28,14 +28,14 @@
 |---|---|---|---|
 | A. Correctness & data structures | 20 | 16.0 | B-tree churn-proven; tuple codec v1 KAT-locked; FSM best-fit model-soaked; node-per-page durable pages done, paged access pending |
 | B. Durability & crash safety | 20 | 16.0 | Disk WAL segment + page file + engine WAL-before-ack + incremental generation-committed checkpoint crash-proven; fsync still pending |
-| C. Storage engine (pages/pager) | 15 | 8.0 | Codec + checksum + FSM + durable page file done; pager substrate/replacement policy pending |
+| C. Storage engine (pages/pager) | 15 | 11.0 | Codec + checksum + FSM + durable page file + clock replacer/pinning done; pager substrate pending |
 | D. Transactions & isolation | 10 | 5.0 | Durable transactions: begin/commit/abort + committed/uncommitted recovery crash-proven; MVCC pending |
 | E. Query & schema | 10 | 3.0 | Value-filter query + DBFile range/query bindings done; planner scaffold; no secondary indexes/typed values |
 | F. Operations & tooling | 10 | 4.0 | ps1/sh runners, crash harness, probes; no CI/packaging/version stamp |
 | G. Performance & limits | 5 | 3.0 | Benchmarks published (v0.64.1); WAL segment size policy live (`maybe_checkpoint`); replay constrained by the filed stdlib `str_split` quadratic; page/cache bounds pending |
 | H. Security & integrity | 5 | 2.0 | Checksums + validation; no fuzz, no encryption, no supply-chain pinning |
 | I. Documentation & evidence | 5 | 4.0 | Full doc set + relay docs + repro bundles; public API reference pending |
-| **Total** | **100** | **61.0** | **~61% -- alpha-track, durable log + pages + incremental checkpoints + transactions, benchmarks live** |
+| **Total** | **100** | **64.0** | **~64% -- alpha-track, durable log + pages + checkpoints + transactions + clock replacer, benchmarks live** |
 
 Scoreboard changelog:
 - 2026-10-08: bootstrap complete (suite migrated, engine defects fixed, WAL
@@ -79,6 +79,12 @@ Scoreboard changelog:
   window with an Abort record; guards: checkpoint and auto-commit rejected
   mid-txn. Crash scenarios D/E (uncommitted discarded, committed recovered)
   25/25 x2 Win + WSL; suite 115/115 x2. D2 4 pts -> D area 5.0: 61.0.
+- 2026-10-09: buffer-pool replacer + pinning (C4) -- direct-mapped slots
+  replaced by an associative frame table with clock (second-chance) eviction,
+  per-frame pin counts, all-pinned rejection, and hits/misses/evictions/
+  rejects stats (no Vec[Option] element writes). Suite clock-order + pinning
+  tests; suite 117/117 x2 Win + WSL; page/WAL crash x2 + soak. C4 3 pts ->
+  C area 11.0: 64.0.
 
 ## A. Correctness & data structures (20)
 
@@ -110,7 +116,7 @@ Scoreboard changelog:
 | C1 | Page type + CRC32C + in-memory buffer pool | 3 | OK | suite page/buffer_pool tests (with C-ORBIT-02/04 workarounds) |
 | C2 | Durable page file (page read/write/verify on disk) | 5 | OK | `probe_page_file` + `scripts/page_crash_test.{ps1,sh}` x2 Win + WSL (kill -> torn -> verify N -> upsert -> N+1); suite roundtrip/corruption tests |
 | C3 | Pager integration (`xiom.core.storage.pager` substrate) | 4 | 0 | externally blocked: registry source-roots (C-PULSE-02) / substrate availability |
-| C4 | Buffer-pool replacement policy + pinning semantics | 3 | -- | direct-mapped placeholder today |
+| C4 | Buffer-pool replacement policy + pinning semantics | 3 | OK | clock (second-chance) frame table: associative lookup, reference bits, pin counts (pinned frames never evicted; all-pinned `put` rejected with `rejects++`), bounded two-sweep victim search; get-side hits/misses + evictions; suite clock-order and pinning tests x2 Win + WSL |
 
 ## D. Transactions & isolation (10)
 
@@ -179,7 +185,8 @@ Scoreboard changelog:
       the crash harness on Windows AND WSL.
 - [ ] fsync wired (stdlib row) and power-loss matrix run.
 - [x] Engine on disk: WAL-before-ack, recovery from real files, checkpoint.
-- [ ] Durable page file + pager + replacement policy; torn-page detection.
+- [x] Durable page file + replacement policy (clock + pinning).
+- [ ] Pager substrate; torn-page detection.
 - [x] Redo/undo with committed/uncommitted classification (crash scenarios D/E).
 - [ ] MVCC story decided.
 - [ ] Benchmarks with published numbers and no unbounded memory growth.
