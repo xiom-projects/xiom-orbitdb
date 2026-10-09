@@ -68,9 +68,9 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   `ef872b0` -> `93bc50f` (production plan + checklist, wrap `93bc50f`);
   integration session `93bc50f` -> `0ef8572` (PULSE/XVECTOR handshakes, wrap
   `0ef8572`); M1.1 session `0ef8572` -> `caf5706` (`5757c78` NodeStore dirty
-  tracking (suite 121), wrap `caf5706`); M4.1 session `caf5706` -> HEAD
+  tracking (suite 121), wrap `caf5706`); M4.1 session `caf5706` -> `164c971`
   (`4e69822` key-range planner pushdown (suite 123), `35757c8` app-build
-  icon + WSL guardrails, then the wrap commit).
+  icon + WSL guardrails, wrap `164c971`).
 - **VERSION POLICY (owner): track the LATEST compiler / stdlib / packages.**
   Record exact versions + lane hashes here at every wrap.
   - compiler: **v0.64.2** (released 2026-10-09) -- Windows
@@ -215,6 +215,8 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     and the in-memory `Database` facade are still separate; `DBFile`
     transactions are single-active with no isolation/MVCC (readers see
     committed state only).
+  - Values are int-only today; secondary indexes and ORDER/LIMIT execution
+    are pending (M4.2), typed values pending (M5.1).
   - Node-per-page B-tree: durable node pages with incremental
     generation-committed flush are done (see Checkpoint above), but the live
     tree is still fully resident (rebuilt on open); paged/evicting access
@@ -331,6 +333,18 @@ Ops rules:
   gate MET + fuzz coverage; registry carries `xiom.kv` 0.1.0 with the
   C-PULSE-10 Linux-only gate. ORBITDB still zero-dep and has no `xiom.toml`
   (add with CI only when going public).
+- **Expected external inputs (check at the start of every session):**
+  - `xiom-xvector/docs/ORBITDB-INTEGRATION.md` -- XVECTOR's reply to our
+    handshake; when present, read it and stand up the hybrid join probe per
+    `docs/XVECTOR-INTEGRATION.md` (row-first ordering, version-slot repair).
+  - `xiom-pulse` `probe_pkg_orbitdb` and/or an updated
+    `ORBITDB-RELAY-PULSE.md` -- PULSE's probe results; treat as acceptance,
+    fix reds with minimal repros through the relay.
+  - A newer compiler/stdlib archive (v0.64.3+): run the full bump procedure
+    (`docs/COMPILER-FINDINGS-ORBITDB.md`) -- seven repro bundles unchanged +
+    suite x2 + crash/fuzz/soak -- BEFORE other work.
+  - The owner's benchmark-suite contract: build the ORBITDB adapter when it
+    lands (`docs/PRODUCTION-PLAN.md` section 10).
 
 ## 4. Relay documents (owner relays; keep current every wrap)
 
@@ -350,7 +364,8 @@ Ops rules:
 You are the ORBITDB session for E:\xiom-projects\xiom-orbitdb -- the
 embedded XIOM database engine (B-Tree, WAL, query engine, crash recovery;
 formerly xiom-db). Read SESSION.md first, then README/SPEC/ARCHITECTURE/
-ROADMAP/AUDIT and docs/ (relay docs + PRODUCTION-READINESS included).
+ROADMAP/AUDIT and docs/ (relay docs + PRODUCTION-READINESS included; read
+docs/PRODUCTION-PLAN.md for the strategy, workstreams and slice order).
 Consumer lane: never edit E:\xiom-lang\stdlib, E:\xiom-lang\xiom,
 E:\xiom-packages\packages. Repo PRIVATE; no pushes without owner approval.
 Identity "Lefteris Notas <lefterisnotas@gmail.com>"; conventional commits,
@@ -365,6 +380,12 @@ WSL: the default distro is docker-desktop (no bash) -- run via
 check `ps`/`free` and run at most ONE heavy harness per command.
 Evidence rules: green suites x2, crash harnesses x2, soak long paths, keep
 probe-logs out of commits (gitignored).
+Release signal: when the production plan's gates pass (P-rc), tell the owner
+explicitly "ORBITDB is ready for public release" -- the owner then sets up
+the public repo/CI/registry and adds ORBITDB to the benchmark suite.
+WATCH each session: XVECTOR's `docs/ORBITDB-INTEGRATION.md` reply (then the
+hybrid join probe), PULSE's `probe_pkg_orbitdb` results, and any newer
+compiler/stdlib archive (re-test the seven repro bundles + suite first).
 
 CURRENT STATE: v0.64.2 pin; all C-ORBIT compiler workarounds REVERTED and the
 suite is green on the native forms -- conformance 123/123 x2 Win + WSL (see
