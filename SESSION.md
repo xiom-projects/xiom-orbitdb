@@ -414,10 +414,12 @@ db_file_range + db_file_query; db_path_valid + db_file_open_checked
 validation; wal_bytes stale-handle write guard; NodeStore dirty tracking =
 dirty-only checkpoint flush (M1.1); key-range planner pushdown +
 query_key_range, point/range plans (M4.1)). Known limits: no fsync
-(process-crash safe only); replay/O(n^2) line IO (filed); checkpoint diff
-scans all resident nodes; transactions single-active, no MVCC (single-writer
-model in docs/ISOLATION.md); buffer pool in-memory only and live tree still
-resident (pager seam C3 pending); fuzz runs per wrap (CI cadence awaits F3).
+(process-crash safe only); replay is linear now but file IO is O(n) per read
+(no random access); checkpoint encodes only dirty nodes (M1.1) but the tree
+stays fully resident (lazy load/bounded cache need random-access page reads);
+transactions single-active, no MVCC (single-writer model in
+docs/ISOLATION.md); buffer pool in-memory only (pager seam C3 pending);
+fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
 1. M1.2 byte-page format v2 design (generation-stamped pages, byte codec);
