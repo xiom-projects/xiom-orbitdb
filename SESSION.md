@@ -26,6 +26,11 @@ decision record (`docs/ISOLATION.md`); suite 120/120.
 **Updated:** 2026-10-09 (v0.64.2 re-test session): all five C-ORBIT findings
 RESOLVED; compiler workarounds dropped (`6f6c3ba`); suite 120/120 x2 Win +
 WSL with the native forms; relay/wishlists swept.
+**Updated:** 2026-10-09 (production plan + integrations): plan/checklist
+(`93bc50f`), PULSE + XVECTOR handshakes (`0ef8572`); FFI asks confirmed
+none (pure XIOM through Phase 2).
+**Updated:** 2026-10-09 (M1.1 session): NodeStore dirty tracking + dirty-only
+checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
 **Project:** embedded database engine for XIOM -- B-Tree, WAL, query engine,
 crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
 
@@ -54,9 +59,13 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   API/runbook/format docs, wrap `823c6bc`); H2 session `823c6bc` -> `2d37588`
   (`1ea7073` path/order validation (suite 119), wrap `2d37588`); D3 session
   `2d37588` -> `18b4818` (`10109e1` stale-handle guard + `docs/ISOLATION.md`
-  (suite 120), wrap `18b4818`); v0.64.2 re-test session `18b4818` -> HEAD
+  (suite 120), wrap `18b4818`); v0.64.2 re-test session `18b4818` -> `ef872b0`
   (`6f6c3ba` compiler workarounds dropped (suite 120/120 x2 both),
-  `00ed7dd` relay findings/wishlist sweep, then the wrap commit).
+  `00ed7dd` relay findings/wishlist sweep, wrap `ef872b0`); plan session
+  `ef872b0` -> `93bc50f` (production plan + checklist, wrap `93bc50f`);
+  integration session `93bc50f` -> `0ef8572` (PULSE/XVECTOR handshakes, wrap
+  `0ef8572`); M1.1 session `0ef8572` -> HEAD (`5757c78` NodeStore dirty
+  tracking (suite 121), then the wrap commit).
 - **VERSION POLICY (owner): track the LATEST compiler / stdlib / packages.**
   Record exact versions + lane hashes here at every wrap.
   - compiler: **v0.64.2** (released 2026-10-09) -- Windows
@@ -80,13 +89,13 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     sets `XIOM_COMPILER`/`XIOM_STDLIB` explicitly.
 - **Green evidence (exact commands; all GREEN x2 Windows + WSL unless noted):**
   - Suite: `scripts/run.ps1 tests/test_conformance.xi -TimeoutSec 300` ->
-    **120/120, exit 0** (x2 Win + WSL; v0.64.2 with **all C-ORBIT workarounds
+    **121/121, exit 0** (x2 Win + WSL; v0.64.2 with **all C-ORBIT workarounds
     reverted**). Composition: 93 base + 2 churn +
-    CRC32C KAT + 3 tuple-codec + 2 FSM + 2 page-file + 1 page-log + 14 db-file
+    CRC32C KAT + 3 tuple-codec + 2 FSM + 2 page-file + 1 page-log + 15 db-file
     (roundtrip, checkpoint, churn, query/range, incremental, uncommitted
     generation, policy, compaction, txn commit, txn abort/guards, dangling
-    txn, path validation, checked open, stale handle) + 2 buffer-pool (clock
-    order, pinning/reject).
+    txn, path validation, checked open, stale handle, dirty flush) + 2
+    buffer-pool (clock order, pinning/reject).
   - Crash/recovery harnesses: `scripts/crash_test.ps1 -Events 20` (WAL; 200
     soak), `scripts/page_crash_test.ps1 -Pages 20`, `scripts/db_crash_test.ps1
     -Keys 20 -Tail 3 -Tx 5` (five scenarios: WAL-only, snapshot-only,
@@ -164,6 +173,12 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     since this handle's last own write (`wal_bytes` size guard; no lock
     files); `docs/ISOLATION.md` records the single-writer decision and the
     deferred-MVCC prerequisites.
+  - NodeStore (new, M1.1): the B-tree arena tracks dirty nodes -- every
+    mutation goes through `ns_set`/`ns_push` -- and `db_file_checkpoint`
+    encodes ONLY dirty nodes (full write forced when no prior snapshot or an
+    uncommitted crashed generation lingers), clearing flags on commit; the
+    suite pins a bounded delta for a one-key update. Lazy load + a bounded
+    clock cache are the next slice.
   - Index-of-record: `docs/PRODUCTION-READINESS.md` **66.5/100 (~67%)**,
     per-area table + changelog + 100% checklist (v0.3-beta gate needs fsync +
     torn-page matrix + benchmarks at scale).
@@ -217,12 +232,12 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   `xiom-xvector/docs/ORBITDB-INTEGRATION.md`, then the hybrid row+vector
   join probe.
 - **Next action (priority order, per `docs/PRODUCTION-PLAN.md` section 13):**
-  1. **M1.1 paged node store** (A5 groundwork): NodeStore behind the B-tree
-     with page identity + dirty tracking, then lazy load; keep churn/fuzz/
-     crash/soak green x2 both platforms.
+  1. **M1.1b lazy load + bounded node cache** (finish plan slice 1): load
+     nodes on demand from snapshot pages; clock cache with write-back reusing
+     C4 semantics; keep the public API surface stable.
   2. **M4.1 planner pushdown** (key-range/point + cost estimate).
-  3. **M1.2 byte-page v2 design** now; implement when the stdlib byte-IO row
-     lands.
+  3. **M1.2 byte-page format v2 design** now; implement when the stdlib
+     byte-IO row lands.
   4. **M2.1 fsync wiring** when the stdlib row lands; MVCC design per M3;
      keep readiness + relay docs current; commit signed at every step.
 
@@ -351,15 +366,16 @@ recovery + incremental generation-committed checkpoint +
 db_file_maybe_checkpoint policy + durable transactions: db_file_txn_*,
 committed/uncommitted classification, dangling-window abort on open;
 db_file_range + db_file_query; db_path_valid + db_file_open_checked
-validation; wal_bytes stale-handle write guard). Known limits: no fsync
+validation; wal_bytes stale-handle write guard; NodeStore dirty tracking =
+dirty-only checkpoint flush (M1.1)). Known limits: no fsync
 (process-crash safe only); replay/O(n^2) line IO (filed); checkpoint diff
 scans all resident nodes; transactions single-active, no MVCC (single-writer
 model in docs/ISOLATION.md); buffer pool in-memory only and live tree still
 resident (pager seam C3 pending); fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-1. M1.1 paged node store (A5 groundwork): NodeStore behind the B-tree with
-   page identity + dirty tracking, then lazy load; evidence x2 both
+1. M1.1b lazy load + bounded node cache (finish slice 1): on-demand loads
+   from snapshot pages, clock cache with write-back; evidence x2 both
    platforms.
 2. M4.1 planner pushdown (key-range/point + cost).
 3. M1.2 byte-page format v2 design; implement when stdlib byte IO lands.

@@ -38,8 +38,9 @@ into reusable packages as they harden.
   consumer probe will follow the PULSE pattern
   (`tests/probes/probe_pkg_*.xi`) and this doc will carry its own rows.
 - **C FFI/bindings worktree:** ORBITDB targets pure XIOM (no FFI) through
-  Phase 2; no bindings request. If that changes (e.g. mmap), it will be
-  filed here first.
+  Phase 2; no bindings request -- **confirmed in the 2026-10-09 handshake:
+  no FFI asks from this lane; `xiom.wal`/`xiom.btree` stay native-lane
+  extractions.** If that changes (e.g. mmap), it will be filed here first.
 - **Toolchain note for consumers:** on v0.64.0, registry package adoption
   still needs `xiom.toml` `source-roots` (C-PULSE-02, PULSE's compiler
   findings) -- ORBITDB has no `xiom.toml` yet and no registry deps, so it

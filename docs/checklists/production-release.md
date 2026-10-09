@@ -9,7 +9,8 @@
 
 ## M1 -- Storage spine
 
-- [~] NodeStore behind the B-tree (get/put + page identity + dirty tracking)
+- [x] NodeStore behind the B-tree (get/put + page identity + dirty tracking)
+- [x] Checkpoint flushes only dirty nodes (bounded-delta test in suite)
 - [ ] Lazy node load (no whole-snapshot residency requirement)
 - [ ] Bounded node cache with clock eviction + write-back (C4 semantics)
 - [ ] 1M-key soak with memory plateau (needs stdlib byte IO for speed)

@@ -112,6 +112,11 @@ Scoreboard changelog:
   platform matrix, crash semantics, conformance proposal, cross-asks) and
   XVECTOR (`docs/XVECTOR-INTEGRATION.md` + `docs/RELAY-XVECTOR-ORBITDB.md`:
   row-first hybrid contract). No score change: 66.5.
+- 2026-10-09: M1.1 storage spine -- NodeStore dirty tracking + dirty-only
+  checkpoint flush (full-write fallbacks for a missing prior snapshot or an
+  uncommitted crashed generation); suite 120 -> 121 (bounded-delta test),
+  x2 Win + WSL; db/WAL/page crash x2, fuzz + 2000-key soak green.
+  No score change (A5/G2 stay WIP until lazy load + bounded cache): 66.5.
 - 2026-10-09: isolation decision + multi-handle stale-write guard -- 
   `docs/ISOLATION.md` (single-writer, open-time snapshot, MVCC deferred with 
   prerequisites); every write path (`put`/`delete`/`txn_*`/`checkpoint`) 
