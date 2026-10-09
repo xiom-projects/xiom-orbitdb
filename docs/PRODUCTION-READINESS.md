@@ -95,6 +95,12 @@ Scoreboard changelog:
   `db_file_open_checked` with Err(ConstraintViolation) on bad path/order;
   suite 117 -> 119, x2 Win + WSL; db_crash 25/25 x2 both as regression. H2
   0.5 -> 1.0 (H area 4.5): 66.5.
+- 2026-10-09: isolation decision + multi-handle stale-write guard -- 
+  `docs/ISOLATION.md` (single-writer, open-time snapshot, MVCC deferred with 
+  prerequisites); every write path (`put`/`delete`/`txn_*`/`checkpoint`) 
+  refuses when the WAL changed since this handle's last write (`wal_bytes`; 
+  no lock files); suite 119 -> 120 x2 Win + WSL, db_crash 25/25 x2, fuzz OK. 
+  No score change (D3 WIP; MVCC engine pending): 66.5.
 
 ## A. Correctness & data structures (20)
 
@@ -134,7 +140,7 @@ Scoreboard changelog:
 |---|---|---|---|---|
 | D1 | Txn state machine (active/committed/aborted, op list) | 2 | OK (state only) | suite txn tests |
 | D2 | Crash-safe redo/undo with committed/uncommitted classification | 4 | OK | WAL BeginTxn/CommitTxn/AbortTxn (codes 8/9/10) + `db_file_txn_*` (log as you go, apply at commit, abort discards); replay applies committed windows and drops unterminated ones, finalizing a dangling window with an Abort record; checkpoint + auto-commit rejected mid-txn; suite txn tests + `db_crash_test` scenarios D/E x2 Win + WSL |
-| D3 | MVCC snapshots / version-aware reads | 4 | -- | Phase 3 design |
+| D3 | MVCC snapshots / version-aware reads | 4 | WIP | Decision recorded (`docs/ISOLATION.md`): single-writer + open-time snapshot + optimistic stale-handle write guard (no lock files); MVCC deferred to Phase 3 with prerequisites (pager, txn ids in pages, version GC, concurrency story) |
 
 ## E. Query & schema (10)
 

@@ -21,6 +21,8 @@ table + pinning semantics (C4); suite 117/117; page/WAL crash x2 + soak.
 (`scripts/fuzz.{ps1,sh}`) + API/runbook/format reference docs; readiness 66.0.
 **Updated:** 2026-10-09 (H2 session): `db_path_valid` + `db_file_open_checked`
 input validation; suite 119/119; readiness 66.5.
+**Updated:** 2026-10-09 (D3 session): stale-handle write guard + isolation
+decision record (`docs/ISOLATION.md`); suite 120/120.
 **Project:** embedded database engine for XIOM -- B-Tree, WAL, query engine,
 crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
 
@@ -46,8 +48,10 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   `a7a29e6`); buffer-pool session `a7a29e6` -> `5159b84` (`ade1199` clock
   buffer pool + pinning (suite 117), wrap `5159b84`); H3+I3 session
   `5159b84` -> `823c6bc` (`48f7101` fuzz harness + runners, `4f8f0b2`
-  API/runbook/format docs, wrap `823c6bc`); H2 session `823c6bc` -> HEAD
-  (`1ea7073` path/order validation (suite 119), then the wrap commit).
+  API/runbook/format docs, wrap `823c6bc`); H2 session `823c6bc` -> `2d37588`
+  (`1ea7073` path/order validation (suite 119), wrap `2d37588`); D3 session
+  `2d37588` -> HEAD (`10109e1` stale-handle guard + `docs/ISOLATION.md`
+  (suite 120), then the wrap commit).
 - **VERSION POLICY (owner): track the LATEST compiler / stdlib / packages.**
   Record exact versions + lane hashes here at every wrap.
   - compiler: **v0.64.1** -- Windows `%LOCALAPPDATA%\xiom.new\bin\xiom.exe`,
@@ -57,23 +61,23 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     lane sweep" (`ba19be61`): **watch for the v0.64.2 archive and re-test
     all five bundles + suite before other work.**
   - stdlib: `E:\xiom-lang\stdlib` @ `82444e5` (2026-10-08) = `/mnt/e/xiom-lang/stdlib`.
-  - compiler lane @ `a6ee8839` (m239 deep container equality; the C-ORBIT-05
-    candidates remain m234 Vec-element strides + m235 loop-body static
-    allocas -- re-test the repro unchanged on the next archive).
-    **v0.64.2 is release-blocked** (lane handoff `1e804415` names blockers
-    1-4): no archive exists; keep watching. stdlib lane @ `d54929d`; packages
-    lane @ `180ce90a` (eco-v0.1.115).
+  - compiler lane @ `c8eda1e8`: **v0.64.2 final gate run GREEN (all seven
+    suites)** -- the release is imminent; no archive installed yet
+    (v0.64.1 is current; latest tag v0.64.1). The C-ORBIT-05 candidates
+    remain m234 Vec-element strides + m235 loop-body static allocas: re-test
+    the repro unchanged as soon as the archive lands. stdlib lane @
+    `d54929d` (wave 97); packages lane @ `180ce90a` (eco-v0.1.115).
   - `xiom doctor` shows 2 environment warnings (bundled stdlib older than
     compiler; stale second binary on PATH) -- lane noise: `scripts/dev-env.*`
     sets `XIOM_COMPILER`/`XIOM_STDLIB` explicitly.
 - **Green evidence (exact commands; all GREEN x2 Windows + WSL unless noted):**
   - Suite: `scripts/run.ps1 tests/test_conformance.xi -TimeoutSec 300` ->
-    **119/119, exit 0** (x2 Win + WSL). Composition: 93 base + 2 churn +
-    CRC32C KAT + 3 tuple-codec + 2 FSM + 2 page-file + 1 page-log + 13 db-file
+    **120/120, exit 0** (x2 Win + WSL). Composition: 93 base + 2 churn +
+    CRC32C KAT + 3 tuple-codec + 2 FSM + 2 page-file + 1 page-log + 14 db-file
     (roundtrip, checkpoint, churn, query/range, incremental, uncommitted
     generation, policy, compaction, txn commit, txn abort/guards, dangling
-    txn, path validation, checked open) + 2 buffer-pool (clock order,
-    pinning/reject).
+    txn, path validation, checked open, stale handle) + 2 buffer-pool (clock
+    order, pinning/reject).
   - Crash/recovery harnesses: `scripts/crash_test.ps1 -Events 20` (WAL; 200
     soak), `scripts/page_crash_test.ps1 -Pages 20`, `scripts/db_crash_test.ps1
     -Keys 20 -Tail 3 -Tx 5` (five scenarios: WAL-only, snapshot-only,
@@ -139,6 +143,11 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     and `db_file_open_checked(path, order) -> Result[DBFile, DbError]`
     (`Err(ConstraintViolation)` on bad path or order < 3); `db_file_open`
     unchanged for existing callers.
+  - Multi-handle guard + isolation record (new): every write path
+    (`put`/`delete`/`txn_*`/`checkpoint`) refuses when the WAL segment changed
+    since this handle's last own write (`wal_bytes` size guard; no lock
+    files); `docs/ISOLATION.md` records the single-writer decision and the
+    deferred-MVCC prerequisites.
   - Index-of-record: `docs/PRODUCTION-READINESS.md` **66.5/100 (~67%)**,
     per-area table + changelog + 100% checklist (v0.3-beta gate needs fsync +
     torn-page matrix + benchmarks at scale).
@@ -169,8 +178,9 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   - Fuzz/property runs per wrap; continuous CI cadence is gated on F3 (CI
     matrix). Probe env parsing falls back to defaults on malformed values
     (only the required DB path errors out).
-  - No multi-handle safety: two `DBFile` handles on the same paths are
-    single-writer by convention only (no lock file yet).
+  - Multi-handle safety is optimistic: the `wal_bytes` stale-write guard
+    refuses lagging writers but is not a lock (external appends are detected
+    only on the next write); no MVCC -- see `docs/ISOLATION.md`.
   - B-tree nodes are append-only (no free list); `btree_to_vec` is
     value-only.
 - **Relay status:** all per-lane messages delivered (owner relays).
@@ -181,16 +191,15 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   new `str_split` quadratic + append-handle findings**; package docs carry
   the `xiom.wal`/`xiom.btree` decisions.
 - **Next action (priority order):**
-  1. **Re-test on the next compiler archive** (v0.64.2 release-blocked;
-     C-ORBIT-05 candidates m234 + m235): all five C-ORBIT bundles +
-     `docs/repro/vec-push-nested/probe.xi` unchanged + full suite; update
-     findings/relay docs before other work.
-  2. **Isolation story (D3)**: pick MVCC vs single-writer locking and record
-     the decision; a multi-handle guard follows the choice.
-  3. **Node-per-page paged access** -- the remaining A5 gap, tied to the
+  1. **Check for the v0.64.2 archive first** (lane gate run GREEN; release
+     imminent): when it installs, re-test all five C-ORBIT bundles +
+     `docs/repro/vec-push-nested/probe.xi` unchanged + full suite on it and
+     update findings/relay docs before other work.
+  2. **Node-per-page paged access** -- the remaining A5 gap, tied to the
      pager seam (C3).
-  4. Checkpoint dirty-tracking diff; keep readiness + relay docs current;
-     commit signed at every logical step.
+  3. Checkpoint dirty-tracking diff (avoid the full encode/compare scan).
+  4. MVCC engine (D3) once the pager/concurrency prerequisites exist; keep
+     readiness + relay docs current; commit signed at every logical step.
 
 ## 1. Consumer-lane rules (non-negotiable)
 
@@ -295,39 +304,40 @@ WSL: the default distro is docker-desktop (no bash) -- run via
 Evidence rules: green suites x2, crash harnesses x2, soak long paths, keep
 probe-logs out of commits (gitignored).
 
-CURRENT STATE: conformance 119/119 x2 Win + WSL; WAL/page crash x2 both;
+CURRENT STATE: conformance 120/120 x2 Win + WSL; WAL/page crash x2 both;
 db_crash five scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted
 txn discarded, committed txn recovered) x2 Win + WSL, each recovery followed
 by qverify (range + value-filter queries; 25 checks); fuzz/property harness
 `scripts/fuzz.{ps1,sh}` (seeds=4 ops/seed=4000) x2 Win + WSL; policy soak
 2000 keys / 9 checkpoints x2 Win + WSL; bench harness live; readiness
 66.5/100 (docs/PRODUCTION-READINESS.md -- recompute + changelog every wrap);
-reference docs docs/API.md + docs/RUNBOOK.md + docs/FORMATS.md. Durable
-pieces: src/wal_file.xi (segment + Begin/Commit/Abort txn records, LSN
-resume, heal-state, truncate seam keeping payloads), src/storage/page_file.xi
-(CRC32C text page store + append-only page log: append/latest-wins/compact),
-src/storage/tuple.xi codec v1 (LE helpers exported), CRC32C, best-fit FSM,
-clock buffer-pool + pinning in src/storage/page.xi (C4), DBFile in
-src/engine.xi (WAL-before-ack + replay recovery + incremental
-generation-committed checkpoint + db_file_maybe_checkpoint policy + durable
-transactions: db_file_txn_*, committed/uncommitted classification,
-dangling-window abort on open; db_file_range + db_file_query;
-db_path_valid + db_file_open_checked validation). Known limits: no fsync
+reference docs docs/API.md + docs/RUNBOOK.md + docs/FORMATS.md +
+docs/ISOLATION.md. Durable pieces: src/wal_file.xi (segment +
+Begin/Commit/Abort txn records, LSN resume, heal-state, truncate seam keeping
+payloads), src/storage/page_file.xi (CRC32C text page store + append-only
+page log: append/latest-wins/compact), src/storage/tuple.xi codec v1 (LE
+helpers exported), CRC32C, best-fit FSM, clock buffer-pool + pinning in
+src/storage/page.xi (C4), DBFile in src/engine.xi (WAL-before-ack + replay
+recovery + incremental generation-committed checkpoint +
+db_file_maybe_checkpoint policy + durable transactions: db_file_txn_*,
+committed/uncommitted classification, dangling-window abort on open;
+db_file_range + db_file_query; db_path_valid + db_file_open_checked
+validation; wal_bytes stale-handle write guard). Known limits: no fsync
 (process-crash safe only); replay/O(n^2) line IO (filed); checkpoint diff
-scans all resident nodes; transactions single-active, no isolation/MVCC;
-buffer pool in-memory only and live tree still resident (pager seam C3
-pending); fuzz runs per wrap (CI cadence awaits F3); no multi-handle lock.
+scans all resident nodes; transactions single-active, no MVCC (single-writer
+model in docs/ISOLATION.md); buffer pool in-memory only and live tree still
+resident (pager seam C3 pending); fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first):
-1. Watch for the next compiler archive (v0.64.2 release-blocked; C-ORBIT-05
-   candidates m234/m235): re-test all five C-ORBIT bundles (incl.
+1. Check for the v0.64.2 archive first (lane gate run GREEN, release
+   imminent): re-test all five C-ORBIT bundles (incl.
    docs/repro/vec-push-nested/) unchanged + full suite + fuzz; update
    findings/relay docs before other work.
-2. Isolation story (D3): MVCC vs single-writer locking decision, then the
-   multi-handle guard.
-3. Node-per-page paged access (A5 gap, pager seam C3).
-4. Checkpoint dirty-tracking diff; keep SESSION.md STATE, relay docs and
-   PRODUCTION-READINESS updated at every wrap; commit signed per step.
+2. Node-per-page paged access (A5 gap, pager seam C3).
+3. Checkpoint dirty-tracking diff (avoid the full encode/compare scan).
+4. MVCC engine (D3) once the pager/concurrency prerequisites exist; keep
+   SESSION.md STATE, relay docs and PRODUCTION-READINESS updated at every
+   wrap; commit signed per step.
 
 DISCIPLINE (v0.64.1 workarounds, all still needed):
 - Rebind cross-module generic Result payloads through an annotated local
