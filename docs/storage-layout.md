@@ -24,13 +24,23 @@ The current checksum is an additive rolling sum (cheap, order-independent). **Ph
 ## BufferPool -- `storage/page.xi`
 
 ```
-BufferPool = { pages: Vec[Option[Page]], capacity, hits, misses }
+BufferPool = { frames, frame_ids, present, ref_bits, pins,
+               capacity, hand, hits, misses, evictions, rejects }
 ```
 
-- Direct-mapped: a page lives in slot `id % capacity`. O(1) lookup, but collisions evict.
-- `BufferPool.new(capacity)` -- `requires: capacity >= 1` (needs a non-zero modulus).
-- `put` / `get` track `hits` / `misses`; `hit_ratio` reports effectiveness.
-- **Phase 1** replaces the direct-mapped slot + naive eviction with an associative frame table and a clock/LRU replacer (mirroring `xiom.core.storage.buffer_pool`).
+- Associative frame table (parallel vectors, no `Vec[Option]` element writes --
+  C-ORBIT-02): a page is addressed by id, not by `id % capacity`.
+- **Clock (second-chance) replacer**: a referenced frame gets its bit cleared
+  and one more round; the first unreferenced, unpinned frame is evicted.
+  Bounded to two full sweeps per insert.
+- **Pinning**: `pin_page` / `unpin_page` / `pin_count`; pinned frames are never
+  evicted. If every frame is pinned, `put` returns `false` (page not cached)
+  and `rejects` increments.
+- Statistics: `hits` / `misses` (get-side), `evictions`, `rejects`;
+  `hit_ratio` reports get effectiveness.
+- `BufferPool.new(capacity)` -- `requires: capacity >= 1`.
+- **Phase 1** routes these frames through `xiom.core.storage.pager`; the
+  replacer + pinning semantics live here already.
 
 ## StorageEngine -- `storage/page.xi`
 

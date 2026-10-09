@@ -5,11 +5,12 @@ module xiom.db.storage.page
 use xiom.db.config;
 
 // Low-level buffered-storage primitives. A `Page` is a fixed-capacity byte
-// block guarded by a CRC32C checksum; the `BufferPool` is a direct-mapped page
-// cache; the `StorageEngine` binds a configuration to a pool. This layer is
-// currently in-memory: pages live in the pool's slots, not on disk. Phase 1
-// replaces the direct-mapped pool with the pager/replacer and swaps this
-// checksum for xiom.hash.crc once byte packs land.
+// block guarded by a CRC32C checksum; the `BufferPool` is a frame-table page
+// cache with a clock (second-chance) replacement policy and pin counts; the
+// `StorageEngine` binds a configuration to a pool. This layer is currently
+// in-memory: pages live in the pool's frames, not on disk. Phase 1 swaps this
+// checksum for xiom.hash.crc once byte packs land and routes the frames
+// through xiom.core.storage.pager (the policy lives here already).
 
 pub type Page = {
   id: Int;
@@ -61,70 +62,145 @@ pub fn page_compute_checksum(data: &Vec[Int]) -> Int {
   return page_checksum(data);
 }
 
+// Frame-table cache with a clock (second-chance) replacer. Frames are
+// parallel vectors (Page / id / present / reference bit / pin count) so that
+// no Option is ever element-assigned into a Vec (C-ORBIT-02); pages are
+// addressed associatively by id, not by id % capacity.
+//
+// Statistics: `hits`/`misses` are get()-side; `evictions` counts clock
+// victims; `rejects` counts put() calls that found no victim because every
+// frame was pinned (the page is then NOT cached -- get() returns None).
 pub type BufferPool = {
-  pages: Vec[Option[Page]];
+  frames: Vec[Page];
+  frame_ids: Vec[Int];
+  present: Vec[Bool];
+  ref_bits: Vec[Bool];
+  pins: Vec[Int];
   capacity: Int;
+  hand: Int;
   hits: Int;
   misses: Int;
+  evictions: Int;
+  rejects: Int;
 }
 
 pub fn BufferPool.new(capacity: Int) -> BufferPool
   requires: capacity >= 1
 {
-  var pages = Vec[Option[Page]].new();
+  var frames = Vec[Page].new();
+  var ids = Vec[Int].new();
+  var present = Vec[Bool].new();
+  var refs = Vec[Bool].new();
+  var pins = Vec[Int].new();
   var i = 0;
   while i < capacity {
-    pages.push(None);
+    var empty = Vec[Int].new();
+    frames.push(Page.new(0, empty, 0));
+    ids.push(-1);
+    present.push(false);
+    refs.push(false);
+    pins.push(0);
     i = i + 1;
   }
-  return BufferPool{ pages: pages, capacity: capacity, hits: 0, misses: 0 };
+  return BufferPool{ frames: frames, frame_ids: ids, present: present,
+                     ref_bits: refs, pins: pins, capacity: capacity, hand: 0,
+                     hits: 0, misses: 0, evictions: 0, rejects: 0 };
 }
 
-pub fn BufferPool.put(pool: &mut BufferPool, page: Page) {
-  var idx = page_id_index(page.id, pool.capacity);
-  var current = pool.pages[idx];
-  match current {
-    None => { pool.misses = pool.misses + 1; }
-    Some(_) => { pool.hits = pool.hits + 1; }
-  }
-  // C-ORBIT-02 workaround: assigning an Option into a Vec[Option[T]] element
-  // poisons the slot on v0.64.0 -- the value then matches NEITHER `None` nor
-  // `Some(_)` and every match over it silently runs no arm (repro:
-  // docs/repro/option-vec-assign/). Rebuild the slot instead of assigning.
-  // Revisit when the compiler fix lands; Phase 1 replaces this pool with the
-  // xiom-core pager regardless.
-  var rebuilt = Vec[Option[Page]].new();
+// Frame index holding `page_id`, or -1.
+fn bp_find_frame(pool: &BufferPool, page_id: Int) -> Int {
   var i = 0;
-  while i < pool.pages.len() {
-    if i == idx {
-      rebuilt.push(Some(page));
-    } else {
-      rebuilt.push(pool.pages[i]);
+  while i < pool.capacity {
+    if pool.present[i] {
+      if pool.frame_ids[i] == page_id { return i; }
     }
     i = i + 1;
   }
-  pool.pages = rebuilt;
+  return -1;
 }
 
-// Direct-mapped slot selection: page id modulo capacity. O(1) but collision
-// prone; Phase 1 introduces an associative frame table + clock replacer.
-fn page_id_index(id: Int, capacity: Int) -> Int {
-  return id % capacity;
-}
-
-pub fn BufferPool.get(pool: &BufferPool, page_id: Int) -> Option[Page] {
-  var idx = page_id_index(page_id, pool.capacity);
-  var entry = pool.pages[idx];
-  match entry {
-    None => None,
-    Some(p) => {
-      if p.id == page_id {
-        Some(p)
-      } else {
-        None
-      }
-    }
+// Insert or update a page. When the pool is full a frame is chosen by clock:
+// pinned frames are never evicted, a referenced frame gets its reference bit
+// cleared and is revisited on the next sweep. Returns false only when every
+// frame is pinned (nothing cached; `rejects` incremented).
+pub fn BufferPool.put(pool: &mut BufferPool, page: Page) -> Bool {
+  let existing = bp_find_frame(pool, page.id);
+  if existing >= 0 {
+    pool.frames[existing] = page;
+    pool.ref_bits[existing] = true;
+    return true;
   }
+  var f = 0;
+  while f < pool.capacity {
+    if !pool.present[f] {
+      pool.frames[f] = page;
+      pool.frame_ids[f] = page.id;
+      pool.present[f] = true;
+      pool.ref_bits[f] = true;
+      return true;
+    }
+    f = f + 1;
+  }
+  // Clock sweep: at most two full turns (first clears reference bits, second
+  // picks the first unpinned, unreferenced frame).
+  var steps = 0;
+  while steps < 2 * pool.capacity {
+    let c = pool.hand;
+    if pool.pins[c] == 0 {
+      if !pool.ref_bits[c] {
+        pool.frames[c] = page;
+        pool.frame_ids[c] = page.id;
+        pool.present[c] = true;
+        pool.ref_bits[c] = true;
+        pool.evictions = pool.evictions + 1;
+        pool.hand = (c + 1) % pool.capacity;
+        return true;
+      }
+      pool.ref_bits[c] = false;
+    }
+    pool.hand = (c + 1) % pool.capacity;
+    steps = steps + 1;
+  }
+  // Every frame is pinned: do not evict anything.
+  pool.rejects = pool.rejects + 1;
+  return false;
+}
+
+// Lookup: a hit counts `hits` and grants a second chance (reference bit set);
+// a miss counts `misses`.
+pub fn BufferPool.get(pool: &mut BufferPool, page_id: Int) -> Option[Page] {
+  let f = bp_find_frame(pool, page_id);
+  if f < 0 {
+    pool.misses = pool.misses + 1;
+    return None;
+  }
+  pool.hits = pool.hits + 1;
+  pool.ref_bits[f] = true;
+  return Some(pool.frames[f]);
+}
+
+// Pinning: a pinned frame is never chosen by the clock replacer. Pin the same
+// page twice and it needs two unpins before it becomes evictable again.
+pub fn BufferPool.pin_page(pool: &mut BufferPool, page_id: Int) -> Bool {
+  let f = bp_find_frame(pool, page_id);
+  if f < 0 { return false; }
+  pool.pins[f] = pool.pins[f] + 1;
+  pool.ref_bits[f] = true;
+  return true;
+}
+
+pub fn BufferPool.unpin_page(pool: &mut BufferPool, page_id: Int) -> Bool {
+  let f = bp_find_frame(pool, page_id);
+  if f < 0 { return false; }
+  if pool.pins[f] == 0 { return false; }
+  pool.pins[f] = pool.pins[f] - 1;
+  return true;
+}
+
+pub fn BufferPool.pin_count(pool: &BufferPool, page_id: Int) -> Int {
+  let f = bp_find_frame(pool, page_id);
+  if f < 0 { return 0; }
+  return pool.pins[f];
 }
 
 pub fn BufferPool.hit_ratio(pool: &BufferPool) -> Float64 {
@@ -143,18 +219,25 @@ pub fn StorageEngine.new(config: DatabaseConfig) -> StorageEngine {
   return StorageEngine{ config: config, buffer_pool: bp };
 }
 
-pub fn StorageEngine.cache_page(eng: &mut StorageEngine, page: Page) {
+// Returns what put() returned: false when every frame is pinned and the page
+// could not be cached.
+pub fn StorageEngine.cache_page(eng: &mut StorageEngine, page: Page) -> Bool {
   // C-ORBIT-04 workaround: a method call on a nested field receiver
   // (eng.buffer_pool.put(page)) mutates a temporary copy on v0.64.0; copy
   // the field out, mutate it, and write it back. Repro:
   // docs/repro/nested-field-mut/probe.xi (A/C lose the write, B/D keep it).
   var bp = eng.buffer_pool;
-  bp.put(page);
+  let cached = bp.put(page);
   eng.buffer_pool = bp;
+  return cached;
 }
 
-pub fn StorageEngine.lookup_page(eng: &StorageEngine, page_id: Int) -> Option[Page] {
-  // Read-only nested receiver: bind to a local first (same class).
+// &mut because a lookup updates the reference bit and hit/miss statistics;
+// the copy-out/write-back keeps those changes (a read through a nested
+// receiver copy would silently drop them).
+pub fn StorageEngine.lookup_page(eng: &mut StorageEngine, page_id: Int) -> Option[Page] {
   var bp = eng.buffer_pool;
-  return bp.get(page_id);
+  let found = bp.get(page_id);
+  eng.buffer_pool = bp;
+  return found;
 }

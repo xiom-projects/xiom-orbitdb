@@ -76,7 +76,7 @@ fn main() -> Int {
     j = j + 1;
   }
 
-  // 3. Exact BufferPool: three pages with ids 1,2,3 (slots 1,2,3), plus 7
+  // 3. BufferPool smoke (frame table + clock; was direct-mapped)
   var pool = BufferPool.new(4);
   var k = 1;
   while k <= 3 {
@@ -84,17 +84,18 @@ fn main() -> Int {
     dd.push(k);
     var ck = page_compute_checksum(&dd);
     let pg = Page.new(k, dd, ck);
-    pool.put(pg);
+    let _ = pool.put(pg);
     k = k + 1;
   }
   var s = 0;
   while s < 4 {
-    match pool.pages[s] {
-      None => { io.println("bp.slot" + convert.int_to_string(s) + "=None"); }
-      Some(pp) => { show("bp.slot" + convert.int_to_string(s), pp.id); }
+    if pool.present[s] {
+      show("bp.frame" + convert.int_to_string(s), pool.frame_ids[s]);
+    } else {
+      io.println("bp.frame" + convert.int_to_string(s) + "=empty");
     }
     s = s + 1;
   }
-  show("bp.misses", pool.misses);
+  show("bp.evictions", pool.evictions);
   return 0;
 }

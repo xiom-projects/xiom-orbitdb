@@ -18,32 +18,30 @@ fn show(label: Str, n: Int) {
 }
 
 fn main() -> Int {
-  // --- BufferPool put/get ------------------------------------------------
+  // --- BufferPool put/get (frame table + clock) --------------------------
   var bp = BufferPool.new(4);
   var data = Vec[Int].new();
   data.push(42);
   var cs = page_compute_checksum(&data);
   let page = Page.new(7, data, cs);
-  bp.put(page);
+  if !bp.put(page) { io.println("bp.put(7)=false"); }
   show("bp.capacity", bp.capacity);
   show("bp.hits", bp.hits);
   show("bp.misses", bp.misses);
-  show("bp.pages.len", bp.pages.len());
+  var f = 0;
+  while f < bp.capacity {
+    if bp.present[f] { show("bp.frame_id", bp.frame_ids[f]); }
+    f = f + 1;
+  }
   let found = bp.get(7);
   match found {
     None => { io.println("bp.get(7)=None"); }
     Some(p) => { show("bp.get(7).id", p.id); }
   }
-  let found2 = BufferPool.get(&bp, 7);
+  let found2 = BufferPool.get(&mut bp, 7);
   match found2 {
-    None => { io.println("BufferPool.get(&bp,7)=None"); }
-    Some(p) => { show("BufferPool.get(&bp,7).id", p.id); }
-  }
-  // direct slot inspection: page id 7 -> slot 7 % 4 = 3
-  let slot = bp.pages[3];
-  match slot {
-    None => { io.println("bp.pages[3]=None"); }
-    Some(p) => { show("bp.pages[3].id", p.id); }
+    None => { io.println("BufferPool.get(&mut bp,7)=None"); }
+    Some(p) => { show("BufferPool.get(&mut bp,7).id", p.id); }
   }
 
   // --- B-tree large insert -----------------------------------------------

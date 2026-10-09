@@ -614,12 +614,14 @@ fn run_buffer_pool_put_get() -> Int {
   data.push(42);
   var cs = page_compute_checksum(&data);
   let page = Page.new(7, data, cs);
-  bp.put(page);
+  let cached = bp.put(page);
+  if !cached { return 1; }
   let found = bp.get(7);
   match found {
     None => return 1,
     Some(p) => { if p.id != 7 { return 1; } }
   }
+  if bp.hits != 1 { return 1; }
   return 0;
 }
 
@@ -633,9 +635,12 @@ fn run_buffer_pool_miss() -> Int {
   var bp = BufferPool.new(4);
   let found = bp.get(99);
   match found {
-    None => return 0,
-    Some(_) => return 1,
+    None => {}
+    Some(_) => { return 1; }
   }
+  if bp.misses != 1 { return 1; }
+  if bp.hits != 0 { return 1; }
+  return 0;
 }
 
 fn test_buffer_pool_miss() -> TestResult {
@@ -652,16 +657,132 @@ fn run_buffer_pool_hit_ratio() -> Int {
   data.push(1);
   var cs = page_compute_checksum(&data);
   let page = Page.new(0, data, cs);
-  bp.put(page);
+  let cached = bp.put(page);
+  if !cached { return 1; }
+  // put is a write path: it does not move the hit/miss ratio...
   var hr = bp.hit_ratio();
   if hr > 0.0 { return 1; }
+  // ...a get() hit does.
+  let found = bp.get(0);
+  match found {
+    None => { return 1; }
+    Some(p) => { if p.id != 0 { return 1; } }
+  }
+  if bp.hit_ratio() != 1.0 { return 1; }
   return 0;
 }
 
 fn test_buffer_pool_hit_ratio() -> TestResult {
   let rc = run_buffer_pool_hit_ratio();
-  if rc == 0 { return assert(true, "buffer_pool: hit_ratio on empty is 0.0"); }
+  if rc == 0 { return assert(true, "buffer_pool: put is write-path, get drives hit_ratio"); }
   return assert(false, "buffer_pool: hit_ratio failed");
+}
+
+fn run_buffer_pool_clock() -> Int {
+  var bp = BufferPool.new(3);
+  var id = 1;
+  while id <= 3 {
+    var d = Vec[Int].new();
+    d.push(id);
+    var ck = page_compute_checksum(&d);
+    if !bp.put(Page.new(id, d, ck)) { return 1; }
+    id = id + 1;
+  }
+  // All three referenced: the first clock sweep clears the bits, then takes
+  // the frame the hand started on (id 1).
+  var d4 = Vec[Int].new();
+  d4.push(4);
+  var ck4 = page_compute_checksum(&d4);
+  if !bp.put(Page.new(4, d4, ck4)) { return 1; }
+  if bp.evictions != 1 { return 1; }
+  let g1 = bp.get(1);
+  match g1 { None => {}, Some(_) => { return 1; } }
+  let g2 = bp.get(2);
+  match g2 { None => { return 1; }, Some(_) => {} }
+  let g3 = bp.get(3);
+  match g3 { None => { return 1; }, Some(_) => {} }
+  let g4 = bp.get(4);
+  match g4 { None => { return 1; }, Some(_) => {} }
+
+  // The gets re-referenced 2/3/4; the next sweep clears and then evicts id 2
+  // (the hand sits on frame 1 after the first eviction) -- second chance in
+  // action: 2 and 3 survived the first eviction round despite being older.
+  var d5 = Vec[Int].new();
+  d5.push(5);
+  var ck5 = page_compute_checksum(&d5);
+  if !bp.put(Page.new(5, d5, ck5)) { return 1; }
+  if bp.evictions != 2 { return 1; }
+  let h2 = bp.get(2);
+  match h2 { None => {}, Some(_) => { return 1; } }
+  let h3 = bp.get(3);
+  match h3 { None => { return 1; }, Some(_) => {} }
+  let h4 = bp.get(4);
+  match h4 { None => { return 1; }, Some(_) => {} }
+  let h5 = bp.get(5);
+  match h5 { None => { return 1; }, Some(_) => {} }
+  return 0;
+}
+
+fn test_buffer_pool_clock() -> TestResult {
+  let rc = run_buffer_pool_clock();
+  if rc == 0 { return assert(true, "buffer_pool: clock second-chance eviction order"); }
+  return assert(false, "buffer_pool: clock eviction failed");
+}
+
+fn run_buffer_pool_pin() -> Int {
+  var bp = BufferPool.new(2);
+  var d1 = Vec[Int].new();
+  d1.push(1);
+  var d2 = Vec[Int].new();
+  d2.push(2);
+  if !bp.put(Page.new(1, d1, page_compute_checksum(&d1))) { return 1; }
+  if !bp.put(Page.new(2, d2, page_compute_checksum(&d2))) { return 1; }
+
+  if !bp.pin_page(1) { return 1; }
+  if !bp.pin_page(1) { return 1; }
+  if !bp.pin_page(2) { return 1; }
+  if bp.pin_count(1) != 2 { return 1; }
+
+  // Every frame pinned: no victim, the page is not cached, no eviction.
+  var d3 = Vec[Int].new();
+  d3.push(3);
+  if bp.put(Page.new(3, d3, page_compute_checksum(&d3))) { return 1; }
+  if bp.rejects != 1 { return 1; }
+  if bp.evictions != 0 { return 1; }
+  let g3 = bp.get(3);
+  match g3 { None => {}, Some(_) => { return 1; } }
+
+  // One unpin on id 1 is not enough (pinned twice).
+  if !bp.unpin_page(1) { return 1; }
+  if bp.pin_count(1) != 1 { return 1; }
+  if bp.put(Page.new(3, d3, page_compute_checksum(&d3))) { return 1; }
+  if bp.rejects != 2 { return 1; }
+
+  // Second unpin frees it; the clock reclaims frame 0 (id 1), id 2 stays
+  // pinned throughout.
+  if !bp.unpin_page(1) { return 1; }
+  if bp.pin_count(1) != 0 { return 1; }
+  if !bp.put(Page.new(3, d3, page_compute_checksum(&d3))) { return 1; }
+  if bp.evictions != 1 { return 1; }
+  let h1 = bp.get(1);
+  match h1 { None => {}, Some(_) => { return 1; } }
+  let h2 = bp.get(2);
+  match h2 { None => { return 1; }, Some(_) => {} }
+  let h3 = bp.get(3);
+  match h3 { None => { return 1; }, Some(_) => {} }
+  if bp.pin_count(2) != 1 { return 1; }
+  if bp.pin_count(3) != 0 { return 1; }
+
+  // Misuse: pinning/unpinning absent pages fails.
+  if bp.pin_page(99) { return 1; }
+  if bp.unpin_page(99) { return 1; }
+  return 0;
+}
+
+fn test_buffer_pool_pin() -> TestResult {
+  let rc = run_buffer_pool_pin();
+  if rc == 0 { return assert(true, "buffer_pool: pinned frames protected + all-pinned reject"); }
+  return assert(false, "buffer_pool: pinning failed");
 }
 
 fn run_storage_engine_new() -> Int {
@@ -683,7 +804,8 @@ fn run_storage_engine_cache_lookup() -> Int {
   data.push(99);
   var cs = page_compute_checksum(&data);
   let page = Page.new(1, data, cs);
-  eng.cache_page(page);
+  let cached = eng.cache_page(page);
+  if !cached { return 1; }
   let found = eng.lookup_page(1);
   match found {
     None => return 1,
@@ -2842,6 +2964,10 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r33.passed, r33.name);
   let r34 = test_buffer_pool_hit_ratio();
   total = total + 1; failed = failed + report(r34.passed, r34.name);
+  let r34a = test_buffer_pool_clock();
+  total = total + 1; failed = failed + report(r34a.passed, r34a.name);
+  let r34b = test_buffer_pool_pin();
+  total = total + 1; failed = failed + report(r34b.passed, r34b.name);
   let r35 = test_storage_engine_new();
   total = total + 1; failed = failed + report(r35.passed, r35.name);
   let r36 = test_storage_engine_cache_lookup();
