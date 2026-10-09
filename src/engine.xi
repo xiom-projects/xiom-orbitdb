@@ -3,6 +3,7 @@
 
 module xiom.db.engine
 
+use xiom.io;
 use xiom.db.wal_file;
 use xiom.db.storage.page;
 use xiom.db.storage.page_file;
@@ -1123,6 +1124,7 @@ pub type DBFile = {
   records_since_ckpt: Int;
   txn_active: Bool;
   txn_ops: Vec[TxOp];
+  wal_bytes: Int;
 }
 
 // Apply one replayed record. Maps by op code so cross-module enum patterns
@@ -1218,8 +1220,10 @@ pub fn db_file_open(path: Str, order: Int) -> DBFile {
     let _ = wal_file_append(&mut wal, WALOpKind.AbortTxn, 0, 0);
   }
   var ops = Vec[TxOp].new();
+  let wal_bytes = db_wal_size(path);
   return DBFile{ path: path, order: tree.order, tree: tree, wal: wal,
-                 records_since_ckpt: 0, txn_active: false, txn_ops: ops };
+                 records_since_ckpt: 0, txn_active: false, txn_ops: ops,
+                 wal_bytes: wal_bytes };
 }
 
 // ---------------------------------------------------------------------------
@@ -1249,11 +1253,34 @@ pub fn db_file_open_checked(path: Str, order: Int) -> Result[DBFile, DbError] {
   return Ok(db_file_open(path, order));
 }
 
+// Stale-handle guard (multi-handle safety): every handle remembers the WAL
+// segment size at its last own write. Another handle appending changes the
+// size, so this handle's next write is refused instead of interleaving LSNs
+// and corrupting the segment. Optimistic and stateless -- no lock files, so a
+// crash cannot leave a stale lock. See docs/ISOLATION.md for the single-writer
+// model this enforces.
+fn db_wal_size(path: Str) -> Int {
+  let r = io.file_size(path);
+  match r {
+    None => { return 0; }
+    Some(n) => {
+      let size: Int = n;
+      return size;
+    }
+  }
+}
+
+fn db_file_guard(db: &DBFile) -> Bool {
+  return db_wal_size(db.path) == db.wal_bytes;
+}
+
 // Upsert with WAL-before-ack: append (Insert for new keys, Update for
 // existing), then apply. Returns false when the log write fails.
 pub fn db_file_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
   // Auto-commit writes are rejected while a transaction is open.
   if db.txn_active { return false; }
+  // Stale handle: another writer appended since our last write.
+  if !db_file_guard(db) { return false; }
   var op = WALOpKind.Insert;
   var is_update = false;
   let existing = btree_search(&db.tree, key);
@@ -1266,6 +1293,7 @@ pub fn db_file_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
   }
   let lsn = wal_file_append(&mut db.wal, op, key, value);
   if lsn < 0 { return false; }
+  db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
   if is_update { let _ = btree_delete(&mut db.tree, key); }
   return btree_insert(&mut db.tree, key, value);
@@ -1274,6 +1302,8 @@ pub fn db_file_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
 pub fn db_file_delete(db: &mut DBFile, key: Int) -> Bool {
   // Auto-commit writes are rejected while a transaction is open.
   if db.txn_active { return false; }
+  // Stale handle: another writer appended since our last write.
+  if !db_file_guard(db) { return false; }
   let existing = btree_search(&db.tree, key);
   match existing {
     None => { return false; }
@@ -1281,6 +1311,7 @@ pub fn db_file_delete(db: &mut DBFile, key: Int) -> Bool {
   }
   let lsn = wal_file_append(&mut db.wal, WALOpKind.Delete, key, 0);
   if lsn < 0 { return false; }
+  db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
   return btree_delete(&mut db.tree, key);
 }
@@ -1725,6 +1756,8 @@ pub fn db_file_checkpoint(db: &mut DBFile) -> Int {
   // records >= the anchor, and the checkpoint_lsn gate would skip a later
   // commit record's ops. Reject while a transaction is active.
   if db.txn_active { return -1; }
+  // A stale handle must not snapshot its older tree over a newer WAL.
+  if !db_file_guard(db) { return -1; }
   let snap_path = db.path + ".snap";
   let pf = page_file_open(snap_path);
   // A torn trailing append must not merge with this checkpoint's entries.
@@ -1746,6 +1779,7 @@ pub fn db_file_checkpoint(db: &mut DBFile) -> Int {
   // so next_lsn still resumes correctly. A failed truncate leaves older
   // records that `db_file_open` skips via the snapshot's checkpoint_lsn gate.
   let _ = wal_file_truncate(db.path, anchor);
+  db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = 0;
   return anchor;
 }
@@ -1774,8 +1808,10 @@ pub fn db_file_txn_active(db: &DBFile) -> Bool {
 
 pub fn db_file_txn_begin(db: &mut DBFile) -> Bool {
   if db.txn_active { return false; }
+  if !db_file_guard(db) { return false; }
   let lsn = wal_file_append(&mut db.wal, WALOpKind.BeginTxn, 0, 0);
   if lsn < 0 { return false; }
+  db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
   db.txn_active = true;
   db.txn_ops = Vec[TxOp].new();
@@ -1785,8 +1821,10 @@ pub fn db_file_txn_begin(db: &mut DBFile) -> Bool {
 // Buffered upsert (applied as delete+insert on commit/replay; idempotent).
 pub fn db_file_txn_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
   if !db.txn_active { return false; }
+  if !db_file_guard(db) { return false; }
   let lsn = wal_file_append(&mut db.wal, WALOpKind.Update, key, value);
   if lsn < 0 { return false; }
+  db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
   db.txn_ops.push(TxOp{ code: 2, key: key, value: value });
   return true;
@@ -1795,8 +1833,10 @@ pub fn db_file_txn_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
 // Buffered delete (idempotent: deleting a missing key is a no-op on apply).
 pub fn db_file_txn_delete(db: &mut DBFile, key: Int) -> Bool {
   if !db.txn_active { return false; }
+  if !db_file_guard(db) { return false; }
   let lsn = wal_file_append(&mut db.wal, WALOpKind.Delete, key, 0);
   if lsn < 0 { return false; }
+  db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
   db.txn_ops.push(TxOp{ code: 3, key: key, value: 0 });
   return true;
@@ -1806,8 +1846,10 @@ pub fn db_file_txn_delete(db: &mut DBFile, key: Int) -> Bool {
 // buffered ops to the in-memory tree.
 pub fn db_file_txn_commit(db: &mut DBFile) -> Bool {
   if !db.txn_active { return false; }
+  if !db_file_guard(db) { return false; }
   let lsn = wal_file_append(&mut db.wal, WALOpKind.CommitTxn, 0, 0);
   if lsn < 0 { return false; }
+  db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
   var k = 0;
   while k < db.txn_ops.len() {
@@ -1823,8 +1865,10 @@ pub fn db_file_txn_commit(db: &mut DBFile) -> Bool {
 // Abort: append the AbortTxn marker (audit trail) and discard the buffer.
 pub fn db_file_txn_abort(db: &mut DBFile) -> Bool {
   if !db.txn_active { return false; }
+  if !db_file_guard(db) { return false; }
   let lsn = wal_file_append(&mut db.wal, WALOpKind.AbortTxn, 0, 0);
   if lsn < 0 { return false; }
+  db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
   db.txn_active = false;
   db.txn_ops = Vec[TxOp].new();

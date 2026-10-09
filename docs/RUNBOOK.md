@@ -107,6 +107,9 @@ A durable DB with WAL path `<path>` owns:
 - Transactions: ops are logged immediately but applied only at commit; a
   crash before commit discards them; a dangling window is finalized with an
   explicit Abort record on the next open.
+- Stale handles: once another handle has written, this handle's writes are
+  refused (`false` / `-1` for checkpoint). Reopen to become the writer again;
+  there is no lock file to clear (see `docs/ISOLATION.md`).
 
 Verify a recovered database with the probe modes:
 

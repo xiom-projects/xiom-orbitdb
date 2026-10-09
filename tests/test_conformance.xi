@@ -2922,6 +2922,61 @@ fn test_db_file_open_checked() -> TestResult {
   return assert(false, "db_file: checked open failed");
 }
 
+fn run_db_file_stale_handle() -> Int {
+  let path = "orbitdb-suite-db-stale.wal";
+  let snap = "orbitdb-suite-db-stale.wal.snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+
+  var db1 = db_file_open(path, 4);
+  var db2 = db_file_open(path, 4);
+
+  // db1 writes; db2 is now stale and must refuse every write path.
+  if !db_file_put(&mut db1, 1, 10) { return 1; }
+  if db_file_put(&mut db2, 2, 20) { return 1; }
+  if db_file_delete(&mut db2, 1) { return 1; }
+  if db_file_txn_begin(&mut db2) { return 1; }
+  if db_file_checkpoint(&mut db2) != -1 { return 1; }
+
+  // db1 continues to work (it is the only writer).
+  if !db_file_put(&mut db1, 3, 30) { return 1; }
+  if !db_file_txn_begin(&mut db1) { return 1; }
+  if !db_file_txn_put(&mut db1, 4, 40) { return 1; }
+  if !db_file_txn_commit(&mut db1) { return 1; }
+  if db_file_size(&db1) != 3 { return 1; } // 1, 3, 4
+
+  // A fresh handle opens, then the established writer writes first: the fresh
+  // handle is stale before it ever writes (first writer wins).
+  var db3 = db_file_open(path, 4);
+  if !db_file_put(&mut db1, 5, 50) { return 1; }
+  if db_file_put(&mut db3, 6, 60) { return 1; }
+  if db_file_txn_begin(&mut db3) { return 1; }
+
+  // The established writer can checkpoint; the stale handle cannot.
+  if db_file_checkpoint(&mut db1) < 0 { return 1; }
+  if db_file_checkpoint(&mut db3) != -1 { return 1; }
+
+  var db4 = db_file_open(path, 4);
+  if db_file_size(&db4) != 4 { return 1; } // 1, 3, 4, 5
+  let v5 = db_file_get(&db4, 5);
+  match v5 {
+    None => { return 1; }
+    Some(x) => { if x != 50 { return 1; } }
+  }
+  let v6 = db_file_get(&db4, 6);
+  match v6 { Some(_) => { return 1; }, None => {} }
+
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  return 0;
+}
+
+fn test_db_file_stale_handle() -> TestResult {
+  let rc = run_db_file_stale_handle();
+  if rc == 0 { return assert(true, "db_file: stale handle refuses writes + checkpoint"); }
+  return assert(false, "db_file: stale-handle guard failed");
+}
+
 fn run_result_set_ops() -> Int {
   var cols = Vec[Str].new();
   cols.push("id");
@@ -3224,6 +3279,8 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r99a.passed, r99a.name);
   let r99b = test_db_file_open_checked();
   total = total + 1; failed = failed + report(r99b.passed, r99b.name);
+  let r99c = test_db_file_stale_handle();
+  total = total + 1; failed = failed + report(r99c.passed, r99c.name);
   let r93 = test_result_set_ops();
   total = total + 1; failed = failed + report(r93.passed, r93.name);
 

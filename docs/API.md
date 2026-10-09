@@ -51,6 +51,12 @@ Transaction limits: single active transaction per handle, no isolation/MVCC
 writes are rejected mid-transaction. See `wal-and-recovery.md` for the crash
 ordering and `FORMATS.md` for the record layout.
 
+Multi-handle safety: every write path (`db_file_put`/`delete`, all
+`db_file_txn_*`, `db_file_checkpoint`) is refused when the WAL segment changed
+since this handle's last own write (stale-handle guard, `wal_bytes`) --
+reopen to continue as the writer. `false` / `-1` signals the refusal. See
+`docs/ISOLATION.md` for the single-writer model.
+
 ## B-tree index (`xiom.db.engine`)
 
 `BTree = { root, order, nodes }` -- a flat node array; `BTreeNode = { keys,
