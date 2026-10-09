@@ -32,6 +32,7 @@ deps/
 # --- probe + soak output (keep scripts + summaries, not raw runs) -----------
 /probe-logs/
 /soak/
+*.mark
 
 # --- database runtime artifacts (probe stores; never commit) ----------------
 *.db

@@ -2808,6 +2808,9 @@ fn run_db_file_dangling_txn_abort() -> Int {
   // A segment that looks like a crash mid-transaction: base write, BeginTxn,
   // two ops, no Commit.
   var w = wal_file_open(path);
+  // This compilation unit imports BOTH wal_file's WALOpKind and txn's WALOp,
+  // which share variant names -- qualification here is disambiguation, not the
+  // C-ORBIT-04 workaround (that one is reverted in src/).
   let _ = wal_file_append(&mut w, WALOpKind.Insert, 1, 10);
   let _ = wal_file_append(&mut w, WALOpKind.BeginTxn, 0, 0);
   let _ = wal_file_append(&mut w, WALOpKind.Update, 2, 20);

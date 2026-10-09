@@ -91,20 +91,17 @@ pub fn page_file_ids(pf: &PageFile) -> Vec[Int] {
   match lines_r {
     Err(_) => { return out; }
     Ok(lines) => {
-      // C-ORBIT-01 workaround: rebind the cross-module Result payload.
-      let all: Vec[Str] = lines;
       var i = 0;
-      while i < all.len() {
-        let raw = trim.str_trim(all[i]);
+      while i < lines.len() {
+        let raw = trim.str_trim(lines[i]);
         if raw != "" {
           match parse_page_line(raw) {
             None => {}
             Some(p) => {
-              let pg: Page = p;
               // Integrity view: checksum-invalid lines are garbage, not pages
               // (a crash can leave a structurally complete but corrupt line).
-              if pg.is_valid() {
-                out.push(pg.id);
+              if p.is_valid() {
+                out.push(p.id);
               }
             }
           }
@@ -127,20 +124,18 @@ pub fn page_file_read(pf: &PageFile, page_id: Int) -> Option[Page] {
   match lines_r {
     Err(_) => { return None; }
     Ok(lines) => {
-      let all: Vec[Str] = lines;
       var found = false;
       var page = Page.new(0, Vec[Int].new(), 0);
       var i = 0;
-      while i < all.len() {
-        let raw = trim.str_trim(all[i]);
+      while i < lines.len() {
+        let raw = trim.str_trim(lines[i]);
         if raw != "" {
           match parse_page_line(raw) {
             None => {}
             Some(p) => {
-              let pg: Page = p;
-              if pg.id == page_id {
-                if pg.is_valid() {
-                  page = pg;
+              if p.id == page_id {
+                if p.is_valid() {
+                  page = p;
                   found = true;
                 }
               }
@@ -164,16 +159,14 @@ pub fn page_file_read_all(pf: &PageFile) -> Vec[Page] {
   match lines_r {
     Err(_) => { return out; }
     Ok(lines) => {
-      let all: Vec[Str] = lines;
       var i = 0;
-      while i < all.len() {
-        let raw = trim.str_trim(all[i]);
+      while i < lines.len() {
+        let raw = trim.str_trim(lines[i]);
         if raw != "" {
           match parse_page_line(raw) {
             None => {}
             Some(p) => {
-              let pg: Page = p;
-              if pg.is_valid() { out.push(pg); }
+              if p.is_valid() { out.push(p); }
             }
           }
         }
@@ -220,21 +213,19 @@ pub fn page_file_write(pf: &PageFile, page: Page) -> Bool {
   match lines_r {
     Err(_) => {}
     Ok(lines) => {
-      let all: Vec[Str] = lines;
       var i = 0;
-      while i < all.len() {
-        let raw = trim.str_trim(all[i]);
+      while i < lines.len() {
+        let raw = trim.str_trim(lines[i]);
         if raw != "" {
           match parse_page_line(raw) {
             None => {}
             Some(p) => {
-              let pg: Page = p;
-              if pg.id == page.id {
+              if p.id == page.id {
                 body = body + format_page_line(&page) + "\n";
                 replaced = true;
-              } elif pg.is_valid() {
+              } elif p.is_valid() {
                 // Rebuild heals: checksum-invalid survivors are dropped.
-                body = body + format_page_line(&pg) + "\n";
+                body = body + format_page_line(&p) + "\n";
               }
             }
           }
@@ -315,10 +306,9 @@ pub fn page_log_len(pf: &PageFile) -> Int {
   match lines_r {
     Err(_) => { return 0; }
     Ok(lines) => {
-      let all: Vec[Str] = lines;
       var i = 0;
-      while i < all.len() {
-        let raw = trim.str_trim(all[i]);
+      while i < lines.len() {
+        let raw = trim.str_trim(lines[i]);
         if raw != "" {
           match parse_page_line(raw) {
             None => {}
@@ -342,16 +332,14 @@ pub fn page_log_read_all(pf: &PageFile) -> Vec[Page] {
   match lines_r {
     Err(_) => { return all; }
     Ok(lines) => {
-      let lines2: Vec[Str] = lines;
       var i = 0;
-      while i < lines2.len() {
-        let raw = trim.str_trim(lines2[i]);
+      while i < lines.len() {
+        let raw = trim.str_trim(lines[i]);
         if raw != "" {
           match parse_page_line(raw) {
             None => {}
             Some(p) => {
-              let pg: Page = p;
-              if pg.is_valid() { all.push(pg); }
+              if p.is_valid() { all.push(p); }
             }
           }
         }
@@ -360,37 +348,21 @@ pub fn page_log_read_all(pf: &PageFile) -> Vec[Page] {
     }
   }
 
-  // Latest occurrence wins. The keep-set is computed on an Int-only copy of
-  // the ids and the pages are selected in a non-nested pass: v0.64.1 aborts
-  // (access violation) when a nested loop copies Vec[Page] elements while an
-  // outer loop pushes into another Vec[Page] -- C-ORBIT-05, repro
-  // docs/repro/vec-push-nested/. Both passes below are safe shapes.
-  var ids = Vec[Int].new();
-  var i2 = 0;
-  while i2 < all.len() {
-    let pg2 = all[i2];
-    ids.push(pg2.id);
-    i2 = i2 + 1;
-  }
-
-  var keep = Vec[Bool].new();
+  // Latest occurrence wins: keep every page that no later page supersedes.
+  // This is the nested `Vec[Page]` shape that aborted before v0.64.2
+  // (C-ORBIT-05, m235 loop-body alloca fix); the repro bundle
+  // docs/repro/vec-push-nested/ is green unchanged on the new archive.
+  var out = Vec[Page].new();
   var k = 0;
-  while k < ids.len() {
+  while k < all.len() {
     var superseded = false;
     var j = k + 1;
-    while j < ids.len() && !superseded {
-      if ids[j] == ids[k] { superseded = true; }
+    while j < all.len() && !superseded {
+      if all[j].id == all[k].id { superseded = true; }
       j = j + 1;
     }
-    keep.push(!superseded);
+    if !superseded { out.push(all[k]); }
     k = k + 1;
-  }
-
-  var out = Vec[Page].new();
-  var m = 0;
-  while m < all.len() {
-    if keep[m] { out.push(all[m]); }
-    m = m + 1;
   }
   return out;
 }

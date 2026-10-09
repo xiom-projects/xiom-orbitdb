@@ -61,49 +61,50 @@ pub type WALFile = {
 
 pub fn wal_op_code(op: WALOpKind) -> Int {
   match op {
-    WALOpKind.Insert => { return 1; }
-    WALOpKind.Update => { return 2; }
-    WALOpKind.Delete => { return 3; }
-    WALOpKind.SegmentSeal => { return 4; }
-    WALOpKind.ManifestUpdate => { return 5; }
-    WALOpKind.Checkpoint => { return 6; }
-    WALOpKind.SnapshotMarker => { return 7; }
-    WALOpKind.BeginTxn => { return 8; }
-    WALOpKind.CommitTxn => { return 9; }
-    WALOpKind.AbortTxn => { return 10; }
+    Insert => { return 1; }
+    Update => { return 2; }
+    Delete => { return 3; }
+    SegmentSeal => { return 4; }
+    ManifestUpdate => { return 5; }
+    Checkpoint => { return 6; }
+    SnapshotMarker => { return 7; }
+    BeginTxn => { return 8; }
+    CommitTxn => { return 9; }
+    AbortTxn => { return 10; }
   }
 }
 
-// C-ORBIT-04 workaround: variant constructors/patterns are module-qualified
-// because `xiom.db.txn.transaction` declares `WALOp { Insert, Update, Delete }`
-// with the same variant names; unqualified `return Update;` here was lowered
-// against THAT enum (clang: ret %struct.WALOpKind but found %struct.WALOp).
+// C-ORBIT-04 (fixed in v0.64.2/m225): unqualified variants here used to be
+// lowered against `xiom.db.txn.transaction`'s same-named `WALOp` enum when
+// both modules were in one compilation unit; qualification was the
+// workaround. Variant resolution is now scoped to the declaring module, so
+// the unqualified form is restored. History: COMPILER-FINDINGS-ORBITDB.md.
 pub fn wal_op_from_code(code: Int) -> WALOpKind {
-  if code == 2 { return WALOpKind.Update; }
-  if code == 3 { return WALOpKind.Delete; }
-  if code == 4 { return WALOpKind.SegmentSeal; }
-  if code == 5 { return WALOpKind.ManifestUpdate; }
-  if code == 6 { return WALOpKind.Checkpoint; }
-  if code == 7 { return WALOpKind.SnapshotMarker; }
-  if code == 8 { return WALOpKind.BeginTxn; }
-  if code == 9 { return WALOpKind.CommitTxn; }
-  if code == 10 { return WALOpKind.AbortTxn; }
-  return WALOpKind.Insert;
+  if code == 2 { return Update; }
+  if code == 3 { return Delete; }
+  if code == 4 { return SegmentSeal; }
+  if code == 5 { return ManifestUpdate; }
+  if code == 6 { return Checkpoint; }
+  if code == 7 { return SnapshotMarker; }
+  if code == 8 { return BeginTxn; }
+  if code == 9 { return CommitTxn; }
+  if code == 10 { return AbortTxn; }
+  return Insert;
 }
 
 // True for record kinds that mutate an index (replay applies these).
 pub fn wal_op_is_write(op: WALOpKind) -> Bool {
   match op {
-    WALOpKind.Insert => { return true; }
-    WALOpKind.Update => { return true; }
-    WALOpKind.Delete => { return true; }
-    WALOpKind.SegmentSeal => { return false; }
-    WALOpKind.ManifestUpdate => { return false; }
-    WALOpKind.Checkpoint => { return false; }
-    WALOpKind.SnapshotMarker => { return false; }
-    WALOpKind.BeginTxn => { return false; }
-    WALOpKind.CommitTxn => { return false; }
-    WALOpKind.AbortTxn => { return false; }
+    Insert => { return true; }
+    Update => { return true; }
+    Delete => { return true; }
+    SegmentSeal => { return false; }
+    ManifestUpdate => { return false; }
+    Checkpoint => { return false; }
+    SnapshotMarker => { return false; }
+    BeginTxn => { return false; }
+    CommitTxn => { return false; }
+    AbortTxn => { return false; }
   }
 }
 
@@ -216,12 +217,9 @@ pub fn wal_file_replay(path: Str) -> Vec[WALRecord] {
   match lines_r {
     Err(_) => { return out; }
     Ok(lines) => {
-      // C-ORBIT-01 workaround: rebind the cross-module Result payload through
-      // an explicitly typed local before reading elements.
-      let all: Vec[Str] = lines;
       var i = 0;
-      while i < all.len() {
-        let line = trim.str_trim(all[i]);
+      while i < lines.len() {
+        let line = trim.str_trim(lines[i]);
         if line != "" {
           let parts = split.str_split(line, "|");
           if parts.len() >= 5 {

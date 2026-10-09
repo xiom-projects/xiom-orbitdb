@@ -220,24 +220,14 @@ pub fn StorageEngine.new(config: DatabaseConfig) -> StorageEngine {
 }
 
 // Returns what put() returned: false when every frame is pinned and the page
-// could not be cached.
+// could not be cached. The nested receiver writes through (C-ORBIT-03/m224
+// fixed in v0.64.2); repro docs/repro/nested-field-mut/probe.xi.
 pub fn StorageEngine.cache_page(eng: &mut StorageEngine, page: Page) -> Bool {
-  // C-ORBIT-04 workaround: a method call on a nested field receiver
-  // (eng.buffer_pool.put(page)) mutates a temporary copy on v0.64.0; copy
-  // the field out, mutate it, and write it back. Repro:
-  // docs/repro/nested-field-mut/probe.xi (A/C lose the write, B/D keep it).
-  var bp = eng.buffer_pool;
-  let cached = bp.put(page);
-  eng.buffer_pool = bp;
-  return cached;
+  return eng.buffer_pool.put(page);
 }
 
 // &mut because a lookup updates the reference bit and hit/miss statistics;
-// the copy-out/write-back keeps those changes (a read through a nested
-// receiver copy would silently drop them).
+// the nested receiver writes through (C-ORBIT-03/m224 fixed in v0.64.2).
 pub fn StorageEngine.lookup_page(eng: &mut StorageEngine, page_id: Int) -> Option[Page] {
-  var bp = eng.buffer_pool;
-  let found = bp.get(page_id);
-  eng.buffer_pool = bp;
-  return found;
+  return eng.buffer_pool.get(page_id);
 }

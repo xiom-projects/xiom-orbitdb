@@ -1281,6 +1281,9 @@ pub fn db_file_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
   if db.txn_active { return false; }
   // Stale handle: another writer appended since our last write.
   if !db_file_guard(db) { return false; }
+  // Qualified: this module imports wal_file but a program may also contain
+  // txn's same-named WALOp variants; m225 scopes UNQUALIFIED resolution to the
+  // declaring module, not to the importing consumer (see COMPILER-FINDINGS).
   var op = WALOpKind.Insert;
   var is_update = false;
   let existing = btree_search(&db.tree, key);
