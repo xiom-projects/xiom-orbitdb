@@ -7,55 +7,63 @@ lane; it never edits `E:\xiom-lang\stdlib`. Evidence paths are from
 `E:\xiom-projects\xiom-orbitdb` (app context) or exact stdlib `file:line` on
 the pin below.
 
-**Pin:** compiler v0.64.0, stdlib `a677338` (2026-10-08T12:27:20+03:00),
-`XIOM_STDLIB=E:\xiom-lang\stdlib`, `XIOM_RUNTIME_DIR` retired (env-free).
+**Pin (2026-10-09):** compiler **v0.64.2**, stdlib `E:\xiom-lang\stdlib` @
+`82ac2f3` (wave 97 + the lane's own wishlist sweep), `XIOM_RUNTIME_DIR`
+retired (env-free).
 
-**Context:** ORBITDB is a durable embedded database. It just bootstrapped a
-real append-only WAL segment (text records today) with hard-kill crash
-reopen, torn-tail healing and a 200-record soak -- all green on Windows and
-WSL. The rows below are the stdlib gaps that stand between that probe and a
+**Context:** ORBITDB is a durable embedded database: append-only WAL segment
+with hard-kill crash/reopen and torn-tail healing, incremental
+generation-committed checkpoints, buffer-until-commit transactions, a
+snapshot page log, a clock buffer-pool, a deterministic fuzz harness, and a
+120-test conformance suite -- green x2 on Windows + WSL (v0.64.2, workarounds
+reverted). The rows below are what still stands between the probe and a
 byte-level, power-loss-honest storage engine.
+
+## Resolved on the current stdlib (your wave 96/97 sweep)
+
+| Was | Evidence now | Result |
+|---|---|---|
+| **`str_split` / `io.read_file_lines` O(n^2)** (the old headline row): 5 MB / 20k lines took ~44 s. | `xiom/string/split.xi` documents `O(\|s\|)`; `xiom/io/io.xi:1072-1075` documents `read_file_lines` `O(n)`. ORBITDB bench on v0.64.2: WAL replay of 20k records **61.6 s -> 9.9 s** (`scripts/bench.ps1 -N 20000`, `wal_replay`). | **RESOLVED** -- every line-oriented consumer is linear now; thank you. |
+| **`io.read_file_lines` CRLF handling**: Windows files carried `"10\r"` into `parse_int`, silently dropping records. | `xiom/io/io.xi:1072-1073` explicitly strips a trailing CR per line ("ORBITDB relay 2026-10-08"). | **RESOLVED** -- the per-line `trim.str_trim` is still harmless belt-and-braces in ORBITDB. |
 
 ## Open items
 
 | Need | Evidence (file:line or app path) | Workaround | Blocks |
 |---|---|---|---|
-| **PERF BUG (v0.64.1): `str_split` -- and therefore `io.read_file_lines` -- is O(n^2) in input size.** 5 MB / 20k-line segment: `io.read_file` alone **2 ms**; `io.read_file + str_split(content, "\n")` **44.7 s**; `io.read_file_lines` **44.1 s**. Scaling 10k -> 20k lines: 10.5 s -> 44.1 s (4.2x for 2x). One-pass scanning would make every consumer linear. | ORBITDB `tests/probes/probe_bench.xi` cases `wal_readfile`/`wal_readsplit`/`wal_readlines` via `scripts/bench.{ps1,sh}`; WAL replay of 20k records = 61.6 s, dominated by line reading | keep segments small; no in-language mitigation (no byte->Str API for a manual scanner) | WAL replay/open at real segment sizes, page-file reads, PULSE JSONL store, every `read_file_lines` consumer |
-| **Append file handle: `io.open_append(path) -> Handle` / `write_line` / `sync` / `close`.** `io.append_line` opens+closes per call: WAL append peaks at **2,061 ops/s** (20k = 9.7 s) even after our O(n) heal fix; a held handle is the natural fsync seam too. | ORBITDB `probe_bench` case `wal_append`: 626 ops/s before the heal-state fix, 2,061 after; the remainder is open/close churn | none (batching is unsafe for WAL semantics) | WAL commit-path throughput; fsync wiring |
-| **Durable flush: `fsync`/`FlushFileBuffers`/`_commit` wrapper (`io.sync_file(path)` or fd-level sync).** No fsync anywhere in `runtime/*.c` (PULSE confirmed 2026-10-05; ORBITDB re-confirms: ORBITDB's "durable" WAL is OS write-back only). | ORBITDB `tests/probes/probe_wal_file.xi` + `scripts/crash_test.ps1/.sh`: correct vs simulated process kill, but power-loss tail loss is unmitigated; `docs/wal-and-recovery.md` states the honest limit. | torn-tail healing (`io.append_line` newline repair) + accept write-back; document honesty | Phase 2 durability claims; `db_close` checkpoint; "durable" in README/SPEC |
-| **File truncate / atomic checkpoint primitive** (`io.truncate_file(path, size)` or fd-based). `io.rename` exists (`io.xi:399`, maps to `MoveFileExA` REPLACE per PULSE); nothing truncates in place. | ROADMAP Phase 2 "Checkpointing -- truncate WAL after a durable checkpoint"; ORBITDB WAL has no truncate story yet. | rewrite a fresh segment + `rename` (compaction pattern) | WAL checkpoint/segment recycling; bounded disk growth |
-| **`io.read_file_lines` should normalize a trailing `\r`** (CRLF-produced files) or document the requirement. Today `str_split`/`parse_int` receive `"10\r"` and fail, silently dropping records. | ORBITDB `tests/probes/probe_wal_file.xi`: replay applied=0 until every line went through `trim.str_trim`; Windows `Set-Content` + `read_file_lines` reproduced it directly. | `trim.str_trim(line)` per line (probe does this) | any consumer parsing line files on Windows; silent record loss in replay |
-| **Byte-level file IO: `io.read_bytes(path) -> Result[Vec[UInt8], IOError]` / `io.write_bytes` / append-bytes.** Today only `Str`-based `read_file`/`write_file`/`append_file` exist (`io.xi:213,240,265`). | ROADMAP Phase 1 byte-packed tuple codec + CRC32C page checksums; `storage/tuple.xi tuple_encode/decode` are `Vec[Int]` stand-ins. | keep `Vec[Int]` codec (non-portable, not byte-true) | real page format; `xiom.hash.crc.crc32c(&Vec[UInt8])` cannot be fed from disk |
-| **Append with tail repair + flush: one call** (`io.append_line_sync(path, line)`), i.e. append a newline if the file does not end with one, then write the record. Every durable-log consumer hand-rolls this (ORBITDB `probe_wal_file.heal_tail`; PULSE store did the same). | ORBITDB crash test: appending after a torn tail without repair merges the new record onto the torn line (reproduced: `applied=3` instead of 4 until `heal_tail`); PULSE `crash_test` heal step | ORBITDB now tracks tail state in the `WALFile` handle (one rescan after reopen; append is O(1)) | crash-safe appends without per-append rescans; part of the fsync row |
-| **Tail check without reading the whole file** (`io.file_last_byte` or `io.ends_with_newline(path)`). `io.file_size` exists (`io.xi:973`) but no random access/seek; ORBITDB detects the torn tail once at open and tracks it in the handle. | ORBITDB `wal_file_open` reads the whole segment to detect a missing final newline (once per open, acceptable today; quadratic via `read_file_lines` -- see the perf row above) | open-time detection + handle state | O(1) healed appends without any full read; large WAL segments |
+| **Durable flush: real `fsync`/`FlushFileBuffers`/`_commit`.** The stub surface now exists but does nothing: `xiom/os/fs_ffi.xi:238 fsync(fd)` and `xiom/os/sync_io.xi:80 sync_fd(fd)` both return `Err("... fsync not available in the pure stdlib")`; `io.xi` has no path-to-fd open and only `flush_stdout`. | ORBITDB `tests/probes/probe_wal_file.xi` + `scripts/crash_test.{ps1,sh}`: correct vs a simulated process kill; power-loss tail loss unmitigated; `docs/wal-and-recovery.md` states the honest limit. | torn-tail healing + accept write-back; document honesty | Phase 2 durability claims; `db_close` checkpoint; "durable" in README/SPEC. (The stdlib lane's own sweep labels this "io.fsync wal dependency" -- confirming the same seam.) |
+| **Append file handle: `io.open_append(path) -> Handle` / `write_line` / `sync` / `close`.** `io.append_line` opens+closes per call; v0.64.2 bench `wal_append` 20k = **5.7 s (3 524 ops/s)** -- still open/close-bound. A held handle is also the natural fsync seam. | ORBITDB `probe_bench` case `wal_append`; `scripts/bench.ps1 -N 20000` | none (batching is unsafe for WAL semantics) | WAL commit-path throughput; fsync wiring |
+| **File truncate / atomic checkpoint primitive** (`io.truncate_file(path, size)` or fd-based). `io.rename` exists; nothing truncates in place. | ROADMAP Phase 2 checkpointing; ORBITDB truncation is implemented as "write a fresh segment + rename" (`wal_file_truncate`), which is O(segment) per checkpoint. | rewrite + rename (compaction pattern) | WAL checkpoint/segment recycling beyond the rewrite pattern; bounded disk growth at scale |
+| **Byte-level file IO: `io.read_bytes(path) -> Result[Vec[UInt8], IOError]` / `io.write_bytes` / append-bytes.** Today only `Str`-based file APIs exist. | ROADMAP Phase 1 byte-packed tuple/page codecs; `storage/tuple.xi`/`storage/page.xi` ship `Vec[Int]` text stand-ins. | keep `Vec[Int]` codec (not byte-true, not portable) | real page format; feeding `xiom.hash.crc.crc32c(&Vec[UInt8])` from disk |
+| **Append with tail repair + flush in one call** (`io.append_line_sync(path, line)`). Every durable-log consumer hand-rolls this. | ORBITDB tracks tail state in the `WALFile` handle (`wal_file_heal_tail`); the first append after a torn tail needs the repair or the new record merges onto the torn line (reproduced historically; crash harness covers it now). | ORBITDB handle state (one rescan after reopen; append O(1)) | crash-safe appends without per-append rescans; part of the fsync row |
+| **Tail check without reading the whole file** (`io.file_last_byte` / `io.ends_with_newline(path)`). `io.file_size` exists; no seek/random access. | ORBITDB `wal_file_open` / `page_log_heal_tail` read the whole file once per open to detect a missing final newline. | open-time detection + handle state | O(1) healed appends with no full read on large segments |
 
 ## Positive confirmations (please keep)
 
-- **`io.sleep(ms)`** is load-bearing for crash-test hang loops: an empty
-  spin loop (`while spin >= 0 { spin = spin + 1; }`) was optimized away in
-  the writer and the process exited early; `io.sleep` keeps the process
-  alive and killable (`tests/probes/probe_wal_file.xi run_write`).
-- **`io.append_line` creates the file and appends newline-terminated
-  records**; `io.read_file_lines` returns `Result[Vec[Str], IOError]` and
-  includes a trailing empty line for a final newline -- handled by the
-  skip-empty rule.
-- **`xiom.os.env.var_or`** is exactly the right probe/script seam (PULSE
-  pattern): all ORBITDB probe modes are env-driven.
-- **`xiom.hash.crc.crc32c(data: &Vec[UInt8]) -> UInt32`** exists
-  (`xiom/hash/crc.xi:107`) -- ready for the Phase 1 page checksum the moment
-  byte IO or a byte codec lands. `storage/page.xi` ships an in-repo bitwise
-  CRC32C (KAT-locked, `0xE3069283`) meanwhile.
+- **`io.sleep(ms)`** is load-bearing for crash-test hang loops (empty spin
+  loops are optimized away; `io.sleep` keeps the writer alive and killable).
+- **`io.append_line` creates the file and appends newline-terminated records**;
+  `io.read_file_lines` returns `Result[Vec[Str], IOError]` including a
+  trailing empty line for a final newline (ORBITDB skips empties).
+- **`xiom.os.env.var_or`** is exactly the right probe/script seam; all ORBITDB
+  probe modes are env-driven.
+- **`xiom.hash.crc.crc32c(data: &Vec[UInt8]) -> UInt32`** exists and is ready
+  for the byte codec; ORBITDB ships a bitwise CRC32C meanwhile (KAT-locked).
 - **String kit**: `str_split`, `str_trim`, `str_ends_with`, `parse_int`
-  cover record codecs; the submodule-import pattern (`use xiom.string.split;`
-  then `split.str_split`) is required but clean.
-- **`xiom.test` API drift handled consumer-side:** `assert(cond, name)`
-  returns `TestResult` (not the old `TestCase`); ORBITDB migrated the whole
-  93-test suite. Consider a doc note in `xiom.test`.
+  cover the record codecs; with the linear `str_split` the whole kit is now
+  production-shaped.
+- **`io.list_dir`** (resolved m211 per your sweep) fits the future page-file
+  directory/database listing.
+- **Compiler-side bonus that helps consumers:** deep container equality
+  (v0.64.2/m239) -- `Vec[Int] == Vec[Int]` and `Str == Str` compare by
+  content (verified 2026-10-09); ORBITDB can retire hand-written `vec_eq`
+  helpers over time.
 
 ## Notes for the stdlib lane's own coverage
 
 - `probe_wal_file.xi` is a ready-made consumer fixture for the fsync and
-  append-repair rows: it exercises write -> hard kill -> torn tail -> replay
-  -> heal on both platforms (`scripts/crash_test.sh` runs in WSL).
-- The `read_file_lines` CR row is invisible on LF-only Linux checkouts; it
-  bit ORBITDB because the lane runs the same code on Windows first.
+  append-repair rows (write -> hard kill -> torn tail -> replay -> heal on
+  both platforms; `scripts/crash_test.sh` runs in WSL).
+- Your wishlist sweep at `bbf48fa3` (v0.64.2 statuses) is acknowledged; the
+  new rows you recorded there (empty-read clause, `to_string_char(Char(0))`,
+  whole-body cast miscompile) are tracked on your side and are not ORBITDB
+  blockers today.

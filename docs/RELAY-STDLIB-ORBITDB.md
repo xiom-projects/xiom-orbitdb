@@ -1,8 +1,10 @@
 # Relay: ORBITDB -> stdlib lane (paste-ready)
 
 **From:** ORBITDB lane (`E:\xiom-projects\xiom-orbitdb`, embedded database
-engine: B-Tree, WAL, crash recovery). **Pin:** compiler v0.64.0, stdlib
-`a677338` (2026-10-08). Full table: `docs/STDLIB-WISHLIST-ORBITDB.md`.
+engine: B-Tree, WAL, crash recovery). **Pin (current 2026-10-09):** compiler
+v0.64.2, stdlib `82ac2f3`. The body below was written on v0.64.0; a status
+footer records what has landed since. Full table:
+`docs/STDLIB-WISHLIST-ORBITDB.md`.
 
 Hi stdlib lane -- ORBITDB bootstrapped a real durable-WAL probe this
 session: append records -> hard kill -> torn tail -> reopen/replay -> heal,
@@ -62,3 +64,11 @@ order:**
 ORBITDB worked around what it can in-lane (heal-state tracked in the WAL
 handle: append 626 -> 2,061 ops/s) but cannot fix either of the above
 without runtime support.
+
+**Status 2026-10-09 (v0.64.2):** two rows above are RESOLVED --
+`str_split`/`read_file_lines` are linear now (WAL replay of 20k records:
+61.6 s -> 9.9 s) and a trailing CR is stripped per line
+(`xiom/io/io.xi:1072-1073`, citing this relay). Still open: real fsync (the
+new `os/fs_ffi.fsync` + `os/sync_io.sync_fd` are documented stubs), append
+handle, truncate, byte IO, and the tail check. Current numbers and paths:
+`docs/STDLIB-WISHLIST-ORBITDB.md`.

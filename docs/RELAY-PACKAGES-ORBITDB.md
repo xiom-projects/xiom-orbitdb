@@ -1,8 +1,9 @@
 # Relay: ORBITDB -> packages lane (paste-ready)
 
 **From:** ORBITDB lane (`E:\xiom-projects\xiom-orbitdb`, embedded database
-engine; formerly xiom-db). **Pin:** compiler v0.64.0, stdlib `a677338`.
-Full table: `docs/PACKAGE-WISHLIST-ORBITDB.md`.
+engine; formerly xiom-db). **Pin (current 2026-10-09):** compiler v0.64.2,
+stdlib `82ac2f3`; the body below was written on v0.64.0. Full table:
+`docs/PACKAGE-WISHLIST-ORBITDB.md`.
 
 Hi packages lane -- ORBITDB is the embedded DB consumer lane (B-Tree, WAL,
 query engine, crash recovery). Phase 0 is in-memory and zero-dependency; on
@@ -37,3 +38,11 @@ Question for you: for `xiom.wal`, would you rather see it published as a
 standalone package or as the storage core of `xiom.kv`/`xiom.db`? ORBITDB
 can shape the API to whichever boundary you prefer and will send a consumer
 probe the moment it adopts a registry package.
+
+**Status 2026-10-09 (v0.64.2):** re-test complete with all compiler
+workarounds dropped (suite 120/120 x2 Windows + WSL; WAL/page/DB crash x2;
+fuzz + 2000-key soak). `xiom.btree` gate plus fuzz coverage met -- awaiting
+your extraction call; `xiom.wal` gate unchanged (stdlib fsync stub,
+hand-rolled tail repair) and its proposed record shape now includes txn
+kinds (Begin/Commit/Abort) and the checkpoint anchor; `xiom.kv` still not
+consumed. Details: `docs/PACKAGE-WISHLIST-ORBITDB.md` (Delta 2026-10-09).

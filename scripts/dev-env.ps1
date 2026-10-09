@@ -8,8 +8,8 @@
 # file the finding, note the last known-good version in SESSION.md as a
 # ROLLBACK OPTION, and keep moving on other slices.
 #
-# As of 2026-10-08:
-#   compiler  v0.64.1  %LOCALAPPDATA%\xiom.new\bin\xiom.exe
+# As of 2026-10-09:
+#   compiler  v0.64.2  %LOCALAPPDATA%\xiom.new\bin\xiom.exe
 #   stdlib    E:\xiom-lang\stdlib (stdlib-lane checkout = latest lane work)
 #   packages  %LOCALAPPDATA%\xiom\packages (registry, signature-verified)
 #

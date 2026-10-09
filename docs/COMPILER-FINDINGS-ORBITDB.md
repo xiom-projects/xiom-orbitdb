@@ -1,6 +1,11 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-# XIOM ORBITDB -> compiler lane: findings (pin v0.64.1)
+# XIOM ORBITDB -> compiler lane: findings (all RESOLVED on v0.64.2)
+
+**Status 2026-10-09: C-ORBIT-01..05 are all RESOLVED on v0.64.2** -- see the
+re-test section below; the workarounds are dropped in commit `6f6c3ba`
+(`refactor: drop v0.64.2-fixed workarounds`). One scoping caveat remains for
+C-ORBIT-04 in consumer modules (recorded under the re-test).
 
 **Relay:** hand this file to the compiler-lane session together with the
 matching `docs/repro/<bundle>/` directories from the ORBITDB repo
@@ -8,14 +13,14 @@ matching `docs/repro/<bundle>/` directories from the ORBITDB repo
 edit the compiler tree. Read-only compiler-source references below were
 located while triaging and are evidence, not patches.
 
-**Pin this file was produced on (2026-10-08):**
+**Pins (updated 2026-10-09):**
 
 | Component | Version / hash |
 |---|---|
-| compiler | v0.64.0 (`%LOCALAPPDATA%\xiom.new\bin\xiom.exe`; Linux WSL same release) |
-| compiler (re-test) | **v0.64.1** (2026-10-08; installed in place, WSL updated too) |
-| stdlib | `E:\xiom-lang\stdlib` @ `a677338` (2026-10-08) |
-| compiler lane | `ba19be61` (2026-10-08; v0.64.2 lane sweep -- B-08, packages is-literal, m230; no v0.64.2 archive installed yet) |
+| compiler | **v0.64.2** (2026-10-09; installed in place, Windows `%LOCALAPPDATA%\xiom.new` + WSL) |
+| compiler history | v0.64.0 (2026-10-08) -> v0.64.1 (same-day re-test) -> v0.64.2 (this re-test) |
+| stdlib | `E:\xiom-lang\stdlib` @ `82ac2f3` (2026-10-09; lane wave 97 + wishlist sweep) |
+| compiler lane | `d9f146cb` (`v0.64.2-2-gd9f146cb`; the v0.64.2 tag is cut) |
 | env | `XIOM_STDLIB=E:\xiom-lang\stdlib`; `XIOM_RUNTIME_DIR` retired (env-free, installed R65 layout) |
 
 ## Re-test v0.64.1 (2026-10-08) -- all four findings still open; lane green
@@ -41,7 +46,66 @@ These defects are on the critical path of any storage/collection code that
 uses `Vec[Option[T]]` caches, cross-module `Result` aliases, nested-field
 `&mut` methods, or same-named enum variants across modules.
 
-## Open findings
+## Re-test v0.64.2 (2026-10-09) -- all five findings RESOLVED
+
+Compiler relay: `docs/COMPILER-RELAY-2026-10-09-v0.64.2.md` (m223 alias
+payloads, m224 nested-field receivers, m225 enum-variant module scope, m226
+`Vec[Option/Result]` element assignment, m235 loop-body alloca, plus
+m228/m231/m234/m239).
+
+**Acceptance (relay ask): the C-ORBIT-04 qualification workaround REVERTED.**
+`src/wal_file.xi` again constructs and matches unqualified variants
+(`return Update;`, `match op { Insert => ... }`) and the suite compiles and
+runs green -- m225 resolves variants to the declaring module.
+
+**Workaround reverts verified by the full matrix (commit `6f6c3ba`):**
+
+| Finding | Revert | Result |
+|---|---|---|
+| C-ORBIT-01 | typed rebinds removed in `src/wal_file.xi` replay + every `src/storage/page_file.xi` reader (`lines` used directly, matched `p` used directly) | green |
+| C-ORBIT-02 | no app-side workaround remains (BufferPool uses parallel vectors by design); bundle unchanged | green |
+| C-ORBIT-03 | `StorageEngine.cache_page/lookup_page` call `eng.buffer_pool.put/get(...)` directly (no copy-out/write-back) | green |
+| C-ORBIT-04 | variants unqualified in `src/wal_file.xi`; engine keeps qualification (see caveat) | green |
+| C-ORBIT-05 | `page_log_read_all` restored to the nested `Vec[Page]` dedup with `out.push(all[k])` | green |
+
+**Repro bundles unchanged (Windows + WSL):**
+
+| Bundle | v0.64.1 | v0.64.2 |
+|---|---|---|
+| nested-field-mut | A=0, C=0 (writes lost) | A=1 B=1 C=1 D=1 |
+| option-vec-assign | V1/V3/V6/V8/V9 silent | V1..V5 SOME/OK; no silent slots |
+| option-param / option-ref-write / ok-method-receiver | mix of reds per earlier matrix | all labelled OK (D2=NONE, bits=0 controls) |
+| vec-option-match | Some arms dropped | A=5 B=5 C=9 D=7 (correct) |
+| vec-push-nested | variant D aborts `0xC0000005` | A/B/C/D all ok |
+
+**Lane regression on v0.64.2 with the workarounds reverted:** conformance
+120/120 x2 Win + WSL, db_crash 25/25 x2, WAL crash 4/4 x2, page crash 4/4 x2,
+fuzz `seeds=4 ops/seed=4000` OK, 2000-key policy soak OK (9 checkpoints).
+Bench: `wal_replay` of 20k records 61.6 s -> 9.9 s (stdlib linear
+`read_file_lines`; see the stdlib wishlist).
+
+**Bonus verification:** deep container equality (m239) is live --
+`Vec[Int] == Vec[Int]` and `Str == Str` compare by content on v0.64.2 (the
+v0.64.2 release-notes "Known issues" line claiming pointer identity is
+stale).
+
+### Residual caveat -- C-ORBIT-04 scope (consumer modules)
+
+Unqualified resolution now binds to the module that DECLARES the enum. In a
+consumer module that imports one enum while the program also contains a
+structurally identical enum from another import (our suite imports both
+`wal_file.WALOpKind` and `txn.WALOp`), an unqualified variant still resolves
+to the wrong twin: `wal_file_append(&mut w, Insert, ...)` in the suite
+lowered against txn's `WALOp` -> `T001 expected WALOpKind, found WALOp`
+(no ambiguity diagnostic). ORBITDB therefore keeps qualification in consumer
+modules (`src/engine.xi`, the suite) and files this follow-up request:
+scope unqualified resolution to the importing module's import set and/or
+emit an ambiguity error.
+
+## Open findings (all RESOLVED on v0.64.2 -- kept as history)
+
+The rows below describe the v0.64.1 state and the workarounds that were
+applied then; every one is resolved on v0.64.2 (see the re-test above).
 
 | Date | Finding | Evidence | Workaround in ORBITDB | Impact |
 |---|---|---|---|---|
@@ -219,3 +283,7 @@ uses `Vec[Option[T]]` caches, cross-module `Result` aliases, nested-field
    `.sh` twins from WSL, then the repro bundles.
 3. A finding flips to RESOLVED only when its probe bundle is green
    unchanged; record the result in this file and SESSION.md.
+4. Then run the relay-acceptance pass: revert the app-side workaround on a
+   branch, re-run suite x2 + crash x2 + fuzz + soak on both platforms, and
+   merge only if green (v0.64.2 did this in commit `6f6c3ba`). A finding
+   whose revert regresses keeps its workaround and stays open.

@@ -6,16 +6,16 @@
 packages from the registry only (never vendored, never edited). Evidence
 paths are from `E:\xiom-projects\xiom-orbitdb`.
 
-**Pin:** compiler v0.64.0, stdlib `a677338`, registry
-`https://registry.xiom-lang.org`.
+**Pin (2026-10-09):** compiler **v0.64.2**, stdlib `82ac2f3`, registry
+`https://registry.xiom-lang.org` (packages lane eco-v0.1.115-era).
 
 **Context:** ORBITDB (formerly xiom-db) is the embedded database engine --
-B-Tree, WAL, query engine, crash recovery. Phase 0 is in-memory and
-zero-dependency; this session made it compile and pass its own conformance
-suite on v0.64.0 (93/93) and bootstrapped a durable WAL segment probe with
-hard-kill crash/reopen (green Windows + WSL, 200-record soak). The wishlist
-below is about extracting the durable primitives into reusable packages as
-they harden.
+B-Tree, WAL, query engine, crash recovery. It is zero-dependency and, as of
+2026-10-09, runs its full lane on v0.64.2 with every compiler workaround
+dropped (suite 120/120 x2 Windows + WSL, WAL/page/DB crash harnesses x2,
+fuzz + 2000-key policy soak, incremental checkpoints and durable
+transactions). The wishlist below is about extracting the durable primitives
+into reusable packages as they harden.
 
 ## Proposed packages (ORBITDB needs / will grow)
 
@@ -76,3 +76,25 @@ they harden.
   `src/wal_file.xi` + `probe_wal_file` acceptance).
 - **`xiom.kv` watch unchanged:** C-PULSE-10 is Linux-only; the fsync row is
   filed in the stdlib wishlist.
+
+## Delta 2026-10-09 (v0.64.2 re-test + package status)
+
+- **v0.64.2 re-test complete**: all compiler workarounds dropped
+  (`6f6c3ba`); suite 120/120 x2 Win + WSL; crash/fuzz/soak green; deep
+  container equality (m239) live. None of this changes the registry surface.
+- **`xiom.btree`**: extraction gate (churn soak) MET and now additionally
+  covered by the deterministic fuzz harness (B-tree vs model, orders 4/5,
+  x2 both platforms). Still awaiting the extraction decision; ORBITDB keeps
+  the reference implementation in `src/engine.xi`.
+- **`xiom.wal`**: gate NOT met yet -- the stdlib fsync row is still a stub
+  (`os/fs_ffi.fsync` and `os/sync_io.sync_fd` return Err) and
+  append-tail-repair is still hand-rolled. ORBITDB's `src/wal_file.xi` has
+  grown the proposed shape: record `{lsn, op, key, value, payload,
+  timestamp}`, op codes 1..10 incl. `BeginTxn/CommitTxn/AbortTxn`,
+  torn-tail heal, truncate keeping `lsn >= from`, and a `Checkpoint` anchor
+  payload -- carry these into the `xiom.wal`/`xiom.durable` reconciliation.
+- **`xiom.kv`**: still not consumed; no ORBITDB consumer pass yet (registry
+  publish activity on the packages side noted; nothing required from
+  ORBITDB).
+- **No new package defects from ORBITDB**; the registry gate from the PULSE
+  lane remains the only tracked consumer-blocking item we know of.

@@ -95,3 +95,28 @@ reopen (N>=400). Workaround: keep-set over a parallel `Vec[Int]` + a single
 non-nested push pass. This one aborts the process rather than miscompiling a
 value, so it is the highest-severity shape we have seen from the collection
 family. Details in `docs/COMPILER-FINDINGS-ORBITDB.md` (C-ORBIT-05).
+
+**Confirmed 2026-10-09 -- v0.64.2 re-test: all five findings RESOLVED.**
+
+- Acceptance as asked: the C-ORBIT-04 qualification workaround is reverted in
+  `src/wal_file.xi` (unqualified constructors and patterns) and the lane is
+  green on v0.64.2. The C-ORBIT-01 (typed rebinds in `src/wal_file.xi` +
+  `src/storage/page_file.xi`), C-ORBIT-03 (copy-out/write-back in
+  `StorageEngine`) and C-ORBIT-05 (Int-only dedup) workarounds are reverted
+  too: suite 120/120 x2 Win + WSL, db_crash 25/25 x2, WAL/page crash x2,
+  fuzz OK, 2000-key soak OK; commit `6f6c3ba`.
+- All seven repro bundles are green unchanged on both platforms
+  (nested-field-mut A=1; option-vec-assign V1..V5 readable; vec-option-match
+  A=5/B=5/C=9/D=7; vec-push-nested variant D ok).
+- One residual scoping note on m225 (not a red): unqualified resolution now
+  binds to the DECLARING module, but a consumer module in a program that also
+  contains another same-named enum still resolves to the wrong twin -- our
+  suite (imports both `wal_file.WALOpKind` and `txn.WALOp`) failed with
+  `T001 expected WALOpKind, found WALOp` for `wal_file_append(&mut w, Insert,
+  ...)` and keeps qualification. Request: scope resolution to the importing
+  module's import set and/or emit an ambiguity error; no reds otherwise.
+- Bonus: deep container equality (m239) verified working (`Vec[Int] ==`
+  content-true, `Str ==` content-true); the v0.64.2 release-notes "Known
+  issues" line claiming pointer identity looks stale.
+- Thanks for the batch; full matrix in `docs/COMPILER-FINDINGS-ORBITDB.md`
+  (v0.64.2 re-test section).
