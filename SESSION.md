@@ -64,6 +64,16 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   header slot) -- **suite 127/127 x2 Win + WSL**; API.md storage section
   documents the module. Next S1 item: fuzz extension; then S2 block store
   over the byte-IO shim.
+**Updated:** 2026-10-10 (M1.2 S3 integration, same session): the snapshot
+  can be written as v2 byte blocks -- `db_file_open_cfg` /
+  `db_file_open_checked_cfg` (`page_format` 1 default | 2), reads
+  auto-detect by first byte, `snap_flush_v2` (dirty-only append + header
+  commit; v1 file -> full rewrite = migration-on-write), `snap_compact`
+  handles a v1 handle on a v2 file, `db_file_migrate_snapshot` (idempotent);
+  suite **130/130 x2 Win + WSL**, **db_crash matrix 25/25 x2 both in v2
+  mode**; default stays v1 -- the flip moves to S4 (single full checkpoint
+  at N=2000 is minutes-scale on the O(file) shim). Docs: FORMATS pointer,
+  API rows, RUNBOOK env line.
 **Updated:** 2026-10-10 (bus verifications, same session): `REL-20261010-1550-orbitdb-10`
   (packages enum-variant qualification) verified+closed against the shipped
   source; `-11` (XV-ORBITDB-01) verified against xvector `3c36f34`
@@ -358,10 +368,9 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   workaround). New compiler finding **C-ORBIT-06** filed (phantom imports
   silently accepted; C-ORBIT-01..05 stay RESOLVED).
 - **Next action (priority order, per `docs/PRODUCTION-PLAN.md` section 13):**
-  1. **M1.2 byte-page format v2 -- design + S1 + S2 DONE**; next S3
-     (`DatabaseConfig.page_format` v1/v2, v1->v2 migration, DBFile
-     integration behind the flag, full matrix, default flip), then S4
-     (stdlib fixed-size IO + fsync swap).
+  1. **M1.2 byte-page v2 -- design + S1 + S2 + S3 integration DONE**; next
+     S4 (stdlib fixed-size IO + fsync swap, default flip + fresh bench,
+     FORMATS "3v2" tables), then M1.1b lazy load.
   2. Order-3 B-tree fix landed (upstream of `xiom.btree` SPEC 2.3) -- next
      `xiom.btree` release re-extracts; run the consumer pass then.
   3. **M4.2 secondary indexes** (catalog `IndexDef`, index-vs-model fuzz) +
@@ -566,10 +575,11 @@ committed/uncommitted classification, dangling-window abort on open;
 db_file_range + db_file_query; db_path_valid + db_file_open_checked
 validation; wal_bytes stale-handle write guard; NodeStore dirty tracking =
 dirty-only checkpoint flush (M1.1); key-range planner pushdown +
-query_key_range, point/range plans (M4.1); byte-page format v2 S1+S2
+query_key_range, point/range plans (M4.1); byte-page format v2 S1+S2+S3
 (codec `src/storage/block.xi`; shim `byte_io.xi`; store
 `src/storage/block_store.xi` with 26-check probe + 4-state crash harness +
-fuzz; design `docs/BYTE-PAGE-FORMAT-V2.md`); B-tree order-3
+fuzz; v2 snapshot container behind `page_format` 2 with auto-detect +
+migration, db_crash v2 x2 both; design `docs/BYTE-PAGE-FORMAT-V2.md`); B-tree order-3
 empty-chain fix (predecessor/successor, fill_child, min/max; suite
 regression + fuzz orders 3/4/5)). Known limits: no fsync
 (process-crash safe only); replay is linear now but file IO is O(n) per read
@@ -580,10 +590,10 @@ docs/ISOLATION.md); buffer pool in-memory only (pager seam C3 pending);
 fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-1. M1.2 byte-page format v2: design + S1 + S2 DONE (block codec, byte-IO
-   shim, block store, probe, crash harness, fuzz -- all x2 both platforms);
-   next S3 (DBFile integration behind DatabaseConfig.page_format + v1->v2
-   migration + default flip), S4 (stdlib byte IO + fsync swap).
+1. M1.2 byte-page v2: design + S1 + S2 + S3 integration DONE (v2 snapshot
+   container behind `page_format` 2; db_crash v2 x2 both; suite 130 x2
+   both); next S4 (stdlib byte IO + fsync swap, default flip + bench,
+   FORMATS 3v2 tables), then M1.1b lazy load.
 2. Order-3 B-tree fix is upstream; when the fixed `xiom.btree` package
    releases, re-extract is theirs -- run our two-way consumer pass then.
 3. M4.2 secondary indexes (catalog IndexDef) + ORDER/LIMIT execution.

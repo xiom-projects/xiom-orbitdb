@@ -2604,6 +2604,100 @@ fn test_db_file_checkpoint_churn() -> TestResult {
   return assert(false, "db_file: checkpoint churn failed");
 }
 
+fn run_db_file_v2_snapshot() -> Int {
+  let path = "orbitdb-suite-db-v2.wal";
+  let snap = "orbitdb-suite-db-v2.wal.snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+
+  var db = db_file_open_cfg(path, 4, 2);
+  if db.page_format != 2 { return 1; }
+  var i = 1;
+  while i <= 40 {
+    if !db_file_put(&mut db, i, i * 3) { return 1; }
+    i = i + 1;
+  }
+  let ckpt = db_file_checkpoint(&mut db);
+  if ckpt < 0 { return 1; }
+  // Dirty-only append path: a second checkpoint must advance the generation.
+  i = 1;
+  while i <= 10 {
+    if !db_file_put(&mut db, i, i * 7) { return 1; }
+    i = i + 1;
+  }
+  let ckpt2 = db_file_checkpoint(&mut db);
+  if ckpt2 <= ckpt { return 1; }
+
+  // Reopen with the DEFAULT v1 handle: reads auto-detect the v2 file.
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 40 { return 1; }
+  let v5 = db_file_get(&db2, 5);
+  match v5 {
+    None => { return 1; }
+    Some(x) => { if x != 35 { return 1; } }
+  }
+  let v30 = db_file_get(&db2, 30);
+  match v30 {
+    None => { return 1; }
+    Some(x) => { if x != 90 { return 1; } }
+  }
+  // A v1-handle checkpoint on a v2 file rewrites it whole as v1 (the
+  // on-disk format stays authoritative), and reads keep working.
+  if !db_file_put(&mut db2, 41, 410) { return 1; }
+  let ckpt3 = db_file_checkpoint(&mut db2);
+  if ckpt3 < 0 { return 1; }
+  var db3 = db_file_open(path, 4);
+  if db_file_size(&db3) != 41 { return 1; }
+
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  return 0;
+}
+
+fn test_db_file_v2_snapshot() -> TestResult {
+  let rc = run_db_file_v2_snapshot();
+  if rc == 0 { return assert(true, "db_file v2: byte-snapshot append + auto-detect + format flip"); }
+  return assert(false, "db_file v2: snapshot roundtrip failed");
+}
+
+fn run_db_file_v2_migrate() -> Int {
+  let path = "orbitdb-suite-db-v2m.wal";
+  let snap = "orbitdb-suite-db-v2m.wal.snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+
+  // Build a v1 snapshot, then migrate it in place (twice: idempotent).
+  var db = db_file_open(path, 4);
+  var i = 1;
+  while i <= 25 {
+    if !db_file_put(&mut db, i, i + 100) { return 1; }
+    i = i + 1;
+  }
+  if db_file_checkpoint(&mut db) < 0 { return 1; }
+  let _ = io.remove_file(path);
+
+  if !db_file_migrate_snapshot(path) { return 1; }
+  if !db_file_migrate_snapshot(path) { return 1; }
+
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 25 { return 1; }
+  let v13 = db_file_get(&db2, 13);
+  match v13 {
+    None => { return 1; }
+    Some(x) => { if x != 113 { return 1; } }
+  }
+
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  return 0;
+}
+
+fn test_db_file_v2_migrate() -> TestResult {
+  let rc = run_db_file_v2_migrate();
+  if rc == 0 { return assert(true, "db_file v2: v1 snapshot migrated in place (idempotent)"); }
+  return assert(false, "db_file v2: migration failed");
+}
+
 fn run_db_file_query_range() -> Int {
   let path = "orbitdb-suite-db-q.wal";
   let snap = "orbitdb-suite-db-q.wal.snap";
@@ -3796,6 +3890,12 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r103.passed, r103.name);
   let r104 = test_block_v2_header();
   total = total + 1; failed = failed + report(r104.passed, r104.name);
+
+  // db_file v2 snapshot container (M1.2 S3)
+  let r105 = test_db_file_v2_snapshot();
+  total = total + 1; failed = failed + report(r105.passed, r105.name);
+  let r106 = test_db_file_v2_migrate();
+  total = total + 1; failed = failed + report(r106.passed, r106.name);
 
   let passed = total - failed;
   io.println("");

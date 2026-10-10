@@ -61,6 +61,14 @@ empty: the Checkpoint anchor carries the LSN continuity.
 
 ## 3. Page file and page log (`<db path>.snap`, general page stores)
 
+> **v2 container (implemented behind a flag, M1.2):** the snapshot can
+> instead be stored as 4096-byte blocks (`page_format = 2` on
+> `db_file_open_cfg`); reads auto-detect the format by the first byte
+> (`'O'` = v2). The wire format is frozen in
+> [docs/BYTE-PAGE-FORMAT-V2.md](BYTE-PAGE-FORMAT-V2.md); the v1 layout below
+> stays authoritative for the default until the v2 tables land here with
+> the default flip (M1.2 S4).
+
 One page per line:
 
 ```

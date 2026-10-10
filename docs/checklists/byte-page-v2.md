@@ -52,14 +52,32 @@
       put generations, probabilistic commits, open+compare per commit);
       fuzz x2 both platforms
 
-## S3 -- DBFile integration + default flip
+## S3 -- DBFile integration (INTEGRATION DONE 2026-10-10; default flip deferred to S4)
 
-- [ ] `DatabaseConfig.page_format` (`"v1" | "v2"`, default `"v1"`)
-- [ ] `page_file_v2_migrate(v1, v2)` (idempotent) + auto-detect at open
-- [ ] `tuple_fits_page` consults store capacity (v1 4096 / v2 4064)
-- [ ] Full matrix with v2: suite x2, page/db crash x2, fuzz, 2000-key soak
-- [ ] Flip the default to v2; re-run the full matrix; FORMATS.md "3v2"
-      section + API.md + RUNBOOK updated in the same commit
+- [x] Snapshot-format knob on open: `db_file_open_cfg` /
+      `db_file_open_checked_cfg` with `page_format` 1 (v1, default) | 2 (v2).
+      (The `DatabaseConfig` struct field arrives with the Database-layer file
+      path; the file API is the knob today.)
+- [x] Reads auto-detect the on-disk format (`snap_load_auto`, first byte);
+      `snap_load_v2` enforces the same strictness as v1
+- [x] `snap_flush_v2`: dirty-only append + header commit at gen+1; a v1 (or
+      absent) file is rewritten whole via `v2_rewrite_all` (temp+rename) =
+      migration-on-write; crashed partial generations are overwritten by
+      same-gen rewrites
+- [x] v1 handle on a v2 file rewrites whole via `snap_compact` (format stays
+      authoritative on disk)
+- [x] `db_file_migrate_snapshot(path)`: idempotent in-place v1 -> v2
+- [x] Probe: `ORBITDB_DB_FORMAT=v2` routes every open/write in
+      `probe_db_file.xi`; **db_crash matrix 25/25 x2 Windows + WSL in v2**
+      plus suite x2 both (130/130)
+- [ ] Flip the default to v2: DEFERRED to S4 -- a single first full
+      checkpoint at N=2000 is minutes-scale on the O(file) shim (v2 441 s
+      measured; the v1 control hit the 600 s watchdog in that run; both
+      shapes are dominated by per-page file IO). Default stays v1 until the
+      real fixed-size IO lands, then flip + fresh bench.
+- [ ] FORMATS.md "3v2" full tables: land with the default flip at S4 (the
+      wire format itself is frozen in `docs/BYTE-PAGE-FORMAT-V2.md`; a
+      pointer section is in FORMATS.md now)
 
 ## S4 -- stdlib byte IO + fsync swap
 

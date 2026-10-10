@@ -196,6 +196,16 @@ Scoreboard changelog:
   block store vs model. GREEN x2 Win + WSL; suite 128/128 x2 both.
   No score change (A5/C2 stay WIP -- the pager seam and the default flip
   are S3/S4; this is the groundwork evidence): 70.5.
+- 2026-10-10 (same day, M1.2 S3 integration): the DBFile snapshot can be
+  written as v2 byte blocks -- `db_file_open_cfg` / `db_file_open_checked_cfg`
+  (`page_format` 1 default | 2), first-byte auto-detect on reads,
+  `snap_flush_v2` (dirty-only append + header commit; a v1 file is rewritten
+  whole = migration-on-write), v1-handle-on-v2-file flip via `snap_compact`,
+  idempotent `db_file_migrate_snapshot`; suite **130/130 x2 Win + WSL**;
+  **db_crash matrix 25/25 x2 both platforms in v2 mode**. Default stays v1
+  (the flip moves to S4: a single first full checkpoint at N=2000 is
+  minutes-scale on the O(file) shim). No score change (A5/C2 groundwork):
+  70.5.
 
 ## A. Correctness & data structures (20)
 

@@ -18,6 +18,9 @@
 //   ORBITDB_DB_TXN_COMMIT txn mode: "0" leaves the txn pending, "1" commits (default 1)
 //   ORBITDB_DB_LAST_KEY  optional: key to assert after recovery
 //   ORBITDB_DB_LAST_VAL  optional: expected value for LAST_KEY
+//   ORBITDB_DB_FORMAT    snapshot container for WRITES: "v1" (default) |
+//                        "v2" (byte blocks, M1.2 S3); reads always
+//                        auto-detect the on-disk format.
 //
 // Exit: 0 = succeeded, 1 = check failed, 2 = bad env.
 
@@ -29,8 +32,16 @@ use xiom.convert;
 use xiom.convert.parse;
 use xiom.db.engine;
 
+// Open honoring ORBITDB_DB_FORMAT (writes only; reads auto-detect).
+fn open_db(path: Str, order: Int) -> DBFile {
+  if env.var_or("ORBITDB_DB_FORMAT", "v1") == "v2" {
+    return db_file_open_cfg(path, order, 2);
+  }
+  return db_file_open(path, order);
+}
+
 fn run_write(path: Str, n: Int) -> Int {
-  var db = db_file_open(path, 4);
+  var db = open_db(path, 4);
   var i = 1;
   while i <= n {
     if !db_file_put(&mut db, i, i * 10) {
@@ -51,7 +62,7 @@ fn run_write(path: Str, n: Int) -> Int {
 }
 
 fn run_verify(path: Str, n: Int) -> Int {
-  var db = db_file_open(path, 4);
+  var db = open_db(path, 4);
   let size = db_file_size(&db);
   io.println("verify: recovered=" + convert.int_to_string(size) + " lsn=" + convert.int_to_string(db_file_last_lsn(&db)));
   if size != n {
@@ -98,7 +109,7 @@ fn run_verify(path: Str, n: Int) -> Int {
 // (WAL-only, snapshot-only, snapshot+tail) and are independent of the
 // optional 9999/99990 probe key (it sorts last, past every checked window).
 fn run_qverify(path: Str, n: Int) -> Int {
-  var db = db_file_open(path, 4);
+  var db = open_db(path, 4);
 
   // Key range [3, 6] -> values 30..60 in key order.
   let r = db_file_range(&db, 3, 6);
@@ -148,7 +159,7 @@ fn run_txn(path: Str, n: Int) -> Int {
   var do_commit = true;
   if env.var_or("ORBITDB_DB_TXN_COMMIT", "1") == "0" { do_commit = false; }
 
-  var db = db_file_open(path, 4);
+  var db = open_db(path, 4);
   var i = 1;
   while i <= n {
     if !db_file_put(&mut db, i, i * 10) {
@@ -196,7 +207,7 @@ fn run_ckpt(path: Str, n: Int) -> Int {
     Ok(v) => { tail = v; }
     Err(_) => { tail = 0; }
   }
-  var db = db_file_open(path, 4);
+  var db = open_db(path, 4);
   var i = 1;
   while i <= n {
     if !db_file_put(&mut db, i, i * 10) {
@@ -241,7 +252,7 @@ fn run_soak(path: Str, n: Int) -> Int {
   let _ = io.remove_file(path);
   let _ = io.remove_file(path + ".snap");
 
-  var db = db_file_open(path, 4);
+  var db = open_db(path, 4);
   var checkpoints = 0;
   var i = 1;
   while i <= n {
@@ -258,7 +269,7 @@ fn run_soak(path: Str, n: Int) -> Int {
   if final < 0 { io.println("soak: final checkpoint failed"); return 1; }
   io.println("soak: loop+final done checkpoints=" + convert.int_to_string(checkpoints + 1));
 
-  var db2 = db_file_open(path, 4);
+  var db2 = open_db(path, 4);
   io.println("soak: reopened");
   if db_file_size(&db2) != n {
     io.println("soak: size mismatch got " + convert.int_to_string(db_file_size(&db2)));
@@ -282,7 +293,7 @@ fn run_soak(path: Str, n: Int) -> Int {
     return 1;
   }
   io.println("soak: post put done");
-  var db3 = db_file_open(path, 4);
+  var db3 = open_db(path, 4);
   io.println("soak: reopened 2");
   if db_file_size(&db3) != n + 1 {
     io.println("soak: final size wrong");
@@ -323,7 +334,7 @@ fn main() -> Int {
     return run_txn(path, n);
   }
   if mode == "put1" {
-    var db = db_file_open(path, 4);
+    var db = open_db(path, 4);
     if !db_file_put(&mut db, 9999, 99990) {
       io.println("put1: failed");
       return 1;

@@ -30,7 +30,7 @@ Shell scripts and `.xi` files must stay LF; `.ps1` files are CRLF
 | Conformance suite | `scripts/run.ps1 tests\test_conformance.xi -TimeoutSec 300` | 127 tests; expect `127/127` and exit 0. |
 | WAL crash harness | `scripts\crash_test.ps1 -Events 20 -TimeoutSec 90` | writer -> hard kill -> torn tail -> reopen -> verify -> heal -> verify+1. |
 | Page crash harness | `scripts\page_crash_test.ps1 -Pages 20 -TimeoutSec 120` | Use 120s: the writer's first compile can exceed 90s under load. |
-| DB crash harness | `scripts\db_crash_test.ps1 -Keys 20 -Tail 3 -Tx 5 -TimeoutSec 90` | Five scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn, committed txn); 25 checks. |
+| DB crash harness | `scripts\db_crash_test.ps1 -Keys 20 -Tail 3 -Tx 5 -TimeoutSec 90` | Five scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn, committed txn); 25 checks. Prefix `ORBITDB_DB_FORMAT=v2` (env) to run the whole matrix with v2 byte-block snapshots (same 25 checks; GREEN x2 both platforms). |
 | Hybrid crash harness | `scripts\hybrid_crash_test.ps1 -Keys 1000 -TimeoutSec 240` | ORBITDB <-> XVECTOR: one writer drives both stores, hard kill, torn row tail, reopen + repair + 100% join integrity; second verify idempotent. Needs the sibling `xiom-xvector` checkout (source roots in `tests/hybrid/xiom.toml`). |
 | Block crash harness | `scripts\block_crash_test.ps1 -Pages 60 -Batch 10 -TimeoutSec 240` | M1.2 S2: four kill states (pages2 / full2 / midheader / compacted) + torn tail + reopen + recovery append; 8 checks. Kill lands at quiescent states only (O(file) shim until S4). |
 | Fuzz/property | `scripts\fuzz.ps1 -TimeoutSec 600` | Deterministic; see section 4. |
@@ -49,7 +49,7 @@ killed); harnesses print `GREEN`/`RED` and exit 0/1.
 
 | Probe | Mode / env | What it does |
 |-------|------------|--------------|
-| `tests/probes/probe_db_file.xi` | `ORBITDB_DB_MODE=write/verify/put1/ckpt/qverify/txn/soak` | Durable DB driver used by the crash harnesses. `verify` checks keys/values; `qverify` checks range + filter queries; `ckpt` polls snapshot + truncated WAL; `txn` opens a transaction (`ORBITDB_DB_TXN_COUNT`, `ORBITDB_DB_TXN_COMMIT=0/1`). |
+| `tests/probes/probe_db_file.xi` | `ORBITDB_DB_MODE=write/verify/put1/ckpt/qverify/txn/soak`; `ORBITDB_DB_FORMAT=v1/v2` | Durable DB driver used by the crash harnesses. `verify` checks keys/values; `qverify` checks range + filter queries; `ckpt` polls snapshot + truncated WAL; `txn` opens a transaction (`ORBITDB_DB_TXN_COUNT`, `ORBITDB_DB_TXN_COMMIT=0/1`). FORMAT steers the snapshot container for writes (reads auto-detect). |
 | | `ORBITDB_DB_FILE`, `ORBITDB_DB_N`, `ORBITDB_DB_LAST_KEY`, `ORBITDB_DB_LAST_VAL` | Path, key count, optional post-recovery assertion. |
 | | `ORBITDB_DB_CKPT_EVERY` | Soak mode: `db_file_maybe_checkpoint` record limit (default 250). |
 | `tests/probes/probe_btree_churn.xi` | `ORBITDB_CHURN_ORDER/OPS/N/SEED` | B-tree churn vs model + structural validator. |

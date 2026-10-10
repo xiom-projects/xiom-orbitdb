@@ -7,6 +7,9 @@ use xiom.io;
 use xiom.db.wal_file;
 use xiom.db.storage.page;
 use xiom.db.storage.page_file;
+use xiom.db.storage.block;
+use xiom.db.storage.block_store;
+use xiom.db.storage.byte_io;
 use xiom.db.storage.tuple;
 use xiom.db.error;
 use xiom.db.contracts;
@@ -1282,6 +1285,7 @@ pub type DBFile = {
   txn_active: Bool;
   txn_ops: Vec[TxOp];
   wal_bytes: Int;
+  page_format: Int;
 }
 
 // Apply one replayed record. Maps by op code so cross-module enum patterns
@@ -1311,16 +1315,22 @@ fn db_file_apply_txop(tree: &mut BTree, op: TxOp) {
 // Open (or create) a file-backed database. Recovery: load the checkpoint
 // snapshot when present, then replay ONLY records newer than its
 // checkpoint_lsn; without a snapshot, replay the whole segment (Phase 1/B
-// behavior). The torn tail is healed once by `wal_file_open`.
+// behavior). The torn tail is healed once by `wal_file_open`. The v1 page
+// log is the default snapshot container; v2 (byte blocks) is opt-in per
+// handle via `db_file_open_cfg` and is auto-detected on READ (the on-disk
+// format decides how the snapshot loads; the handle's format decides how the
+// next checkpoint writes, migrating the file if needed).
 pub fn db_file_open(path: Str, order: Int) -> DBFile {
+  return db_file_open_cfg(path, order, 1);
+}
+
+pub fn db_file_open_cfg(path: Str, order: Int, page_format: Int) -> DBFile {
   var tree = btree_new(order);
   var snap_lsn = 0;
   let snap_path = path + ".snap";
-  // Heal a torn trailing snapshot append before any future append can merge
-  // with it (same rule as the WAL segment).
-  let snap_pf = page_file_open(snap_path);
-  let _ = page_log_heal_tail(&snap_pf);
-  let loaded = snap_load(snap_path);
+  // Snapshot reads auto-detect the on-disk format: 'O' (0x4F) first byte =
+  // v2 block store; anything else = v1 text page log (healed on open).
+  let loaded = snap_load_auto(snap_path);
   match loaded {
     None => {}
     Some(s) => {
@@ -1380,7 +1390,7 @@ pub fn db_file_open(path: Str, order: Int) -> DBFile {
   let wal_bytes = db_wal_size(path);
   return DBFile{ path: path, order: tree.order, tree: tree, wal: wal,
                  records_since_ckpt: 0, txn_active: false, txn_ops: ops,
-                 wal_bytes: wal_bytes };
+                 wal_bytes: wal_bytes, page_format: page_format };
 }
 
 // ---------------------------------------------------------------------------
@@ -1408,6 +1418,22 @@ pub fn db_file_open_checked(path: Str, order: Int) -> Result[DBFile, DbError] {
     return Err(DbError.ConstraintViolation);
   }
   return Ok(db_file_open(path, order));
+}
+
+// Validated open with an explicit snapshot container format (1 = v1 text
+// page log, 2 = v2 byte blocks). Reads always auto-detect the on-disk
+// format; page_format only steers the next checkpoint's write.
+pub fn db_file_open_checked_cfg(path: Str, order: Int, page_format: Int) -> Result[DBFile, DbError] {
+  if !db_path_valid(path) {
+    return Err(DbError.ConstraintViolation);
+  }
+  if !valid_btree_order(order) {
+    return Err(DbError.ConstraintViolation);
+  }
+  if page_format != 1 && page_format != 2 {
+    return Err(DbError.ConstraintViolation);
+  }
+  return Ok(db_file_open_cfg(path, order, page_format));
 }
 
 // Stale-handle guard (multi-handle safety): every handle remembers the WAL
@@ -1895,6 +1921,188 @@ fn snap_load(path: Str) -> Option[Snapshot] {
   return Some(Snapshot{ tree: tree, checkpoint_lsn: meta.checkpoint_lsn, generation: meta.generation });
 }
 
+// --- v2 snapshot container (byte blocks; M1.2 S3) --------------------------
+// The node payload codec is unchanged (`snap_node_page_bytes`); only the
+// container changes: node index = block page_id, snapshot generation = block
+// generation, and the block store's header slot carries the meta (root,
+// order, node_count, checkpoint_lsn). Reads auto-detect by first byte.
+
+fn snap_format_v2(path: Str) -> Bool {
+  match byteio_read_at(path, 0, 1) {
+    Some(b) => {
+      if b.len() == 1 && b[0] == 0x4F { return true; }
+      return false;
+    }
+    None => { return false; }
+  }
+}
+
+fn snap_load_auto(path: Str) -> Option[Snapshot] {
+  if snap_format_v2(path) { return snap_load_v2(path); }
+  let pf = page_file_open(path);
+  let _ = page_log_heal_tail(&pf);
+  return snap_load(path);
+}
+
+// Read a v2 snapshot through the block store: the committed header carries
+// the meta, one committed block per node index carries the node payload.
+// Same strictness as v1: any gap/codec/range violation is None.
+fn snap_load_v2(path: Str) -> Option[Snapshot] {
+  let bs = block_store_open(path);
+  if !bs.committed { return None; }
+  let node_count = bs.header.node_count;
+  let order = bs.header.order;
+  let root = bs.header.root;
+  if order < 3 { return None; }
+  if node_count < 1 { return None; }
+  if node_count >= SNAP_PAGE_STRIDE { return None; }
+  if root < 0 { return None; }
+  if root >= node_count { return None; }
+
+  var nodes = Vec[BTreeNode].new();
+  var i = 0;
+  while i < node_count {
+    match block_store_read(&bs, i) {
+      Some(p) => {
+        match snap_decode_node(&p.payload) {
+          Some(nd) => { nodes.push(nd); }
+          None => { return None; }
+        }
+      }
+      None => { return None; }
+    }
+    i = i + 1;
+  }
+
+  var j = 0;
+  while j < nodes.len() {
+    let nd = nodes[j];
+    var c = 0;
+    while c < nd.children.len() {
+      if nd.children[c] < 0 { return None; }
+      if nd.children[c] >= node_count { return None; }
+      c = c + 1;
+    }
+    j = j + 1;
+  }
+
+  var dirty = Vec[Bool].new();
+  var di = 0;
+  while di < nodes.len() {
+    dirty.push(false);
+    di = di + 1;
+  }
+  var store = NodeStore{ nodes: nodes, dirty: dirty };
+  var tree = BTree{ root: root, order: order, store: store };
+  return Some(Snapshot{ tree: tree, checkpoint_lsn: bs.header.checkpoint_lsn,
+                        generation: bs.header.committed_generation });
+}
+
+// Full v2 write from the TREE (all nodes + header commit) into a temp file,
+// then one atomic rename. Used for migration (v1 -> v2), format flips, and
+// compaction. The original file is untouched until the rename succeeds.
+fn v2_rewrite_all(path: Str, tree: &mut BTree, gen: Int, checkpoint_lsn: Int) -> Bool {
+  let tmp = path + ".rw";
+  match io.remove_file(tmp) { Ok(_) => {} Err(_) => {} }
+  var bs = block_store_open(tmp);
+  var i = 0;
+  while i < tree.store.nodes.len() {
+    let node = tree.store.nodes[i];
+    let data = snap_node_page_bytes(&node);
+    if block_store_put(&mut bs, gen, i, &data) < 0 { return false; }
+    i = i + 1;
+  }
+  let h = BlockHeader{
+    root: tree.root,
+    order: tree.order,
+    node_count: tree.store.nodes.len(),
+    checkpoint_lsn: checkpoint_lsn,
+    committed_generation: gen,
+    block_count: bs.block_count,
+    next_page_id: 0,
+  };
+  if !block_store_commit(&mut bs, &h) { return false; }
+  match io.rename(tmp, path) {
+    Ok(_) => {}
+    Err(_) => { return false; }
+  }
+  return true;
+}
+
+// v2 incremental flush: append new versions of only the DIRTY nodes at
+// gen = committed + 1, then commit the header slot. A v1 (or absent) file is
+// rewritten whole (migration-on-write). Crashed partial generations are
+// overwritten by the same-gen rewrites on the next attempt, so they can
+// never become the only version of a node. Returns the committed
+// generation, or -1 (the previous snapshot stays valid in every failure
+// mode).
+fn snap_flush_v2(path: Str, tree: &mut BTree, checkpoint_lsn: Int) -> Int {
+  let is_v2 = snap_format_v2(path);
+  if !is_v2 {
+    let gen = 1;
+    if v2_rewrite_all(path, tree, gen, checkpoint_lsn) {
+      ns_mark_clean(&mut tree.store);
+      return gen;
+    }
+    return -1;
+  }
+
+  var bs = block_store_open(path);
+  var prior_gen = 0;
+  var have_prior = false;
+  if bs.committed {
+    prior_gen = bs.header.committed_generation;
+    have_prior = true;
+  }
+  let gen = prior_gen + 1;
+
+  if !have_prior || bs.block_count > tree.store.nodes.len() + SNAP_COMPACT_SLACK {
+    if v2_rewrite_all(path, tree, gen, checkpoint_lsn) {
+      ns_mark_clean(&mut tree.store);
+      return gen;
+    }
+    return -1;
+  }
+
+  var i = 0;
+  while i < tree.store.nodes.len() {
+    if tree.store.dirty[i] {
+      let node = tree.store.nodes[i];
+      let data = snap_node_page_bytes(&node);
+      if block_store_put(&mut bs, gen, i, &data) < 0 { return -1; }
+    }
+    i = i + 1;
+  }
+  let h = BlockHeader{
+    root: tree.root,
+    order: tree.order,
+    node_count: tree.store.nodes.len(),
+    checkpoint_lsn: checkpoint_lsn,
+    committed_generation: gen,
+    block_count: bs.block_count,
+    next_page_id: 0,
+  };
+  if !block_store_commit(&mut bs, &h) { return -1; }
+  ns_mark_clean(&mut tree.store);
+  return gen;
+}
+
+// Migrate an existing v1 text snapshot to v2 in place (idempotent; absent
+// or already-v2 snapshots are a no-op success). Reads through the same
+// auto-detect loader, writes a fresh v2 store via temp+rename.
+pub fn db_file_migrate_snapshot(path: Str) -> Bool {
+  let snap_path = path + ".snap";
+  if snap_format_v2(snap_path) { return true; }
+  match snap_load(snap_path) {
+    None => { return true; }
+    Some(s) => {
+      let snap: Snapshot = s;
+      var tree = snap.tree;
+      return v2_rewrite_all(snap_path, &mut tree, snap.generation + 1, snap.checkpoint_lsn);
+    }
+  }
+}
+
 // Checkpoint: commit an incremental snapshot of the current tree (only the
 // nodes that changed since the last committed generation are appended; the
 // header page commits the generation), append the Checkpoint anchor record,
@@ -1909,12 +2117,23 @@ pub fn db_file_checkpoint(db: &mut DBFile) -> Int {
   // A stale handle must not snapshot its older tree over a newer WAL.
   if !db_file_guard(db) { return -1; }
   let snap_path = db.path + ".snap";
-  let pf = page_file_open(snap_path);
-  // A torn trailing append must not merge with this checkpoint's entries.
-  let _ = page_log_heal_tail(&pf);
-
   let snap_lsn = wal_file_next_lsn(&db.wal) - 1;
-  let gen = snap_flush(snap_path, &mut db.tree, snap_lsn);
+  var gen = -1;
+  if db.page_format == 2 {
+    gen = snap_flush_v2(snap_path, &mut db.tree, snap_lsn);
+  } else if snap_format_v2(snap_path) {
+    // Handle writes v1 while the file is v2: rewrite whole via the batch
+    // path (single rename), keeping the format on-disk authoritative.
+    var pgen = 0;
+    let bs = block_store_open(snap_path);
+    if bs.committed { pgen = bs.header.committed_generation; }
+    if snap_compact(snap_path, &mut db.tree, snap_lsn, pgen + 1) { gen = pgen + 1; }
+  } else {
+    let pf = page_file_open(snap_path);
+    // A torn trailing append must not merge with this checkpoint's entries.
+    let _ = page_log_heal_tail(&pf);
+    gen = snap_flush(snap_path, &mut db.tree, snap_lsn);
+  }
   if gen < 0 { return -1; }
 
   var payload = Vec[Int].new();

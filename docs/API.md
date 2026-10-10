@@ -31,8 +31,11 @@ layout: `<path>` = WAL segment, `<path>.snap` = snapshot page log.
 | Call | Returns | Semantics |
 |------|---------|-----------|
 | `db_file_open(path, order)` | `DBFile` | Open/create; load newest committed snapshot generation, replay WAL records with `lsn > checkpoint_lsn`, heal torn tails. Caller-validated input (see below for the checked variant). |
+| `db_file_open_cfg(path, order, page_format)` | `DBFile` | Same, with the snapshot container for WRITES: `1` = v1 text page log (default), `2` = v2 byte blocks (M1.2). Reads always auto-detect the on-disk format; a v1 file is migrated on the next v2 checkpoint. |
+| `db_file_migrate_snapshot(path)` | `Bool` | Migrate an existing v1 snapshot to v2 in place (idempotent; absent/already-v2 is a trivial success). |
 | `db_path_valid(path)` | `Bool` | Non-empty, `<= 4096` chars, no CR/LF (the codecs are line-oriented). |
 | `db_file_open_checked(path, order)` | `Result[DBFile, DbError]` | Validated open; `Err(ConstraintViolation)` on an invalid path or `order < 3`, else `Ok` from `db_file_open`. |
+| `db_file_open_checked_cfg(path, order, page_format)` | `Result[DBFile, DbError]` | Validated open with an explicit snapshot container (`1`/`2`); reads still auto-detect. |
 | `db_file_put(db, key, value)` | `Bool` | Upsert; appends WAL first, then mutates the tree. `false` on WAL failure or while a transaction is active. |
 | `db_file_delete(db, key)` | `Bool` | Delete; `false` when the key is absent, on WAL failure, or while a transaction is active. |
 | `db_file_get(db, key)` | `Option[Int]` | Point lookup. |
