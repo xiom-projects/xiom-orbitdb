@@ -458,25 +458,6 @@ fn payload_bucket(eng: &VectorEngine, id: Int) -> Int {
   }
 }
 
-// Persist an engine's WAL for a LATER reload. Workaround for the XVECTOR
-// chained-reload defect (finding XV-ORBITDB-01; repro tests/hybrid/
-// repro_chain.xi): `wal_load` requires the first record's LSN to be exactly
-// 1, but a recovered engine's compacted log resumes LSNs after the source
-// log (`wal_writer_checkpoint_from` -> `wal_writer_resume`), so persisting
-// it directly yields a file that reloads as EMPTY -- losing vectors while
-// row-side embedding-version slots stay advanced (silent divergence).
-// Re-LSN the records through a fresh writer before persisting.
-fn persist_recovered(eng: &VectorEngine, path: Str) -> Bool {
-  var out = wal_writer_new();
-  var i: Int = 0;
-  while i < eng.wal.records.len() {
-    let r = eng.wal.records[i];
-    wal_writer_append_payload(&mut out, r.op, r.key, r.value, r.payload);
-    i = i + 1;
-  }
-  return wal_persist(&out, path);
-}
-
 // ===========================================================================
 // full mode -- in-process acceptance
 // ===========================================================================
@@ -695,7 +676,7 @@ fn run_full(rows_path: Str, vec_path: Str, n: Int, dim: Int, skip: Int, lag: Int
     }
     mk = mk + 1;
   }
-  fails = check(persist_recovered(&eng, vec_path), "persist: vector WAL persisted", fails);
+  fails = check(wal_persist(&eng.wal, vec_path), "persist: vector WAL persisted", fails);
   let eng_size = engine_size(&eng);
 
   var db2 = db_file_open(rows_path, 4);
@@ -805,7 +786,7 @@ fn run_writer(rows_path: Str, vec_path: Str, n: Int, dim: Int, skip: Int, lag: I
     }
     if !db_file_txn_commit(&mut db) { return 1; }
   }
-  if !persist_recovered(&eng, vec_path) { io.println("writer: persist failed"); return 1; }
+  if !wal_persist(&eng.wal, vec_path) { io.println("writer: persist failed"); return 1; }
   io.println("writer: ready rows=" + convert.int_to_string(n)
     + " embedded=" + convert.int_to_string(n - skip) + " rv2=" + convert.int_to_string(lag));
   // Hang until the harness hard-kills us (crash simulation).
@@ -865,7 +846,7 @@ fn run_verify(rows_path: Str, vec_path: Str, n: Int, dim: Int, skip: Int, lag: I
     "verify: 100% join integrity after repair (headline gate)");
   fails = check(count_slots_ok(&db, n) == 0, "verify: every live row ev == rv after repair", fails);
 
-  if !persist_recovered(&eng, vec_path) { fails = fails + 1; }
+  if !wal_persist(&eng.wal, vec_path) { fails = fails + 1; }
   io.println("verify: repaired=" + convert.int_to_string(repaired)
     + " rows=" + convert.int_to_string(n)
     + " vectors=" + convert.int_to_string(engine_size(&eng)));

@@ -1,13 +1,10 @@
-// Minimal repro: chained persist -> load -> recover -> persist -> load.
 // Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//
-// Expected: load2 records == recovered live points (recovery compacts to a
-// self-contained checkpoint log; xiom-xvector docs section 3 says "a
-// recovered engine is itself recoverable").
-// Observed on xiom-xvector @ de1db14 (compiler v0.64.2): load2 records == 0,
-// because the compacted log resumes LSNs after the source log while the
-// loader requires the first record's LSN to be exactly 1.
+// XV-ORBITDB-01 regression probe: chained persist -> load -> recover ->
+// persist -> load. Fixed in xiom-xvector commit 3c36f34 ("wal_load accepts
+// any starting LSN"), verified 2026-10-10 against the xvector source tree
+// (load2 records=3, recovered2 == recovered; previously load2 records=0).
+// Expects a GREEN line on the fixed tree; RED if the loader regresses.
 
 module repro_chain
 
@@ -38,7 +35,8 @@ fn main() -> Int {
   var w1 = wal_load(f1);
   io.println("load1 records=" + convert.int_to_string(w1.records.len()));
   var eng2 = engine_recover(&w1, 4, DistanceMetric.Cosine);
-  io.println("recovered size=" + convert.int_to_string(engine_size(&eng2)));
+  let size1 = engine_size(&eng2);
+  io.println("recovered size=" + convert.int_to_string(size1));
   io.println("checkpointed log records=" + convert.int_to_string(eng2.wal.records.len()));
   io.println("checkpointed first lsn=" + convert.int_to_string(eng2.wal.records[0].lsn));
   let p2 = wal_persist(&eng2.wal, f2);
@@ -48,6 +46,14 @@ fn main() -> Int {
   var w2 = wal_load(f2);
   io.println("load2 records=" + convert.int_to_string(w2.records.len()));
   var eng3 = engine_recover(&w2, 4, DistanceMetric.Cosine);
-  io.println("recovered2 size=" + convert.int_to_string(engine_size(&eng3)));
-  return 0;
+  let size2 = engine_size(&eng3);
+  io.println("recovered2 size=" + convert.int_to_string(size2));
+  // Regression assert (was XV-ORBITDB-01; fixed in xiom-xvector 3c36f34):
+  // the chained reload must carry the full state, not an empty writer.
+  if w2.records.len() > 0 && size2 == size1 {
+    io.println("repro: GREEN");
+    return 0;
+  }
+  io.println("repro: RED");
+  return 1;
 }

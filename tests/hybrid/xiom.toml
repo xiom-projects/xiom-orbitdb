@@ -18,3 +18,9 @@ source-roots = [
   "../../src",
   "../../../xiom-xvector/src",
 ]
+
+# XVECTOR's current source tree consumes these two registry packages (see its
+# xiom.toml); mirror them here so the composed catalog resolves.
+[dependencies]
+xiom-wal = "0.1.0"
+xiom-metrics = "0.2.0"

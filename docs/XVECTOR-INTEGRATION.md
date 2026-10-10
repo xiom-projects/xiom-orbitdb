@@ -159,9 +159,10 @@ recovered engine's compacted WAL -> `wal_load`: **`load2 records=0`**
 Cause: `wal_writer_checkpoint_from` resumes LSNs via `wal_writer_resume(w.next_lsn)`,
 while `wal_load` requires the first record's LSN to be exactly 1 and stops at
 the first record otherwise -- returning an empty writer for a valid file.
-The failure is silent: vectors vanish on the next open while ORBITDB-side
-embedding-version slots stay advanced, so the pair diverges without an error.
-Our probe works around it by re-LSN-ing the records through a fresh writer
-before persisting (`persist_recovered` in the probe) and this doc records it
-for your fix: either relax the loader to accept any starting LSN
-(recommended), or re-base the compacted log to 1.
+**FIXED + VERIFIED 2026-10-10:** xvector `3c36f34` relaxes `wal_load` to
+accept any starting LSN. Re-running `tests/hybrid/repro_chain.xi` against
+the fixed source gives `load2 records=3` (was 0, `recovered2 == recovered`),
+and the hybrid probe now persists with a plain `wal_persist` -- the
+`persist_recovered` re-LSN workaround is REMOVED and the full + crash
+harnesses are GREEN x2 Windows + WSL. Bus item
+`REL-20261010-1550-orbitdb-11` verified and closed by the reporter.

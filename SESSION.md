@@ -64,6 +64,13 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   header slot) -- **suite 127/127 x2 Win + WSL**; API.md storage section
   documents the module. Next S1 item: fuzz extension; then S2 block store
   over the byte-IO shim.
+**Updated:** 2026-10-10 (bus verifications, same session): `REL-20261010-1550-orbitdb-10`
+  (packages enum-variant qualification) verified+closed against the shipped
+  source; `-11` (XV-ORBITDB-01) verified against xvector `3c36f34`
+  (`repro_chain` GREEN, `load2=3`) and closed -- the `persist_recovered`
+  workaround is REMOVED from the hybrid probe (plain `wal_persist`; full +
+  crash GREEN x2 Win + WSL); `tests/hybrid/xiom.toml` now mirrors the
+  sibling's `xiom.wal`/`xiom.metrics` registry deps (its tree grew them).
 **Updated:** 2026-10-10 (M1.2 S2 landed, same session): byte-IO shim
   (`src/storage/byte_io.xi`: read_at/write_at/append/file_size/truncate/sync,
   documented O(file) fallbacks, sync no-op) + block store
