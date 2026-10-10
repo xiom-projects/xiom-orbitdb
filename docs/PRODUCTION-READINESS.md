@@ -31,12 +31,12 @@
 | B. Durability & crash safety | 20 | 16.0 | Disk WAL segment + page file + engine WAL-before-ack + incremental generation-committed checkpoint crash-proven; fsync still pending |
 | C. Storage engine (pages/pager) | 15 | 11.0 | Codec + checksum + FSM + durable page file + clock replacer/pinning done; pager substrate pending |
 | D. Transactions & isolation | 10 | 5.0 | Durable transactions: begin/commit/abort + committed/uncommitted recovery crash-proven; MVCC pending |
-| E. Query & schema | 10 | 6.0 | Value-filter query + DBFile bindings + key-range planner pushdown (point/range plans, bounds-aware estimate, property-pinned); no secondary indexes/typed values |
+| E. Query & schema | 10 | 7.0 | Value-filter query + DBFile bindings + key-range planner pushdown (point/range plans, bounds-aware estimate, property-pinned) + secondary index (build/maintenance/IndexValue plan) + ORDER/LIMIT; typed values + durable index storage pending |
 | F. Operations & tooling | 10 | 4.0 | ps1/sh runners, crash harness, probes; no CI/packaging/version stamp |
 | G. Performance & limits | 5 | 3.0 | Benchmarks published (v0.64.1); WAL segment size policy live (`maybe_checkpoint`); replay constrained by the filed stdlib `str_split` quadratic; page/cache bounds pending |
 | H. Security & integrity | 5 | 4.5 | Checksums + full input validation + deterministic fuzz harness; encryption/supply-chain pinning pending |
 | I. Documentation & evidence | 5 | 5.0 | Full doc set + relay docs + repro bundles + public API/runbook/format reference |
-| **Total** | **100** | **70.5** | **~70% -- alpha-track, durable log + pages + checkpoints + transactions + planner pushdown + clock replacer + fuzz, benchmarks live, both WAL/B-tree packages registry-live** |
+| **Total** | **100** | **71.5** | **~71% -- alpha-track, durable log + pages + checkpoints + transactions + planner pushdown + secondary index + ORDER/LIMIT + clock replacer + fuzz, benchmarks live, both WAL/B-tree packages registry-live** |
 
 Scoreboard changelog:
 - 2026-10-08: bootstrap complete (suite migrated, engine defects fixed, WAL
@@ -215,6 +215,18 @@ Scoreboard changelog:
   (still open: same T001 class at 1206/1211/1216); C-ORBIT-06 with-twin
   STILL red on v0.64.3 (correction `REL-20261010-1802-orbitdb`). No score
   change: 70.5.
+- 2026-10-10 (same day, M4.2): secondary indexes + ORDER/LIMIT --
+  `src/secondary_index.xi` ((value, pk) sorted entries, binary-search
+  probes, stable pair sorts), maintained by put/update/delete/txn-commit;
+  `db_file_create_index`/`_drop`/`_index_range`/`_create_index_from_def`
+  (catalog `IndexDef` tie-in, value column 0, non-unique); planner gains
+  `IndexValue` (first usable condition bounds the probe; key bounds keep
+  precedence) with an executor that re-filters all conditions and honors
+  order/offset/limit; `query_order` (0 key asc, 1 value asc, 2 value desc;
+  ties key-stable; ordering before offset/limit). Suite **134/134 x2 Win +
+  WSL** (4 new tests), fuzz section (g) vs brute-force model x2 both.
+  **E3 0 -> 1** (functional index + catalog tie-in + fuzz; durable
+  page-backed storage still gated on A5): 70.5 -> **71.5**.
 
 ## A. Correctness & data structures (20)
 
@@ -260,9 +272,9 @@ Scoreboard changelog:
 
 | # | Item | Pts | Status | Evidence / gate |
 |---|---|---|---|---|
-| E1 | Query engine: AND filter, offset, limit, deterministic order | 3 | OK | suite query/db_query/db_file tests; **value semantics pinned** in docs/query-pipeline.md; `db_file_range`/`db_file_query` on recovered trees; `qverify` in every `db_crash_test` scenario x2 Win + WSL |
+| E1 | Query engine: AND filter, offset, limit, deterministic order | 3 | OK | suite query/db_query/db_file tests; **value semantics pinned** in docs/query-pipeline.md; `db_file_range`/`db_file_query` on recovered trees; `qverify` in every `db_crash_test` scenario x2 Win + WSL; ORDER BY (key/value asc/desc, stable ties) executed before offset/limit (M4.2) |
 | E2 | Index-aware planner (key-range pushdown, point lookup, cost) | 3 | OK | additive semantics decision recorded (`query_key_range`; key range -> value conditions -> offset -> limit, docs/query-pipeline.md); `plan_query` chooses PointLookup/IndexRange/FullScan with clamped range-width estimate; `execute_plan` scans `btree_range_query` then filters; `db_file_query` planned; suite plan-kind test + 200-case seeded property vs brute force x2 Win + WSL |
-| E3 | Secondary indexes driven by catalog `IndexDef` | 2 | -- | needs A5 |
+| E3 | Secondary indexes driven by catalog `IndexDef` | 2 | WIP 1 | handle-scoped value index (`src/secondary_index.xi`: (value, pk) sorted entries, binary-search probes) maintained by put/update/delete/txn-commit; `db_file_create_index_from_def` accepts a catalog `IndexDef` (value column 0, non-unique); planner `IndexValue` plan + executor; suite (build/maintenance/plan/order) + fuzz section (g) vs brute-force model x2 Win + WSL. **Durable page-backed index storage pending A5** |
 | E4 | Typed values + column constraints (beyond Int) | 2 | -- | codec v1 carries type byte 0x01; more types later |
 
 ## F. Operations & tooling (10)

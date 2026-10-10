@@ -14,7 +14,8 @@ segment), `xiom.db.storage.page` (page, checksum, buffer pool, storage
 engine), `xiom.db.storage.page_file` (durable page file + page log),
 `xiom.db.storage.block` (byte-page v2 codec, pure),
 `xiom.db.storage.byte_io` (byte-IO shim seam), `xiom.db.storage.block_store`
-(byte-page v2 block store),
+(byte-page v2 block store), `xiom.db.secondary_index` (value-ordered
+secondary index, M4.2),
 `xiom.db.storage.tuple` (row codec, result set), `xiom.db.storage.free_space_map`,
 `xiom.db.error`, `xiom.db.config`, `xiom.db.ids`, `xiom.db.contracts`,
 `xiom.db.catalog.schema`, `xiom.db.catalog.schema_validator`,
@@ -36,6 +37,11 @@ layout: `<path>` = WAL segment, `<path>.snap` = snapshot page log.
 | `db_path_valid(path)` | `Bool` | Non-empty, `<= 4096` chars, no CR/LF (the codecs are line-oriented). |
 | `db_file_open_checked(path, order)` | `Result[DBFile, DbError]` | Validated open; `Err(ConstraintViolation)` on an invalid path or `order < 3`, else `Ok` from `db_file_open`. |
 | `db_file_open_checked_cfg(path, order, page_format)` | `Result[DBFile, DbError]` | Validated open with an explicit snapshot container (`1`/`2`); reads still auto-detect. |
+| `db_file_create_index(db, name)` | `Bool` | Build a handle-scoped secondary index over VALUES (M4.2): (value, pk) sorted entries; false for empty/duplicate names. Rebuild after open (not yet durable). |
+| `db_file_create_index_from_def(db, def)` | `Bool` | Catalog tie-in: accepts an `IndexDef` with `column == 0` (the value column) and `unique == false`. |
+| `db_file_drop_index(db, name)` | `Bool` | Drop the named index. |
+| `db_file_index_count(db)` / `db_file_index_name(db, at)` | `Int` / `Str` | Index directory (`""` for an out-of-range slot). |
+| `db_file_index_range(db, name, lo, hi)` | `Vec[Int]` | Primary keys whose values fall in [lo, hi], in (value, pk) order. |
 | `db_file_put(db, key, value)` | `Bool` | Upsert; appends WAL first, then mutates the tree. `false` on WAL failure or while a transaction is active. |
 | `db_file_delete(db, key)` | `Bool` | Delete; `false` when the key is absent, on WAL failure, or while a transaction is active. |
 | `db_file_get(db, key)` | `Option[Int]` | Point lookup. |
@@ -101,9 +107,10 @@ the `Database` facade is separate from `DBFile` (durable) today.
 | `query_where(q, op, value)` | Add an AND-ed condition on **values**. |
 | `query_limit(q, limit)` | Truncate results (`requires: limit > 0`). |
 | `query_offset(q, offset)` | Skip matches (`requires: offset >= 0`). |
-| `query_execute(q, tree)` | Evaluate against a `BTree`: in-order scan, filter, offset, limit. |
-| `query_condition_count` / `query_has_limit` / `query_has_offset` / `query_reset` | Introspection/reset. |
-| `query_plan_full_scan()` / `plan_query(q, tree)` / `execute_plan(plan, q, tree)` | Planner scaffold (always full scan today). |
+| `query_order(q, order)` | Result order (M4.2): 0 = key ascending (default), 1 = value ascending, 2 = value descending; ties keep key order, ordering runs before offset/limit (`requires: order in 0..2`). |
+| `query_execute(q, tree)` | Evaluate against a `BTree`: in-order scan, filter, order, offset, limit. |
+| `query_condition_count` / `query_has_limit` / `query_has_offset` / `query_order_kind` / `query_reset` | Introspection/reset. |
+| `query_plan_full_scan()` / `plan_query(q, tree)` / `plan_query_with_index(q, tree, has_index)` / `execute_plan(plan, q, tree)` | Planner: key bounds pick PointLookup/IndexRange (M4.1); with an index and a usable value condition (not Neq) it picks IndexValue over the condition-derived [low, high] (M4.2); key bounds keep precedence; otherwise full scan. |
 
 ## Durable WAL segment (`xiom.db.wal_file`)
 

@@ -13,6 +13,8 @@ use xiom.db.storage.byte_io;
 use xiom.db.storage.tuple;
 use xiom.db.error;
 use xiom.db.contracts;
+use xiom.db.secondary_index;
+use xiom.db.catalog.schema;
 
 // ============================================================================
 // XIOM-DB: Consolidated Engine -- B-Tree + WAL + Query + Engine + Database API
@@ -879,6 +881,10 @@ pub type Query = {
   has_bounds: Bool;
   low: Int;
   high: Int;
+  // Result order (M4.2): 0 = key ascending (default; the scan order),
+  // 1 = value ascending, 2 = value descending. Ties keep key order
+  // (stable). offset/limit always apply AFTER ordering.
+  order: Int;
 }
 
 pub fn query_new() -> Query {
@@ -886,6 +892,7 @@ pub fn query_new() -> Query {
   return Query{
     conditions: conditions, limit: 0, offset: 0,
     has_bounds: false, low: 0, high: 0,
+    order: 0,
   };
 }
 
@@ -926,33 +933,43 @@ pub fn query_execute(q: &Query, tree: &BTree) -> Vec[Int] {
   return apply_filter_values(&all_values, q);
 }
 
-// Value conditions -> offset -> limit over an already-scanned value slice.
-// Shared by the full scan and the key-range scan so both paths have identical
-// semantics.
+// Value conditions -> ordering -> offset -> limit over an already-scanned
+// value slice. Shared by the full scan and the key-range scan so both paths
+// have identical semantics (M4.2: ordering happens before offset/limit).
 fn apply_filter_values(values: &Vec[Int], q: &Query) -> Vec[Int] {
   var results = Vec[Int].new();
-  var count = 0;
   var i = 0;
   while i < values.len() {
     if matches_all_conditions(values[i], q.conditions) {
-      if count >= q.offset {
-        results.push(values[i]);
-      }
-      count = count + 1;
+      results.push(values[i]);
     }
     i = i + 1;
   }
 
-  if q.limit > 0 && results.len() > q.limit {
-    var limited = Vec[Int].new();
+  if q.order == 1 || q.order == 2 {
+    // Stable value sort; the scan order (key ascending) breaks ties, exactly
+    // like the index executor's (value, pk) order.
+    var pks = Vec[Int].new();
     var j = 0;
-    while j < q.limit {
-      limited.push(results[j]);
+    while j < results.len() {
+      pks.push(j);
       j = j + 1;
     }
-    return limited;
+    secidx_sort_pairs(&mut results, &mut pks, q.order == 2);
   }
-  return results;
+
+  var out = Vec[Int].new();
+  var start = q.offset;
+  var end = results.len();
+  if q.limit > 0 && start + q.limit < end {
+    end = start + q.limit;
+  }
+  var k = start;
+  while k < end {
+    out.push(results[k]);
+    k = k + 1;
+  }
+  return out;
 }
 
 fn matches_all_conditions(value: Int, conditions: &Vec[QueryCondition]) -> Bool {
@@ -997,6 +1014,19 @@ pub fn query_reset(q: &mut Query) {
   q.has_bounds = false;
   q.low = 0;
   q.high = 0;
+  q.order = 0;
+}
+
+// Result ordering (M4.2): 0 = key ascending (default), 1 = value ascending,
+// 2 = value descending. Ties keep key order; offset/limit apply after.
+pub fn query_order(q: &mut Query, order: Int)
+  requires: order == 0 || order == 1 || order == 2
+{
+  q.order = order;
+}
+
+pub fn query_order_kind(q: &Query) -> Int {
+  return q.order;
 }
 
 // ============================================================================
@@ -1007,6 +1037,7 @@ pub enum PlanKind {
   FullScan,
   IndexRange,
   PointLookup,
+  IndexValue,
 }
 
 pub type QueryPlan = {
@@ -1030,6 +1061,23 @@ pub fn query_plan_full_scan() -> QueryPlan {
 // the clamped range width; without bounds it is a full scan estimated at the
 // tree size. The executor applies the value conditions after the key scan.
 pub fn plan_query(q: &Query, tree: &BTree) -> QueryPlan {
+  return plan_query_with_index(q, tree, false);
+}
+
+fn min_i64() -> Int {
+  return -9223372036854775807 - 1;
+}
+
+fn max_i64() -> Int {
+  return 9223372036854775807;
+}
+
+// Index-aware planning (M4.2): with a secondary index available and no key
+// bounds, the first usable VALUE condition (anything but Neq) becomes an
+// IndexValue plan over [low, high] (saturated; an empty range still yields
+// an empty result). `low`/`high` mean value bounds under IndexValue and key
+// bounds under IndexRange/PointLookup. Key bounds keep precedence.
+pub fn plan_query_with_index(q: &Query, tree: &BTree, has_index: Bool) -> QueryPlan {
   var plan = query_plan_full_scan();
   let size = btree_size(tree);
   plan.estimated_rows = size;
@@ -1047,8 +1095,96 @@ pub fn plan_query(q: &Query, tree: &BTree) -> QueryPlan {
     } else {
       plan.kind = PlanKind.IndexRange;
     }
+    return plan;
+  }
+
+  if has_index {
+    var i = 0;
+    while i < q.conditions.len() {
+      let c = q.conditions[i];
+      var lo = 0;
+      var hi = 0;
+      var usable = true;
+      match c.op {
+        Eq => {
+          lo = c.value;
+          hi = c.value;
+        }
+        Lt => {
+          if c.value == min_i64() { usable = false; }
+          lo = min_i64();
+          hi = c.value - 1;
+        }
+        Lte => {
+          lo = min_i64();
+          hi = c.value;
+        }
+        Gt => {
+          if c.value == max_i64() { usable = false; }
+          lo = c.value + 1;
+          hi = max_i64();
+        }
+        Gte => {
+          lo = c.value;
+          hi = max_i64();
+        }
+        Neq => { usable = false; }
+      }
+      if usable {
+        plan.kind = PlanKind.IndexValue;
+        plan.low = lo;
+        plan.high = hi;
+        plan.has_bounds = false;
+        plan.estimated_rows = size;
+        if c.op == QueryOp.Eq {
+          plan.estimated_rows = 1;
+          if size < 1 { plan.estimated_rows = 0; }
+        }
+        return plan;
+      }
+      i = i + 1;
+    }
   }
   return plan;
+}
+
+// IndexValue executor: candidates from the (value, pk) entries in
+// [plan.low, plan.high], re-filtered by ALL conditions (the plan only used
+// the first usable one to bound the probe), then ordered and sliced exactly
+// like the scan path.
+fn execute_index_value(idx: &SecondaryIndex, plan: &QueryPlan, q: &Query) -> Vec[Int] {
+  var vals = Vec[Int].new();
+  var pks = Vec[Int].new();
+  if plan.low <= plan.high {
+    var pos = secidx_lower_bound(idx, plan.low);
+    while pos < idx.vals.len() && idx.vals[pos] <= plan.high {
+      if matches_all_conditions(idx.vals[pos], q.conditions) {
+        vals.push(idx.vals[pos]);
+        pks.push(idx.pks[pos]);
+      }
+      pos = pos + 1;
+    }
+  }
+
+  if q.order == 0 {
+    secidx_sort_pairs_by_pk(&mut vals, &mut pks);
+  } else if q.order == 2 {
+    secidx_sort_pairs(&mut vals, &mut pks, true);
+  }
+  // order 1: (value asc, pk asc) is already the index order.
+
+  var out = Vec[Int].new();
+  var start = q.offset;
+  var end = vals.len();
+  if q.limit > 0 && start + q.limit < end {
+    end = start + q.limit;
+  }
+  var k = start;
+  while k < end {
+    out.push(vals[k]);
+    k = k + 1;
+  }
+  return out;
 }
 
 pub fn execute_plan(plan: &QueryPlan, q: &Query, tree: &BTree) -> Vec[Int] {
@@ -1062,6 +1198,10 @@ pub fn execute_plan(plan: &QueryPlan, q: &Query, tree: &BTree) -> Vec[Int] {
       let values = btree_range_query(tree, plan.low, plan.low);
       apply_filter_values(&values, q)
     }
+    // The file layer routes IndexValue through execute_index_value (it owns
+    // the index); when called without one, degrade to the full scan -- the
+    // result set is identical, only the probe is missing.
+    IndexValue => query_execute(q, tree)
   }
 }
 
@@ -1286,6 +1426,9 @@ pub type DBFile = {
   txn_ops: Vec[TxOp];
   wal_bytes: Int;
   page_format: Int;
+  // Secondary indexes over VALUES (M4.2); handle-scoped, rebuilt on open via
+  // `db_file_create_index`. Maintained by put/delete/txn-commit.
+  indexes: Vec[SecondaryIndex];
 }
 
 // Apply one replayed record. Maps by op code so cross-module enum patterns
@@ -1388,9 +1531,11 @@ pub fn db_file_open_cfg(path: Str, order: Int, page_format: Int) -> DBFile {
   }
   var ops = Vec[TxOp].new();
   let wal_bytes = db_wal_size(path);
+  var indexes = Vec[SecondaryIndex].new();
   return DBFile{ path: path, order: tree.order, tree: tree, wal: wal,
                  records_since_ckpt: 0, txn_active: false, txn_ops: ops,
-                 wal_bytes: wal_bytes, page_format: page_format };
+                 wal_bytes: wal_bytes, page_format: page_format,
+                 indexes: indexes };
 }
 
 // ---------------------------------------------------------------------------
@@ -1482,7 +1627,9 @@ pub fn db_file_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
   db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
   if is_update { let _ = btree_delete(&mut db.tree, key); }
-  return btree_insert(&mut db.tree, key, value);
+  let inserted = btree_insert(&mut db.tree, key, value);
+  if inserted { db_file_note_value_change(db, key, existing, value, true); }
+  return inserted;
 }
 
 pub fn db_file_delete(db: &mut DBFile, key: Int) -> Bool {
@@ -1499,7 +1646,9 @@ pub fn db_file_delete(db: &mut DBFile, key: Int) -> Bool {
   if lsn < 0 { return false; }
   db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
-  return btree_delete(&mut db.tree, key);
+  let removed = btree_delete(&mut db.tree, key);
+  if removed { db_file_note_value_change(db, key, existing, 0, false); }
+  return removed;
 }
 
 pub fn db_file_get(db: &DBFile, key: Int) -> Option[Int] {
@@ -1515,13 +1664,133 @@ pub fn db_file_range(db: &DBFile, low: Int, high: Int) -> Vec[Int]
   return btree_range_query(&db.tree, low, high);
 }
 
-// Value-filter query on the live/recovered tree, planned and executed (M4.1):
+// Value-filter query on the live/recovered tree, planned and executed:
 // conditions filter VALUES (not keys), key bounds (query_key_range) restrict
-// the scanned key range first, the scan is in key order, `offset` skips
-// matching values then `limit` truncates.
+// the scanned key range first, a secondary index (M4.2) narrows value
+// probes when present, `order` (default 0 = key ascending) sorts before
+// `offset` skips matching values and `limit` truncates.
 pub fn db_file_query(db: &DBFile, query: &Query) -> Vec[Int] {
-  let plan = plan_query(query, &db.tree);
+  let plan = plan_query_with_index(query, &db.tree, db.indexes.len() > 0);
+  if plan.kind == PlanKind.IndexValue && db.indexes.len() > 0 {
+    let idx = db.indexes[0];
+    return execute_index_value(&idx, &plan, query);
+  }
   return execute_plan(&plan, query, &db.tree);
+}
+
+// ===========================================================================
+// SECONDARY INDEXES (M4.2): value-ordered (value, pk) entries maintained by
+// put/delete/txn-commit; handle-scoped, rebuilt on open. See
+// src/secondary_index.xi for the structure.
+// ===========================================================================
+
+// In-order (key, value) pair collection for index builds.
+fn btree_collect_pairs(tree: &BTree, node_idx: Int, keys: &mut Vec[Int], vals: &mut Vec[Int]) {
+  var node = tree.store.nodes[node_idx];
+  if node.is_leaf {
+    var i = 0;
+    while i < node.keys.len() {
+      keys.push(node.keys[i]);
+      vals.push(node.values[i]);
+      i = i + 1;
+    }
+    return;
+  }
+  var i = 0;
+  while i < node.keys.len() {
+    btree_collect_pairs(tree, node.children[i], keys, vals);
+    keys.push(node.keys[i]);
+    vals.push(node.values[i]);
+    i = i + 1;
+  }
+  btree_collect_pairs(tree, node.children[node.keys.len()], keys, vals);
+}
+
+// Mirror one logical value change (old -> new, has_new=false for a delete)
+// into every index. Write-back via element assignment per C-ORBIT-03.
+fn db_file_note_value_change(db: &mut DBFile, key: Int, old: Option[Int], new_value: Int, has_new: Bool) {
+  var i = 0;
+  while i < db.indexes.len() {
+    var idx = db.indexes[i];
+    match old {
+      Some(v) => { let _ = secidx_remove(&mut idx, v, key); }
+      None => {}
+    }
+    if has_new { secidx_add(&mut idx, new_value, key); }
+    db.indexes[i] = idx;
+    i = i + 1;
+  }
+}
+
+// Build a secondary index over the current tree; false for an empty name or
+// a name already present.
+pub fn db_file_create_index(db: &mut DBFile, name: Str) -> Bool {
+  if str_len(name) == 0 { return false; }
+  var i = 0;
+  while i < db.indexes.len() {
+    if db.indexes[i].name == name { return false; }
+    i = i + 1;
+  }
+  var idx = secidx_new(name);
+  var keys = Vec[Int].new();
+  var vals = Vec[Int].new();
+  btree_collect_pairs(&db.tree, db.tree.root, &mut keys, &mut vals);
+  var j = 0;
+  while j < keys.len() {
+    secidx_add(&mut idx, vals[j], keys[j]);
+    j = j + 1;
+  }
+  db.indexes.push(idx);
+  return true;
+}
+
+pub fn db_file_drop_index(db: &mut DBFile, name: Str) -> Bool {
+  var i = 0;
+  while i < db.indexes.len() {
+    if db.indexes[i].name == name {
+      var j = i;
+      while j < db.indexes.len() - 1 {
+        db.indexes[j] = db.indexes[j + 1];
+        j = j + 1;
+      }
+      db.indexes.pop();
+      return true;
+    }
+    i = i + 1;
+  }
+  return false;
+}
+
+pub fn db_file_index_count(db: &DBFile) -> Int {
+  return db.indexes.len();
+}
+
+pub fn db_file_index_name(db: &DBFile, at: Int) -> Str {
+  if at < 0 || at >= db.indexes.len() { return ""; }
+  return db.indexes[at].name;
+}
+
+// Direct probe for tests/tools: primary keys whose values fall in [lo, hi],
+// in (value, pk) order.
+pub fn db_file_index_range(db: &DBFile, name: Str, lo: Int, hi: Int) -> Vec[Int] {
+  var i = 0;
+  while i < db.indexes.len() {
+    if db.indexes[i].name == name {
+      let idx = db.indexes[i];
+      return secidx_range_pks(&idx, lo, hi);
+    }
+    i = i + 1;
+  }
+  var empty = Vec[Int].new();
+  return empty;
+}
+
+// Catalog tie-in: a flat-store index is over the value column (0) and
+// non-unique; unique enforcement and multi-column indexes are later slices.
+pub fn db_file_create_index_from_def(db: &mut DBFile, def: &IndexDef) -> Bool {
+  if def.column != 0 { return false; }
+  if def.unique { return false; }
+  return db_file_create_index(db, def.name);
 }
 
 pub fn db_file_size(db: &DBFile) -> Int {
@@ -2223,7 +2492,13 @@ pub fn db_file_txn_commit(db: &mut DBFile) -> Bool {
   var k = 0;
   while k < db.txn_ops.len() {
     let op = db.txn_ops[k];
+    let old = btree_search(&db.tree, op.key);
     db_file_apply_txop(&mut db.tree, op);
+    if op.code == 3 {
+      db_file_note_value_change(db, op.key, old, 0, false);
+    } else {
+      db_file_note_value_change(db, op.key, old, op.value, true);
+    }
     k = k + 1;
   }
   db.txn_active = false;

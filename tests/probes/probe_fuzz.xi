@@ -18,7 +18,11 @@
 //       decode back to the original view);
 //   (f) block store vs model -- random put generations with probabilistic
 //       commits, an open/compare after every commit and at the end (visible
-//       set + latest payload per id must match the committed history).
+//       set + latest payload per id must match the committed history);
+//   (g) query + secondary index vs model -- random put/delete + random
+//       conditions/order/limit/offset on a DBFile with an index installed;
+//       results must equal a brute-force model and usable conditions must
+//       plan as IndexValue.
 //
 // Env:
 //   ORBITDB_FUZZ_DIR          scratch dir                     (default probe-logs)
@@ -30,6 +34,7 @@
 //   ORBITDB_FUZZ_PAGE_ITERS   page logs per seed             (default 30)
 //   ORBITDB_FUZZ_BLOCK_ITERS  block-codec iterations per seed (default 200)
 //   ORBITDB_FUZZ_BLOCKSTORE_GENS  block-store generations per seed (default 12)
+//   ORBITDB_FUZZ_QUERY_ITERS    query/index iterations per seed (default 150)
 //
 // Exit: 0 = green; non-zero = failing section + first violation (printed).
 
@@ -44,6 +49,7 @@ use xiom.db.storage.page;
 use xiom.db.storage.page_file;
 use xiom.db.storage.block;
 use xiom.db.storage.block_store;
+use xiom.db.secondary_index;
 use xiom.db.storage.tuple;
 use xiom.db.wal_file;
 
@@ -655,6 +661,178 @@ fn fuzz_blockstore(seed: Int, gens: Int, dir: Str) -> Int {
   return 0;
 }
 
+// (g) query + secondary index vs model ---------------------------------------
+fn model_insert(keys: &mut Vec[Int], vals: &mut Vec[Int], key: Int, val: Int) {
+  var pos = 0;
+  while pos < keys.len() && keys[pos] < key {
+    pos = pos + 1;
+  }
+  if pos < keys.len() && keys[pos] == key {
+    vals[pos] = val;
+    return;
+  }
+  keys.push(0);
+  vals.push(0);
+  var i = keys.len() - 1;
+  while i > pos {
+    keys[i] = keys[i - 1];
+    vals[i] = vals[i - 1];
+    i = i - 1;
+  }
+  keys[pos] = key;
+  vals[pos] = val;
+}
+
+fn model_delete(keys: &mut Vec[Int], vals: &mut Vec[Int], key: Int) -> Bool {
+  var pos = 0;
+  while pos < keys.len() && keys[pos] < key {
+    pos = pos + 1;
+  }
+  if pos >= keys.len() || keys[pos] != key { return false; }
+  var i = pos;
+  while i < keys.len() - 1 {
+    keys[i] = keys[i + 1];
+    vals[i] = vals[i + 1];
+    i = i + 1;
+  }
+  keys.pop();
+  vals.pop();
+  return true;
+}
+
+fn model_match(v: Int, op: Int, target: Int) -> Bool {
+  if op == 0 { return v == target; }
+  if op == 1 { return v != target; }
+  if op == 2 { return v < target; }
+  if op == 3 { return v <= target; }
+  if op == 4 { return v > target; }
+  return v >= target;
+}
+
+fn model_query(keys: &Vec[Int], vals: &Vec[Int], ops: &Vec[Int], cvals: &Vec[Int],
+               order: Int, offset: Int, limit: Int) -> Vec[Int] {
+  var mvals = Vec[Int].new();
+  var mpos = Vec[Int].new();
+  var i = 0;
+  while i < vals.len() {
+    var ok = true;
+    var c = 0;
+    while c < ops.len() {
+      if !model_match(vals[i], ops[c], cvals[c]) { ok = false; }
+      c = c + 1;
+    }
+    if ok {
+      mvals.push(vals[i]);
+      mpos.push(i);
+    }
+    i = i + 1;
+  }
+  if order == 1 || order == 2 {
+    secidx_sort_pairs(&mut mvals, &mut mpos, order == 2);
+  }
+  var out = Vec[Int].new();
+  var start = offset;
+  var end = mvals.len();
+  if limit > 0 && start + limit < end {
+    end = start + limit;
+  }
+  var k = start;
+  while k < end {
+    out.push(mvals[k]);
+    k = k + 1;
+  }
+  return out;
+}
+
+fn query_where_int(q: &mut Query, op: Int, v: Int) {
+  if op == 0 {
+    query_where(q, QueryOp.Eq, v);
+  } elif op == 1 {
+    query_where(q, QueryOp.Neq, v);
+  } elif op == 2 {
+    query_where(q, QueryOp.Lt, v);
+  } elif op == 3 {
+    query_where(q, QueryOp.Lte, v);
+  } elif op == 4 {
+    query_where(q, QueryOp.Gt, v);
+  } else {
+    query_where(q, QueryOp.Gte, v);
+  }
+}
+
+fn fuzz_query(seed: Int, iters: Int, dir: Str) -> Int {
+  let path = dir + "/fuzz-query.wal";
+  match io.remove_file(path) { Ok(_) => {} Err(_) => {} }
+  match io.remove_file(path + ".snap") { Ok(_) => {} Err(_) => {} }
+  var state = seed + 7777;
+  var db = db_file_open(path, 4);
+  var keys = Vec[Int].new();
+  var vals = Vec[Int].new();
+
+  var s = 0;
+  while s < 30 {
+    let k = rand_mod(&mut state, 50);
+    let v = rand_mod(&mut state, 40);
+    if !db_file_put(&mut db, k, v) { return 1; }
+    model_insert(&mut keys, &mut vals, k, v);
+    s = s + 1;
+  }
+  if !db_file_create_index(&mut db, "by_value") { return 1; }
+
+  var it = 0;
+  while it < iters {
+    let action = rand_mod(&mut state, 10);
+    if action < 5 {
+      let k = rand_mod(&mut state, 50);
+      let v = rand_mod(&mut state, 40);
+      if !db_file_put(&mut db, k, v) { return 1; }
+      model_insert(&mut keys, &mut vals, k, v);
+    } elif action < 7 {
+      let k = rand_mod(&mut state, 50);
+      let ok = db_file_delete(&mut db, k);
+      let mok = model_delete(&mut keys, &mut vals, k);
+      if ok != mok { return 2; }
+    } else {
+      let ncond = rand_mod(&mut state, 3);
+      var ops = Vec[Int].new();
+      var cvals = Vec[Int].new();
+      var q = query_new();
+      var c = 0;
+      while c < ncond {
+        let op = rand_mod(&mut state, 6);
+        let v = rand_mod(&mut state, 40);
+        ops.push(op);
+        cvals.push(v);
+        query_where_int(&mut q, op, v);
+        c = c + 1;
+      }
+      let order = rand_mod(&mut state, 3);
+      if order != 0 { query_order(&mut q, order); }
+      let offs = rand_mod(&mut state, 4);
+      if offs > 0 { query_offset(&mut q, offs); }
+      let lim = rand_mod(&mut state, 5);
+      if lim > 0 { query_limit(&mut q, lim); }
+
+      let got = db_file_query(&db, &q);
+      let want = model_query(&keys, &vals, &ops, &cvals, order, offs, lim);
+      if !vec_eq(&got, &want) { return 3; }
+
+      var usable = false;
+      var ci = 0;
+      while ci < ops.len() {
+        if ops[ci] != 1 { usable = true; }
+        ci = ci + 1;
+      }
+      if usable {
+        let plan = plan_query_with_index(&q, &db.tree, true);
+        if plan.kind != PlanKind.IndexValue { return 4; }
+      }
+    }
+    it = it + 1;
+  }
+  return 0;
+}
+
 fn main() -> Int {
   let dir = env.var_or("ORBITDB_FUZZ_DIR", "probe-logs");
   let seeds = parse_env_int("ORBITDB_FUZZ_SEEDS", 4);
@@ -665,6 +843,7 @@ fn main() -> Int {
   let page_iters = parse_env_int("ORBITDB_FUZZ_PAGE_ITERS", 30);
   let block_iters = parse_env_int("ORBITDB_FUZZ_BLOCK_ITERS", 200);
   let blockstore_gens = parse_env_int("ORBITDB_FUZZ_BLOCKSTORE_GENS", 12);
+  let query_iters = parse_env_int("ORBITDB_FUZZ_QUERY_ITERS", 150);
 
   var s = 0;
   while s < seeds {
@@ -694,6 +873,11 @@ fn main() -> Int {
     if rc_bs != 0 {
       io.println("fuzz: blockstore FAILED seed=" + convert.int_to_string(seed) + " rc=" + convert.int_to_string(rc_bs));
       return 110 + rc_bs;
+    }
+    let rc_q = fuzz_query(seed, query_iters, dir);
+    if rc_q != 0 {
+      io.println("fuzz: query FAILED seed=" + convert.int_to_string(seed) + " rc=" + convert.int_to_string(rc_q));
+      return 130 + rc_q;
     }
     let order = 3 + (s % 3);
     let rc_b = fuzz_btree(seed, ops, n, order);

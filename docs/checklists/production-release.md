@@ -40,8 +40,10 @@
 - [x] Semantics decision recorded: additive `query_key_range` (key range -> value conditions -> offset -> limit)
 - [x] Planner: key-range pushdown + point lookup + cost estimate
 - [x] Executor uses index paths; results equal brute-force model (200-case seeded property)
-- [ ] Secondary indexes (catalog-driven) + fuzz vs model
-- [ ] ORDER/LIMIT execution
+- [x] Secondary indexes (catalog-driven) + fuzz vs model
+      (`src/secondary_index.xi`; `IndexDef` tie-in; fuzz section (g))
+- [x] ORDER/LIMIT execution (`query_order` 0/1/2; ordering before
+      offset/limit; index + scan paths)
 
 ## M5 -- Types & codecs
 

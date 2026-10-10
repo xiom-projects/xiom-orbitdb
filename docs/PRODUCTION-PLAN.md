@@ -215,15 +215,21 @@ suite.
 2. **M4.1 -- planner pushdown (E2).** Key-range/point pushdown now that the
    semantics decision is ours; cost estimate; executor uses range scans.
 3. **M1.2 -- byte-page format v2 design + codec** (works the moment stdlib
-   byte IO lands; design now, implement against a shim). **Design + S1 DONE
-   2026-10-10:** `docs/BYTE-PAGE-FORMAT-V2.md` + checklist
-   `docs/checklists/byte-page-v2.md`; the pure codec `src/storage/block.xi`
-   is in the suite (127/127 x2); next S1 fuzz extension, then S2 block
-   store, S3 default flip, S4 stdlib swap.
-4. **M5.1 -- typed values v2** (type-tagged tuples; text at least).
-5. **M2.1 -- fsync wiring + fault injection** when the stdlib row lands.
-6. M6.1 -- cursor API + error taxonomy; bindings spike.
-7. **M6.0 -- consumer handshakes** (done at doc level): PULSE
+   byte IO lands; design now, implement against a shim). **Design + S1 + S2
+   + S3 DONE 2026-10-10:** `docs/BYTE-PAGE-FORMAT-V2.md` + checklist; codec
+   (`block.xi`), shim (`byte_io.xi`), store (`block_store.xi`) with
+   probe/crash/fuzz, and the v2 snapshot container behind `page_format` 2
+   (auto-detect + migration; db_crash v2 25/25 x2 both). Next: S4 (stdlib
+   fixed-size IO + fsync swap, default flip + fresh bench).
+4. **M4.2 -- secondary indexes + ORDER/LIMIT. DONE 2026-10-10:**
+   `src/secondary_index.xi` + planner `IndexValue` plan + executor +
+   `query_order`; catalog `IndexDef` tie-in; suite 134/134 x2 both + fuzz
+   section (g) vs brute-force model. Durable page-backed storage stays with
+   A5.
+5. **M5.1 -- typed values v2** (type-tagged tuples; text at least).
+6. **M2.1 -- fsync wiring + fault injection** when the stdlib row lands.
+7. M6.1 -- cursor API + error taxonomy; bindings spike.
+8. **M6.0 -- consumer handshakes** (done at doc level): PULSE
    (`docs/PULSE-INTEGRATION.md`: driver mapping, pin, crash semantics,
    conformance proposal) and XVECTOR (`docs/XVECTOR-INTEGRATION.md`:
    row-first hybrid contract; relay archived). Stand up

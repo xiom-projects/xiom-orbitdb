@@ -64,6 +64,15 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   header slot) -- **suite 127/127 x2 Win + WSL**; API.md storage section
   documents the module. Next S1 item: fuzz extension; then S2 block store
   over the byte-IO shim.
+**Updated:** 2026-10-10 (M4.2, same session): secondary indexes + ORDER/LIMIT
+  -- `src/secondary_index.xi` ((value, pk) entries; binary-search probes;
+  stable pair sorts), maintained by put/update/delete/txn-commit; catalog
+  `IndexDef` tie-in (`db_file_create_index_from_def`); planner `IndexValue`
+  plan (first usable condition bounds the probe; key bounds keep precedence)
+  + executor re-filtering conditions with order/offset/limit; `query_order`
+  (key/value asc/desc, ties key-stable). **Suite 134/134 x2 Win + WSL**;
+  fuzz section (g) query+index vs brute-force model x2 both. Readiness
+  **E3 0 -> 1** (durable page-backed indexes stay with A5): 71.5.
 **Updated:** 2026-10-10 (compiler v0.64.3 bump, same session): release check
   processed -- v0.64.3 released (pin `ab894b47`; release-check
   `compiler-compiler-v0.64.3`); Windows pin moved to the shadow install
@@ -334,8 +343,9 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     and the in-memory `Database` facade are still separate; `DBFile`
     transactions are single-active with no isolation/MVCC (readers see
     committed state only).
-  - Values are int-only today; secondary indexes and ORDER/LIMIT execution
-    are pending (M4.2), typed values pending (M5.1).
+  - Values are int-only today; secondary value index + ORDER/LIMIT are in
+    (M4.2, handle-scoped/rebuild-on-open; durable index storage with A5);
+    typed values pending (M5.1).
   - Node-per-page B-tree: durable node pages with incremental
     generation-committed flush are done (see Checkpoint above), but the live
     tree is still fully resident (rebuilt on open); paged/evicting access
@@ -388,8 +398,8 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
      FORMATS "3v2" tables), then M1.1b lazy load.
   2. Order-3 B-tree fix landed (upstream of `xiom.btree` SPEC 2.3) -- next
      `xiom.btree` release re-extracts; run the consumer pass then.
-  3. **M4.2 secondary indexes** (catalog `IndexDef`, index-vs-model fuzz) +
-     ORDER/LIMIT execution.
+  3. **M4.2 DONE** (value index + `IndexValue` plan + ORDER/LIMIT; suite 134
+     x2 both + fuzz section (g) vs model); next **M5.1 typed values v2**.
   4. **M5.1 typed values v2** (type-tagged tuples; text at least).
   5. **M2.1 fsync wiring** when stdlib lands; **M1.1b** lazy load once
      random-access page reads exist; MVCC per M3; keep readiness + keeper
@@ -560,7 +570,7 @@ results, and any newer COMPILER archive (re-test the seven repro bundles +
 suite first). (XVECTOR's integration reply was processed 2026-10-10.)
 
 CURRENT STATE: v0.64.2 pin; all C-ORBIT compiler workarounds REVERTED and the
-suite is green on the native forms -- conformance 128/128 x2 Win + WSL (see
+suite is green on the native forms -- conformance 134/134 x2 Win + WSL (see
 the findings file for the one consumer-qualification caveat); db_crash five
 scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn discarded,
 committed txn recovered) x2 Win + WSL, each recovery followed by qverify
@@ -596,7 +606,9 @@ query_key_range, point/range plans (M4.1); byte-page format v2 S1+S2+S3
 (codec `src/storage/block.xi`; shim `byte_io.xi`; store
 `src/storage/block_store.xi` with 26-check probe + 4-state crash harness +
 fuzz; v2 snapshot container behind `page_format` 2 with auto-detect +
-migration, db_crash v2 x2 both; design `docs/BYTE-PAGE-FORMAT-V2.md`); B-tree order-3
+migration, db_crash v2 x2 both; design `docs/BYTE-PAGE-FORMAT-V2.md`);
+secondary value index + ORDER/LIMIT (M4.2: `src/secondary_index.xi` +
+`IndexValue` plan; suite 134 x2 both); B-tree order-3
 empty-chain fix (predecessor/successor, fill_child, min/max; suite
 regression + fuzz orders 3/4/5)). Known limits: no fsync
 (process-crash safe only); replay is linear now but file IO is O(n) per read
@@ -613,7 +625,8 @@ TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
    FORMATS 3v2 tables), then M1.1b lazy load.
 2. Order-3 B-tree fix is upstream; when the fixed `xiom.btree` package
    releases, re-extract is theirs -- run our two-way consumer pass then.
-3. M4.2 secondary indexes (catalog IndexDef) + ORDER/LIMIT execution.
+3. M4.2 DONE (secondary value index + IndexValue plan + ORDER/LIMIT; suite
+   134 x2 both + fuzz (g) vs brute-force model); next M5.1 typed values v2.
 4. M5.1 typed values v2 (type-tagged tuples; text at least).
 5. M2.1 fsync wiring when stdlib lands; M1.1b lazy load once random-access
    page reads exist; MVCC per M3; keep the hybrid harness green at every
