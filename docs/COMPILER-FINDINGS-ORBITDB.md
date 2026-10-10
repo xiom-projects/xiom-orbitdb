@@ -124,7 +124,15 @@ C-ORBIT-06 on v0.64.3: `probe_alone.xi` unchanged (silent pass + 2x W004);
 `probe_with_twin.xi` **still fails T001 30:5** -- the release-check row
 `REL-20261010-1549-packages-4` verdict ("twin gone; probe passes") is not
 reproducible from the committed bundle; correction filed as
-`REL-20261010-1802-orbitdb`. Release-check row `REL-20261010-1550-orbitdb-2`
+`REL-20261010-1802-orbitdb`. **RESOLVED as invocation-dependent (compiler,
+18:45Z):** the packages pass reproduces only in the bare-filename form
+(`cd docs/repro/phantom-core-import; xiom --check probe_with_twin.xi`) -- a
+bare filename's empty parent was indexed as the source dir, so the file's
+own directory never reached the catalog (sibling module unresolved). Fixed
+on compiler main by **m255** (`13115d64`, unpushed as of 2026-10-10);
+**re-verify the bundle on the next archive**. The twin half stays open on
+v0.64.3 via the documented path invocation; the phantom-acceptance core ask
+is queued for v0.64.4. Release-check row `REL-20261010-1550-orbitdb-2`
 (standalone `--check` quirk): **still open** on v0.64.3 (same T001 class at
 1206/1211/1216). No C-ORBIT regressions; no new findings.
 

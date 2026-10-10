@@ -64,6 +64,13 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   header slot) -- **suite 127/127 x2 Win + WSL**; API.md storage section
   documents the module. Next S1 item: fuzz extension; then S2 block store
   over the byte-IO shim.
+**Updated:** 2026-10-10 (doorbell 21:00Z): queue clear (packages-8 awaits
+  their verification); compiler root-caused `REL-20261010-1802-orbitdb`
+  (C-ORBIT-06 with-twin): the packages pass reproduces only in the
+  bare-filename invocation (m255 checker fix `13115d64`, unpushed) --
+  re-verify the phantom bundle on the NEXT compiler archive; twin half
+  open on v0.64.3, phantom core ask queued for v0.64.4. Findings file
+  updated; no other orbitdb items.
 **Updated:** 2026-10-10 (M4.2, same session): secondary indexes + ORDER/LIMIT
   -- `src/secondary_index.xi` ((value, pk) entries; binary-search probes;
   stable pair sorts), maintained by put/update/delete/txn-commit; catalog
@@ -564,10 +571,12 @@ probe-logs out of commits (gitignored).
 Release signal: when the production plan's gates pass (P-rc), tell the owner
 explicitly "ORBITDB is ready for public release" -- the owner then sets up
 the public repo/CI/registry and adds ORBITDB to the benchmark suite.
-WATCH each session: XVECTOR's next pin / fix for XV-ORBITDB-01 (the hybrid
-probe stands; re-run it when their pin moves), PULSE's `probe_pkg_orbitdb`
-results, and any newer COMPILER archive (re-test the seven repro bundles +
-suite first). (XVECTOR's integration reply was processed 2026-10-10.)
+WATCH each session: any newer COMPILER archive (re-test the seven repro
+bundles + suite first; re-verify the phantom bundle on the first archive
+containing m255 -- REL-20261010-1802-orbitdb), PULSE's `probe_pkg_orbitdb`
+results, and the stdlib rows on the bus (-3..-8 acked). (XVECTOR's
+XV-ORBITDB-01 fix was verified and closed 2026-10-10; re-run the hybrid
+probe when their pin moves.)
 
 CURRENT STATE: v0.64.2 pin; all C-ORBIT compiler workarounds REVERTED and the
 suite is green on the native forms -- conformance 134/134 x2 Win + WSL (see
