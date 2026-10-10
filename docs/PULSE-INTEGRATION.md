@@ -134,6 +134,6 @@ Expected evidence: exit 0 on both platforms; the probe is the gate.
    minimal repros through the relay.
 
 Cross-lane: the same handshake has been written for the XVECTOR lane
-(`docs/XVECTOR-INTEGRATION.md` + `docs/RELAY-XVECTOR-ORBITDB.md`) so the
+(`docs/XVECTOR-INTEGRATION.md`; relay archived) so the
 hybrid retrieval example (rows in ORBITDB, embeddings in XVECTOR) can be
 stand up alongside your 0.3 drivers.

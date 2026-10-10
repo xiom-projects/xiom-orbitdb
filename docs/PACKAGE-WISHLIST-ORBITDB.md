@@ -72,7 +72,7 @@ into reusable packages as they harden.
   test.
 - **`xiom.wal`: ships standalone (3 users, one format), API shaped from
   ORBITDB crash-probe evidence.** ORBITDB's response
-  (`docs/RELAY-PACKAGES-RESPONSE-ORBITDB.md`) proposes: keep
+  (`docs/relay-archive/RELAY-PACKAGES-RESPONSE-ORBITDB.md`) proposes: keep
   `xiom.durable`'s `WalOpKind` / `WalRecord { lsn, op, key, value,
   payload, timestamp }` vocabulary, add the disk segment layer
   (`wal_open/append/flush/replay/truncate/close`), torn-tail heal + the

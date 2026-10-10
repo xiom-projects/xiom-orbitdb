@@ -7,7 +7,7 @@
 > plans the same showcase for its 0.3 drivers, so both engines need a
 > documented composition contract. Mirror file requested from the XVECTOR
 > lane: `xiom-xvector/docs/ORBITDB-INTEGRATION.md` (see
-> `docs/RELAY-XVECTOR-ORBITDB.md`).
+> `docs/relay-archive/RELAY-XVECTOR-ORBITDB.md`).
 
 ## 1. Division of labor
 

@@ -110,8 +110,8 @@ Scoreboard changelog:
 - 2026-10-09: consumer integration handshakes published -- PULSE
   (`docs/PULSE-INTEGRATION.md`: embedding API + snippets, pin `ef872b0`,
   platform matrix, crash semantics, conformance proposal, cross-asks) and
-  XVECTOR (`docs/XVECTOR-INTEGRATION.md` + `docs/RELAY-XVECTOR-ORBITDB.md`:
-  row-first hybrid contract). No score change: 66.5.
+  XVECTOR (`docs/XVECTOR-INTEGRATION.md`: row-first hybrid contract; relay
+  archived). No score change: 66.5.
 - 2026-10-09: M1.1 storage spine -- NodeStore dirty tracking + dirty-only
   checkpoint flush (full-write fallbacks for a missing prior snapshot or an
   uncommitted crashed generation); suite 120 -> 121 (bounded-delta test),

@@ -225,8 +225,8 @@ suite.
 6. M6.1 -- cursor API + error taxonomy; bindings spike.
 7. **M6.0 -- consumer handshakes** (done at doc level): PULSE
    (`docs/PULSE-INTEGRATION.md`: driver mapping, pin, crash semantics,
-   conformance proposal) and XVECTOR (`docs/XVECTOR-INTEGRATION.md` +
-   `docs/RELAY-XVECTOR-ORBITDB.md`: row-first hybrid contract). Stand up
+   conformance proposal) and XVECTOR (`docs/XVECTOR-INTEGRATION.md`:
+   row-first hybrid contract; relay archived). Stand up
    `probe_pkg_orbitdb` / the hybrid join probe when the consumers drive
    them.
 ... and so on through M8, with the readiness scoreboard recomputed and the
@@ -239,6 +239,6 @@ relay lanes swept at every wrap.
 3. Add ORBITDB to the owner's benchmark suite; share the harness contract so
    the adapter can be built here.
 4. Rollback/pin policy decisions when the compiler/stdlib lanes move.
-5. Relay the handshakes: XVECTOR request
-   (`docs/RELAY-XVECTOR-ORBITDB.md`) to the xvector lane; PULSE responses
-   (`docs/PULSE-INTEGRATION.md`) back to the pulse lane.
+5. Relay the handshakes: XVECTOR request (`docs/XVECTOR-INTEGRATION.md`;
+   relay archived under `docs/relay-archive/`) to the xvector lane; PULSE
+   responses (`docs/PULSE-INTEGRATION.md`) back to the pulse lane.

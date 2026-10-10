@@ -62,7 +62,7 @@ uses `Vec[Option[T]]` caches, cross-module `Result` aliases, nested-field
 
 ## Re-test v0.64.2 (2026-10-09) -- all five findings RESOLVED
 
-Compiler relay: `docs/COMPILER-RELAY-2026-10-09-v0.64.2.md` (m223 alias
+Compiler relay (archived): `docs/relay-archive/COMPILER-RELAY-2026-10-09-v0.64.2.md` (m223 alias
 payloads, m224 nested-field receivers, m225 enum-variant module scope, m226
 `Vec[Option/Result]` element assignment, m235 loop-body alloca, plus
 m228/m231/m234/m239).

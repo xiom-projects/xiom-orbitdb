@@ -64,6 +64,10 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   header slot) -- **suite 127/127 x2 Win + WSL**; API.md storage section
   documents the module. Next S1 item: fuzz extension; then S2 block store
   over the byte-IO shim.
+**Updated:** 2026-10-10 (relay archive cleanup): the seven pre-bus relay
+  messages moved to `docs/relay-archive/` (README + keeper-doc index);
+  SESSION rules/prompt and all cross-references now point at the bus or the
+  keeper docs.
 **Updated:** 2026-10-10 (relay bus onboarding): joined `xiom-relays`; 11
   open cross-lane items migrated as separate items (ids in section 1);
   SESSION rules updated (pull at session start/before finishing; never edit
@@ -256,7 +260,8 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     checks, delete pipeline, reopen bit-equality, WAL prefix + torn tail) and
     `scripts/hybrid_crash_test.{ps1,sh}`. XVECTOR's reply processed; cross-ask
     answers + finding XV-ORBITDB-01 in `docs/XVECTOR-INTEGRATION.md` section 7
-    (+ the owner-relay response in `docs/RELAY-XVECTOR-ORBITDB.md`).
+    (+ the owner-relay response, archived:
+    `docs/relay-archive/RELAY-XVECTOR-ORBITDB.md`).
   - Foundation cleanup (new): the dead `xiom.core.error` fold
     (`db_error_from_core`) and `xiom.core.config` projection
     (`database_config_from_core`) are RETIRED -- phantom imports the checker
@@ -314,12 +319,12 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   - B-tree nodes are append-only (no free list); `btree_to_vec` is
     value-only.
 - **Relay status:** cross-lane coordination runs on the **xiom-relays bus**
-  (section 1; all open items migrated 2026-10-10, ids listed there). The
-  historical per-lane docs stay as closed record:
-  `docs/COMPILER-FINDINGS-ORBITDB.md` + `docs/RELAY-COMPILER-ORBITDB.md`
-  now record **C-ORBIT-01..05 RESOLVED on v0.64.2** (m223/m224/m225/m226/
-  m235; one consumer-scope caveat on m225) plus the incoming relay
-  `docs/COMPILER-RELAY-2026-10-09-v0.64.2.md`. Stdlib wishlist: the
+  (section 1; all open items migrated 2026-10-10, ids listed there; first
+  inbound processed the same day: packages' order-3 bug acked+fixed). Keeper
+  docs: `docs/COMPILER-FINDINGS-ORBITDB.md` records **C-ORBIT-01..05
+  RESOLVED on v0.64.2** (m223/m224/m225/m226/m235; one consumer-scope caveat
+  on m225). Pre-bus relay messages are archived under `docs/relay-archive/`
+  (historical only). Stdlib wishlist: the
   `str_split`/`read_file_lines` quadratic **and** the CR-strip row are
   RESOLVED (both citing our relay); fsync (stubs), append-handle, truncate,
   byte-IO, tail-check remain open. Package docs carry the `xiom.wal`/
@@ -327,8 +332,8 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   Consumer handshakes (new): PULSE (`docs/PULSE-INTEGRATION.md`, answering
   `xiom-pulse/docs/ORBITDB-RELAY-PULSE.md`) -- PULSE builds
   `probe_pkg_orbitdb` and uses us as its 0.3 embedded/relational driver
-  (`open/exec/query/tx`); XVECTOR (`docs/XVECTOR-INTEGRATION.md` +
-  `docs/RELAY-XVECTOR-ORBITDB.md`) -- reply RECEIVED and processed
+  (`open/exec/query/tx`); XVECTOR (`docs/XVECTOR-INTEGRATION.md`; reply
+  archived) -- reply RECEIVED and processed
   (`xiom-xvector/docs/ORBITDB-INTEGRATION.md`, pin `de1db14`); the hybrid
   probe + crash harness stand and are green (our section 7 answers their
   cross-asks); finding **XV-ORBITDB-01** relayed back to them (chained
@@ -346,8 +351,8 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
      ORDER/LIMIT execution.
   4. **M5.1 typed values v2** (type-tagged tuples; text at least).
   5. **M2.1 fsync wiring** when stdlib lands; **M1.1b** lazy load once
-     random-access page reads exist; MVCC per M3; keep readiness + relay docs
-     current; commit signed at every step.
+     random-access page reads exist; MVCC per M3; keep readiness + keeper
+     docs current; commit signed at every step.
   6. **Hybrid regression guard:** re-run `scripts/hybrid_crash_test.*` +
      probe `full` x2 both platforms at every wrap, and whenever the XVECTOR
      pin moves; drop the `persist_recovered` workaround once XV-ORBITDB-01
@@ -374,8 +379,9 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   `-5` truncate, `-6` byte-IO random access, `-7` append+repair, `-8` tail
   check; packages `-9` btree re-extract, `-10` variant qualification;
   xvector `-11` (XV-ORBITDB-01).
-- Report upstream only through the relay docs + SESSION rows; the owner
-  relays. Read PULSE's relay docs before filing (reference their IDs).
+- Report upstream through the xiom-relays bus (section 1) + SESSION rows;
+  the owner handles human gates. Read other lanes' bus items before filing
+  (reference their ids).
 - Packages only from the registry; never vendor. Extraction candidates go to
   `docs/PACKAGE-WISHLIST-ORBITDB.md`.
 
@@ -460,21 +466,21 @@ Ops rules:
   - The owner's benchmark-suite contract: build the ORBITDB adapter when it
     lands (`docs/PRODUCTION-PLAN.md` section 10).
 
-## 4. Relay documents (owner relays; keep current every wrap)
+## 4. Relay documents (bus is live; keep keeper docs current every wrap)
 
-- `docs/COMPILER-FINDINGS-ORBITDB.md` + `docs/RELAY-COMPILER-ORBITDB.md`
-  (C-ORBIT-01..05 RESOLVED on v0.64.2; **C-ORBIT-06 OPEN** -- phantom
-  imports; bundle `docs/repro/phantom-core-import/`; historical
-  v0.64.0/0.64.1 sections; incoming relay
-  `docs/COMPILER-RELAY-2026-10-09-v0.64.2.md`).
-- `docs/XVECTOR-INTEGRATION.md` + `docs/RELAY-XVECTOR-ORBITDB.md` (reply
-  processed; cross-ask answers; XV-ORBITDB-01 relayed; hybrid harness +
-  pins; section 7).
-- `docs/STDLIB-WISHLIST-ORBITDB.md` + `docs/RELAY-STDLIB-ORBITDB.md`.
-- `docs/PACKAGE-WISHLIST-ORBITDB.md` + `docs/RELAY-PACKAGES-ORBITDB.md` +
-  `docs/RELAY-PACKAGES-RESPONSE-ORBITDB.md` (xiom.wal API proposal).
-- `docs/RELAY-INTRO-ORBITDB.md` (one-pager), `docs/PRODUCTION-READINESS.md`
-  (scoreboard -- recompute + changelog line every wrap).
+- `docs/COMPILER-FINDINGS-ORBITDB.md` (evidence ledger; C-ORBIT-01..05
+  RESOLVED; C-ORBIT-06 on the bus as `REL-20261010-1549-packages-4`;
+  standalone-check quirk `REL-20261010-1550-orbitdb-2`; repro bundles under
+  `docs/repro/`).
+- `docs/XVECTOR-INTEGRATION.md` (hybrid contract; reply processed; section 7
+  answers their cross-asks + XV-ORBITDB-01, bus `-11`).
+- `docs/STDLIB-WISHLIST-ORBITDB.md` / `docs/PACKAGE-WISHLIST-ORBITDB.md`
+  (resolved history + deltas; open rows on the bus `-3..-8` / `-9..-10`).
+- `docs/PULSE-INTEGRATION.md` (PULSE contract) and
+  `docs/PRODUCTION-READINESS.md` (scoreboard -- recompute + changelog line
+  every wrap).
+- `docs/relay-archive/` -- pre-bus relay messages (historical only; live
+  coordination is the bus).
 
 ## 5. Paste prompt for the next ORBITDB session
 
@@ -482,7 +488,7 @@ Ops rules:
 You are the ORBITDB session for E:\xiom-projects\xiom-orbitdb -- the
 embedded XIOM database engine (B-Tree, WAL, query engine, crash recovery;
 formerly xiom-db). Read SESSION.md first, then README/SPEC/ARCHITECTURE/
-ROADMAP/AUDIT and docs/ (relay docs + PRODUCTION-READINESS included; read
+ROADMAP/AUDIT and docs/ (keeper docs + PRODUCTION-READINESS included; read
 docs/PRODUCTION-PLAN.md for the strategy, workstreams and slice order).
 Consumer lane: never edit E:\xiom-lang\stdlib, E:\xiom-lang\xiom,
 E:\xiom-packages\packages. Repo PRIVATE; no pushes without owner approval.
@@ -566,8 +572,9 @@ TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
 4. M5.1 typed values v2 (type-tagged tuples; text at least).
 5. M2.1 fsync wiring when stdlib lands; M1.1b lazy load once random-access
    page reads exist; MVCC per M3; keep the hybrid harness green at every
-   wrap (and when the XVECTOR pin moves); keep SESSION.md STATE, relay docs
-   and PRODUCTION-READINESS updated at every wrap; commit signed per step.
+   wrap (and when the XVECTOR pin moves); keep SESSION.md STATE, the bus
+   items and PRODUCTION-READINESS updated at every wrap; commit signed per
+   step.
 
 DISCIPLINE (v0.64.2; C-ORBIT workarounds DROPPED -- see COMPILER-FINDINGS):
 - Never keep an unresolvable `use` or an undeclared type (C-ORBIT-06): it
