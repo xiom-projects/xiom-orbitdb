@@ -206,6 +206,15 @@ Scoreboard changelog:
   (the flip moves to S4: a single first full checkpoint at N=2000 is
   minutes-scale on the O(file) shim). No score change (A5/C2 groundwork):
   70.5.
+- 2026-10-10 (same day, compiler v0.64.3 bump): release-check processed
+  (pin `ab894b47`); Windows pin moved to the shadow install `xiom.new.0643`
+  (canonical left for the fleet). Bump battery GREEN: seven C-ORBIT bundles
+  unchanged and matching the v0.64.2 matrix; suite 130/130 x2 Win + WSL;
+  WAL crash 4/4 x2 both; db_crash 25/25 Win; block crash 8/8 Win; fuzz +
+  2000-key soak on both platforms. Release-check row `-2` verdict filed
+  (still open: same T001 class at 1206/1211/1216); C-ORBIT-06 with-twin
+  STILL red on v0.64.3 (correction `REL-20261010-1802-orbitdb`). No score
+  change: 70.5.
 
 ## A. Correctness & data structures (20)
 

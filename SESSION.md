@@ -64,6 +64,17 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   header slot) -- **suite 127/127 x2 Win + WSL**; API.md storage section
   documents the module. Next S1 item: fuzz extension; then S2 block store
   over the byte-IO shim.
+**Updated:** 2026-10-10 (compiler v0.64.3 bump, same session): release check
+  processed -- v0.64.3 released (pin `ab894b47`; release-check
+  `compiler-compiler-v0.64.3`); Windows pin moved to the shadow install
+  `xiom.new.0643` (dev-env.ps1), WSL canonical already 0.64.3 (dev-env.sh
+  comment). Bump battery GREEN: seven C-ORBIT bundles unchanged and matching
+  the v0.64.2 matrix; suite 130/130 x2 Win + WSL; WAL crash 4/4 x2; db_crash
+  25/25; block crash 8/8; fuzz + 2000-key soak both platforms. Verdicts:
+  release-check row `-2` filled (still open, same T001 class); C-ORBIT-06
+  with-twin STILL red on v0.64.3 (packages' verdict contradicted) ->
+  correction `REL-20261010-1802-orbitdb`; plain-phantom silent acceptance
+  unchanged.
 **Updated:** 2026-10-10 (M1.2 S3 integration, same session): the snapshot
   can be written as v2 byte blocks -- `db_file_open_cfg` /
   `db_file_open_checked_cfg` (`page_format` 1 default | 2), reads
@@ -152,13 +163,17 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   XV-ORBITDB-01, wrap `d9ef464`).
 - **VERSION POLICY (owner): track the LATEST compiler / stdlib / packages.**
   Record exact versions + lane hashes here at every wrap.
-  - compiler: **v0.64.2** (released 2026-10-09) -- Windows
-    `%LOCALAPPDATA%\xiom.new\bin\xiom.exe`, WSL `~/.local/bin/xiom`;
-    `XIOM_RUNTIME_DIR` retired. Re-tested today with **all five C-ORBIT
-    workarounds reverted**: suites/crash/fuzz/soak green; **C-ORBIT-01..05
-    RESOLVED** (m223/m224/m225/m226/m235). Rollback option if a v0.64.2
-    regression appears: v0.64.1 (keep the finding notes in
-    `docs/COMPILER-FINDINGS-ORBITDB.md`).
+  - compiler: **v0.64.3** (released 2026-10-10, pin `ab894b47`; m243-m246,
+    m248, m249+bridge, m252) -- Windows **shadow install**
+    `%LOCALAPPDATA%\xiom.new.0643\bin\xiom.exe` (the canonical
+    `xiom.new` stays v0.64.2 for the other lanes; swap is
+    owner/ops-coordinated), WSL `~/.local/bin/xiom` (canonical, already
+    0.64.3). Bump re-test 2026-10-10: seven C-ORBIT bundles unchanged/green,
+    suite 130/130 x2 Win + WSL, WAL crash 4/4 x2, db_crash 25/25 Win, block
+    crash 8/8 Win, fuzz + 2000-key soak OK both platforms; C-ORBIT-06
+    with-twin still red on v0.64.3 (correction
+    `REL-20261010-1802-orbitdb`), release-check row `-2` still open.
+    Rollback option: v0.64.2 (`xiom.new`; findings file keeps the notes).
   - stdlib: `E:\xiom-lang\stdlib` @ `7e513f9` (2026-10-10; handoff snapshot
     25) = `/mnt/e/xiom-lang/stdlib`. **stdlib-v0.64.3 RELEASED + registry
     live** (stdlib lane version, built with compiler v0.64.2; sha256
@@ -525,7 +540,9 @@ finishing any task, then python tools/relay.py view --lane orbitdb and
 process items to this lane; never edit another lane's item (open a new one);
 owner relays human gates.
 
-TOOLCHAIN (latest-tracking): compiler v0.64.2 Windows + WSL; stdlib
+TOOLCHAIN (latest-tracking): compiler v0.64.3 Windows shadow install
+(%LOCALAPPDATA%\xiom.new.0643) + WSL canonical ~/.local/bin/xiom (v0.64.3;
+dev-env pins both); stdlib
 E:\xiom-lang\stdlib; XIOM_RUNTIME_DIR retired. Dot-source scripts\dev-env.ps1
 (or scripts/dev-env.sh); run everything via scripts\run.ps1 / run.sh with a
 -TimeoutSec watchdog and exit-code gate. Native .sh twins must stay LF.

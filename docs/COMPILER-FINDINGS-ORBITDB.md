@@ -21,6 +21,12 @@ dead `db_error_from_core`/`database_config_from_core` folds retired); suite
 > bundle); the standalone-check quirk is `REL-20261010-1550-orbitdb-2`. Below
 > is closed history; open new bus items instead of editing this file.
 
+**Status 2026-10-10 (v0.64.3 bump):** re-test green -- seven repro bundles
+unchanged and matching the v0.64.2 matrix, suite 130/130 x2 Win + WSL,
+WAL/db/block crash + fuzz + 2000-key soak green both platforms. C-ORBIT-06
+with-twin still red on v0.64.3 (correction `REL-20261010-1802-orbitdb`);
+row `-2` (standalone-check quirk) still open. No new findings.
+
 **Relay:** hand this file to the compiler-lane session together with the
 matching `docs/repro/<bundle>/` directories from the ORBITDB repo
 (`E:\xiom-projects\xiom-orbitdb`). ORBITDB is a consumer lane; it does not
@@ -102,6 +108,25 @@ Bench: `wal_replay` of 20k records 61.6 s -> 9.9 s (stdlib linear
 `Vec[Int] == Vec[Int]` and `Str == Str` compare by content on v0.64.2 (the
 v0.64.2 release-notes "Known issues" line claiming pointer identity is
 stale).
+
+### v0.64.3 re-test (2026-10-10, bump procedure step 2)
+
+Compiler v0.64.3 (Windows shadow `%LOCALAPPDATA%\xiom.new.0643`; WSL
+canonical v0.64.3). All seven C-ORBIT bundles re-run **unchanged and
+matching the v0.64.2 green matrix** (nested-field-mut A=1 B=1 C=1 D=1;
+option-vec-assign no silent slots; option-param / option-ref-write /
+ok-method-receiver all OK; vec-option-match A=5 B=5 C=9 D=7; vec-push-nested
+A/B/C/D ok). Lane regression: **suite 130/130 x2 Win + WSL** (includes the
+S2/S3 v2 tests), WAL crash 4/4 x2 Win + WSL, db_crash 25/25 Win, block crash
+8/8 Win, fuzz OK Win + WSL, 2000-key soak OK Win + WSL (9 checkpoints).
+
+C-ORBIT-06 on v0.64.3: `probe_alone.xi` unchanged (silent pass + 2x W004);
+`probe_with_twin.xi` **still fails T001 30:5** -- the release-check row
+`REL-20261010-1549-packages-4` verdict ("twin gone; probe passes") is not
+reproducible from the committed bundle; correction filed as
+`REL-20261010-1802-orbitdb`. Release-check row `REL-20261010-1550-orbitdb-2`
+(standalone `--check` quirk): **still open** on v0.64.3 (same T001 class at
+1206/1211/1216). No C-ORBIT regressions; no new findings.
 
 ### Residual caveat -- C-ORBIT-04 scope (consumer modules)
 
