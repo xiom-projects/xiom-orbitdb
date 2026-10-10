@@ -64,6 +64,16 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   header slot) -- **suite 127/127 x2 Win + WSL**; API.md storage section
   documents the module. Next S1 item: fuzz extension; then S2 block store
   over the byte-IO shim.
+**Updated:** 2026-10-10 (M1.2 S2 landed, same session): byte-IO shim
+  (`src/storage/byte_io.xi`: read_at/write_at/append/file_size/truncate/sync,
+  documented O(file) fallbacks, sync no-op) + block store
+  (`src/storage/block_store.xi`: two generation-stamped header slots, scan
+  directory, put/commit/compact, latest-wins) + probe
+  (`tests/probes/probe_block_store.xi`, 26 checks incl. torn active slot
+  fallback, both-slots recovery, compaction) + crash harness
+  (`scripts/block_crash_test.{ps1,sh}`, four kill states) + fuzz section (f);
+  **GREEN x2 Win + WSL** everywhere; suite 128/128 x2 both. S2 done ->
+  next S3 (DBFile integration + default flip).
 **Updated:** 2026-10-10 (relay archive cleanup): the seven pre-bus relay
   messages moved to `docs/relay-archive/` (README + keeper-doc index);
   SESSION rules/prompt and all cross-references now point at the bus or the
@@ -341,10 +351,10 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   workaround). New compiler finding **C-ORBIT-06** filed (phantom imports
   silently accepted; C-ORBIT-01..05 stay RESOLVED).
 - **Next action (priority order, per `docs/PRODUCTION-PLAN.md` section 13):**
-  1. **M1.2 byte-page format v2 -- design DONE, S1 DONE (incl. fuzz
-     section e)** (`docs/BYTE-PAGE-FORMAT-V2.md` + checklist); next S2
-     block store over the byte-IO shim (+ probe + crash harness), then S3
-     default flip; S4 swaps in real stdlib byte IO + fsync.
+  1. **M1.2 byte-page format v2 -- design + S1 + S2 DONE**; next S3
+     (`DatabaseConfig.page_format` v1/v2, v1->v2 migration, DBFile
+     integration behind the flag, full matrix, default flip), then S4
+     (stdlib fixed-size IO + fsync swap).
   2. Order-3 B-tree fix landed (upstream of `xiom.btree` SPEC 2.3) -- next
      `xiom.btree` release re-extracts; run the consumer pass then.
   3. **M4.2 secondary indexes** (catalog `IndexDef`, index-vs-model fuzz) +
@@ -549,9 +559,10 @@ committed/uncommitted classification, dangling-window abort on open;
 db_file_range + db_file_query; db_path_valid + db_file_open_checked
 validation; wal_bytes stale-handle write guard; NodeStore dirty tracking =
 dirty-only checkpoint flush (M1.1); key-range planner pushdown +
-query_key_range, point/range plans (M4.1); byte-page format v2 codec
-`src/storage/block.xi` (S1: 4096-byte blocks, 40-byte LE header, CRC32C,
-strict decode; design `docs/BYTE-PAGE-FORMAT-V2.md`); B-tree order-3
+query_key_range, point/range plans (M4.1); byte-page format v2 S1+S2
+(codec `src/storage/block.xi`; shim `byte_io.xi`; store
+`src/storage/block_store.xi` with 26-check probe + 4-state crash harness +
+fuzz; design `docs/BYTE-PAGE-FORMAT-V2.md`); B-tree order-3
 empty-chain fix (predecessor/successor, fill_child, min/max; suite
 regression + fuzz orders 3/4/5)). Known limits: no fsync
 (process-crash safe only); replay is linear now but file IO is O(n) per read
@@ -562,10 +573,10 @@ docs/ISOLATION.md); buffer pool in-memory only (pager seam C3 pending);
 fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-1. M1.2 byte-page format v2: design + S1 DONE (block codec + fuzz section e;
-   suite 128/128 x2 both platforms); next S2 (byte-IO shim + block store +
-   probe + crash harness), S3 (DBFile integration + default flip), S4
-   (stdlib byte IO + fsync swap).
+1. M1.2 byte-page format v2: design + S1 + S2 DONE (block codec, byte-IO
+   shim, block store, probe, crash harness, fuzz -- all x2 both platforms);
+   next S3 (DBFile integration behind DatabaseConfig.page_format + v1->v2
+   migration + default flip), S4 (stdlib byte IO + fsync swap).
 2. Order-3 B-tree fix is upstream; when the fixed `xiom.btree` package
    releases, re-extract is theirs -- run our two-way consumer pass then.
 3. M4.2 secondary indexes (catalog IndexDef) + ORDER/LIMIT execution.

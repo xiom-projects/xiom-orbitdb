@@ -15,7 +15,10 @@
 //       against a flat model, several orders and seeds;
 //   (e) block codec v2 -- random page/header roundtrips + single-byte
 //       mutations (decode must reject or reflect the mutation; it must never
-//       decode back to the original view).
+//       decode back to the original view);
+//   (f) block store vs model -- random put generations with probabilistic
+//       commits, an open/compare after every commit and at the end (visible
+//       set + latest payload per id must match the committed history).
 //
 // Env:
 //   ORBITDB_FUZZ_DIR          scratch dir                     (default probe-logs)
@@ -26,6 +29,7 @@
 //   ORBITDB_FUZZ_WAL_ITERS    WAL files per seed             (default 30)
 //   ORBITDB_FUZZ_PAGE_ITERS   page logs per seed             (default 30)
 //   ORBITDB_FUZZ_BLOCK_ITERS  block-codec iterations per seed (default 200)
+//   ORBITDB_FUZZ_BLOCKSTORE_GENS  block-store generations per seed (default 12)
 //
 // Exit: 0 = green; non-zero = failing section + first violation (printed).
 
@@ -39,6 +43,7 @@ use xiom.db.engine;
 use xiom.db.storage.page;
 use xiom.db.storage.page_file;
 use xiom.db.storage.block;
+use xiom.db.storage.block_store;
 use xiom.db.storage.tuple;
 use xiom.db.wal_file;
 
@@ -565,6 +570,91 @@ fn fuzz_block(seed: Int, iters: Int) -> Int {
   return 0;
 }
 
+// (f) block store vs model ---------------------------------------------------
+// Model: append history of (id, payload, generation); the reopened view must
+// show exactly the distinct ids whose latest history entry has gen <= the
+// committed generation, with that entry's payload.
+fn bs_compare(path: Str, hid: &Vec[Int], hpay: &Vec[Int], hgen: &Vec[Int], committed: Int) -> Bool {
+  var mitems = Vec[Int].new();
+  var mvals = Vec[Int].new();
+  var i = 0;
+  while i < hid.len() {
+    if hgen[i] <= committed {
+      var at = -1;
+      var j = 0;
+      while j < mitems.len() {
+        if mitems[j] == hid[i] { at = j; }
+        j = j + 1;
+      }
+      if at < 0 {
+        mitems.push(hid[i]);
+        mvals.push(hpay[i]);
+      } else {
+        mvals[at] = hpay[i];
+      }
+    }
+    i = i + 1;
+  }
+  var bs = block_store_open(path);
+  if block_store_count(&bs) != mitems.len() { return false; }
+  var k = 0;
+  while k < mitems.len() {
+    match block_store_read(&bs, mitems[k]) {
+      Some(pg) => {
+        if pg.payload.len() != 1 || pg.payload[0] != mvals[k] { return false; }
+      }
+      None => { return false; }
+    }
+    k = k + 1;
+  }
+  return true;
+}
+
+fn fuzz_blockstore(seed: Int, gens: Int, dir: Str) -> Int {
+  let path = dir + "/fuzz-block-store.bv2";
+  match io.remove_file(path) { Ok(_) => {} Err(_) => {} }
+  match io.remove_file(path + ".tmp") { Ok(_) => {} Err(_) => {} }
+  var state = seed + 999;
+  var hid = Vec[Int].new();
+  var hpay = Vec[Int].new();
+  var hgen = Vec[Int].new();
+  var committed: Int = 0;
+  var bs = block_store_open(path);
+  var g: Int = 1;
+  while g <= gens {
+    let puts = 1 + rand_mod(&mut state, 5);
+    var p: Int = 0;
+    while p < puts {
+      let id = rand_mod(&mut state, 12);
+      let pay = 10 + rand_mod(&mut state, 200);
+      var pv = Vec[Int].new();
+      pv.push(pay);
+      if block_store_put(&mut bs, g, id, &pv) < 0 { return 1; }
+      hid.push(id);
+      hpay.push(pay);
+      hgen.push(g);
+      p = p + 1;
+    }
+    if rand_mod(&mut state, 10) < 8 {
+      var h = BlockHeader{
+        root: 1,
+        order: 4,
+        node_count: 0,
+        checkpoint_lsn: g,
+        committed_generation: g,
+        block_count: 0,
+        next_page_id: 64,
+      };
+      if !block_store_commit(&mut bs, &h) { return 1; }
+      committed = g;
+      if !bs_compare(path, &hid, &hpay, &hgen, committed) { return 2; }
+    }
+    g = g + 1;
+  }
+  if !bs_compare(path, &hid, &hpay, &hgen, committed) { return 3; }
+  return 0;
+}
+
 fn main() -> Int {
   let dir = env.var_or("ORBITDB_FUZZ_DIR", "probe-logs");
   let seeds = parse_env_int("ORBITDB_FUZZ_SEEDS", 4);
@@ -574,6 +664,7 @@ fn main() -> Int {
   let wal_iters = parse_env_int("ORBITDB_FUZZ_WAL_ITERS", 30);
   let page_iters = parse_env_int("ORBITDB_FUZZ_PAGE_ITERS", 30);
   let block_iters = parse_env_int("ORBITDB_FUZZ_BLOCK_ITERS", 200);
+  let blockstore_gens = parse_env_int("ORBITDB_FUZZ_BLOCKSTORE_GENS", 12);
 
   var s = 0;
   while s < seeds {
@@ -598,6 +689,11 @@ fn main() -> Int {
     if rc_blk != 0 {
       io.println("fuzz: block FAILED seed=" + convert.int_to_string(seed) + " rc=" + convert.int_to_string(rc_blk));
       return 90 + rc_blk;
+    }
+    let rc_bs = fuzz_blockstore(seed, blockstore_gens, dir);
+    if rc_bs != 0 {
+      io.println("fuzz: blockstore FAILED seed=" + convert.int_to_string(seed) + " rc=" + convert.int_to_string(rc_bs));
+      return 110 + rc_bs;
     }
     let order = 3 + (s % 3);
     let rc_b = fuzz_btree(seed, ops, n, order);

@@ -13,6 +13,8 @@ engine, `DBFile` -- the consolidated engine), `xiom.db.wal_file` (durable WAL
 segment), `xiom.db.storage.page` (page, checksum, buffer pool, storage
 engine), `xiom.db.storage.page_file` (durable page file + page log),
 `xiom.db.storage.block` (byte-page v2 codec, pure),
+`xiom.db.storage.byte_io` (byte-IO shim seam), `xiom.db.storage.block_store`
+(byte-page v2 block store),
 `xiom.db.storage.tuple` (row codec, result set), `xiom.db.storage.free_space_map`,
 `xiom.db.error`, `xiom.db.config`, `xiom.db.ids`, `xiom.db.contracts`,
 `xiom.db.catalog.schema`, `xiom.db.catalog.schema_validator`,
@@ -166,6 +168,42 @@ Pure codec for the 4096-byte block format (M1.2 S1; design
 | `block_encode_header(h)` / `block_decode_header(bytes)` | `Vec[Int]` / `Option[BlockHeader]` | Header slot (64-byte payload); decode cross-checks `committed_generation` vs the block stamp and `page_id == 0`. |
 | `block_decode(bytes)` | `Option[BlockView]` | Any kind (`'H'` / `'P'` / `'F'`). |
 | `block_kind_is_free(bytes)` | `Bool` | `'F'` fast path for the store scan (no CRC). |
+
+## Byte-IO shim (`xiom.db.storage.byte_io`)
+
+The seam between the storage layer and `io.*` (the swap point for the stdlib
+fixed-size IO + fsync rows; bus items `REL-20261010-1550-orbitdb-3..-6`).
+Byte convention `Vec[Int]` elements 0..255; fallbacks are whole-file
+read+splice (O(file)) until then, and `byteio_sync` is a documented no-op
+(process-crash safe, not power-loss honest).
+
+| Call | Returns | Semantics |
+|------|---------|-----------|
+| `byteio_read_at(path, offset, len)` | `Option[Vec[Int]]` | Byte range; None on IO error or short read. |
+| `byteio_write_at(path, offset, data)` | `Bool` | Splice-write; zero-extends past EOF. |
+| `byteio_append(path, data)` | `Bool` | Write at EOF. |
+| `byteio_file_size(path)` | `Int` | Bytes; 0 when the file is missing, -1 on IO error. |
+| `byteio_truncate(path, len)` | `Bool` | ftruncate semantics (cut, or zero-extend). |
+| `byteio_sync(path)` | `Bool` | Durability seam. |
+
+## Block store v2 (`xiom.db.storage.block_store`)
+
+Append-only 4096-byte block store with two generation-stamped header slots
+(design `BYTE-PAGE-FORMAT-V2.md`): page appends are invisible until a header
+commit covers their generation; the latest generation per page_id wins; the
+first commit mirrors both slots, later commits alternate. `BlockStore`
+fields (`ids` / `blocks` / `gens` directory, `header`, `active_slot`,
+`committed`, `block_count`) are public.
+
+| Call | Returns | Semantics |
+|------|---------|-----------|
+| `block_store_open(path)` | `BlockStore` | Rebuild the committed view (header-slot pick + block scan). |
+| `block_store_put(bs, generation, page_id, payload)` | `Int` | Append one page version; block index or -1. Own writes visible in-process. |
+| `block_store_commit(bs, header)` | `Bool` | Commit at `header.committed_generation`; non-increasing generations rejected. |
+| `block_store_read(bs, page_id)` | `Option[BlockPage]` | Current version for the id. |
+| `block_store_has` / `block_store_count` / `block_store_pages` / `block_store_blocks` | `Bool` / `Int` / `Vec[Int]` / `Int` | Directory queries + file block count. |
+| `block_store_compact(bs, generation)` | `Bool` | One block per live page at a new generation, temp+rename. |
+| `block_store_sync(bs)` | `Bool` | Durability seam. |
 
 ## Tuples (`xiom.db.storage.tuple`)
 

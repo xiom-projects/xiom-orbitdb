@@ -182,6 +182,20 @@ Scoreboard changelog:
   churn order 3 @ 20k/4096 seeds 777+2026 GREEN (+ orders 4/5 regression).
   **F4 1 -> 2** (both extraction packages live; xiom.wal consumer pass
   green; xiom.db publish + version stamp pending): 69.5 -> **70.5**.
+- 2026-10-10 (same day, M1.2 S2): byte-IO shim (`src/storage/byte_io.xi`:
+  read_at/write_at/append/file_size/truncate/sync, documented O(file)
+  fallbacks, sync no-op) + block store (`src/storage/block_store.xi`:
+  append-only 4096-byte blocks, two generation-stamped header slots with
+  first-commit mirroring, scan directory with `gen <= committed` filter and
+  latest-wins, temp+rename compaction) + probe `probe_block_store.xi`
+  (26 checks: commit semantics, uncommitted-hidden-on-reopen, torn tail
+  skipped, torn active-slot fallback, both-slots recovery, surviving-page
+  re-commit, compaction, capacity) + crash harness
+  `scripts/block_crash_test.{ps1,sh}` (four kill states: pages2 / full2 /
+  midheader / compacted; torn tail + recovery append) + fuzz section (f)
+  block store vs model. GREEN x2 Win + WSL; suite 128/128 x2 both.
+  No score change (A5/C2 stay WIP -- the pager seam and the default flip
+  are S3/S4; this is the groundwork evidence): 70.5.
 
 ## A. Correctness & data structures (20)
 

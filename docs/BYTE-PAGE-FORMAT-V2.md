@@ -2,12 +2,13 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 # Byte-page format v2 -- design (M1.2)
 
-> Status: **DESIGN + S1 IMPLEMENTED** (2026-10-10). Implementation slices in
-> `docs/checklists/byte-page-v2.md`. S1 (pure codec) landed in
-> `src/storage/block.xi` with 4 suite tests (127/127 x2 Win + WSL); the block
-> store (S2) runs against the byte-IO shim; the default flips to v2 in S3,
-> and S4 swaps the shim for real fixed-size IO + fsync when the stdlib
-> storage rows land.
+> Status: **DESIGN + S1 + S2 IMPLEMENTED** (2026-10-10). Implementation
+> slices in `docs/checklists/byte-page-v2.md`. S1 (pure codec) landed in
+> `src/storage/block.xi`; S2 landed the byte-IO shim (`src/storage/byte_io.xi`)
+> and the block store (`src/storage/block_store.xi`) with a 26-check probe,
+> a four-state crash harness (x2 Win + WSL) and a fuzz section. S3 (DBFile
+> integration + default flip) and S4 (stdlib fixed-size IO + fsync swap)
+> remain.
 >
 > Scope: replace the text page file / page log (FORMATS.md sections 3-4)
 > with 4096-byte blocks: fixed-size IO, generation-stamped commit, CRC32C in

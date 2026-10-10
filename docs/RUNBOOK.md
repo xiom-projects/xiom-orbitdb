@@ -32,6 +32,7 @@ Shell scripts and `.xi` files must stay LF; `.ps1` files are CRLF
 | Page crash harness | `scripts\page_crash_test.ps1 -Pages 20 -TimeoutSec 120` | Use 120s: the writer's first compile can exceed 90s under load. |
 | DB crash harness | `scripts\db_crash_test.ps1 -Keys 20 -Tail 3 -Tx 5 -TimeoutSec 90` | Five scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn, committed txn); 25 checks. |
 | Hybrid crash harness | `scripts\hybrid_crash_test.ps1 -Keys 1000 -TimeoutSec 240` | ORBITDB <-> XVECTOR: one writer drives both stores, hard kill, torn row tail, reopen + repair + 100% join integrity; second verify idempotent. Needs the sibling `xiom-xvector` checkout (source roots in `tests/hybrid/xiom.toml`). |
+| Block crash harness | `scripts\block_crash_test.ps1 -Pages 60 -Batch 10 -TimeoutSec 240` | M1.2 S2: four kill states (pages2 / full2 / midheader / compacted) + torn tail + reopen + recovery append; 8 checks. Kill lands at quiescent states only (O(file) shim until S4). |
 | Fuzz/property | `scripts\fuzz.ps1 -TimeoutSec 600` | Deterministic; see section 4. |
 | Benchmarks | `scripts\bench.ps1 -N 10000` | Numbers summarized in the readiness doc G1 row (`docs/PRODUCTION-READINESS.md`). |
 | App build (icon) | `scripts\build.ps1 <source.xi> [-Out out\orbitdb-app.exe]` | Compiles one source into an app binary and embeds `assets/orbitdb.ico` via `--icon` (verified on v0.64.2; `llvm-rc`). `scripts/build.sh` is the Linux/WSL twin (PE icons are Windows-only). |
@@ -58,6 +59,7 @@ killed); harnesses print `GREEN`/`RED` and exit 0/1.
 | | `ORBITDB_HYBRID_ROWS`, `ORBITDB_HYBRID_VEC`, `ORBITDB_HYBRID_N`, `ORBITDB_HYBRID_DIM`, `ORBITDB_HYBRID_SKIP`, `ORBITDB_HYBRID_LAG`, `ORBITDB_HYBRID_CHUNK`, `ORBITDB_HYBRID_Q`, `ORBITDB_HYBRID_K` | Row-store path, vector-WAL path and scale knobs (defaults 1000 / 8 / 10 / 3 / 200 / 8 / 20). |
 | `tests/hybrid/repro_chain.xi` | paths are repo-relative | XV-ORBITDB-01 repro: chained persist -> load -> recover -> persist -> load (load2 loses the log; see `docs/XVECTOR-INTEGRATION.md` section 7). |
 | `tests/pkg/probe_pkg_wal.xi` | `ORBITDB_PKG_WAL` (segment path, default `probe-logs/pkg-wal.log`) | First registry consumer pass: `xiom.wal` 0.1.0 conformance + two-way format interop with `src/wal_file.xi` (project `tests/pkg/xiom.toml`; needs the installed package). Syntax: `scripts/run.ps1 tests\pkg\probe_pkg_wal.xi -TimeoutSec 180`. |
+| `tests/probes/probe_block_store.xi` | `ORBITDB_BLOCK_MODE=full/writer/verify`; `ORBITDB_BLOCK_DB`, `ORBITDB_BLOCK_N`, `ORBITDB_BLOCK_BATCH`, `ORBITDB_BLOCK_KILL_AT` | M1.2 S2 block store: `full` = 26-check functional battery; `writer`/`verify` drive `scripts/block_crash_test.*` (kill states pages2/full2/midheader/compacted). |
 
 Standard soak (policy checkpoints every 250 records):
 

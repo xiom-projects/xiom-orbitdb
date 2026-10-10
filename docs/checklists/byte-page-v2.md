@@ -25,20 +25,32 @@
       reject or reflect the mutation); fuzz x2 Win + WSL
 - [x] Evidence: suite **128/128 x2 Windows + WSL** (block v2 section: 4 tests)
 
-## S2 -- block store over the shim
+## S2 -- block store over the shim (DONE 2026-10-10)
 
-- [ ] `src/storage/byte_io.xi`: the six shim functions (O(file) fallbacks,
-      documented; no `io.*` block IO anywhere else)
-- [ ] `src/storage/block_store.xi`: create/open/read/write_batch/append/
-      commit (inactive header slot last) / compact (temp+rename)
-- [ ] Page directory rebuilt at open (scan valid blocks, latest generation
-      per page_id)
-- [ ] Probe mirroring `probe_page_file.xi`: append / latest-wins / read_all /
-      compaction / ids
-- [ ] Crash harness: hard-kill after page blocks / after inactive header /
-      mid-header-slot; torn tail; torn header slot; uncommitted generation
-      ignored; compaction crash; x2 Win + WSL
-- [ ] Fuzz: block store vs model (random pages, kills at named states)
+- [x] `src/storage/byte_io.xi`: the six shim functions (`read_at`,
+      `write_at`, `append`, `file_size`, `truncate`, `sync`) with documented
+      O(file) fallbacks; no `io.*` block IO anywhere else in the store
+- [x] `src/storage/block_store.xi`: open (header-slot pick + full scan) /
+      put / commit (first commit mirrors both slots, then alternates; only
+      the inactive slot is written) / compact (temp+rename) / read / has /
+      pages / blocks / sync; generation-monotonic commits
+- [x] Page directory rebuilt at open: valid blocks only, `gen <= committed`
+      filter, latest generation per page_id wins, free/malformed skipped;
+      any IO error leaves the store empty rather than half-built
+- [x] Probe `tests/probes/probe_block_store.xi`: 26 functional checks
+      (own-writes-visible vs uncommitted-hidden-on-reopen, latest-wins,
+      torn tail block, torn active slot -> previous-slot fallback, both
+      slots corrupt -> empty then restored by the next commit, surviving
+      pages re-committed by a later generation, compaction, capacity) plus
+      writer/verify modes for the crash harness
+- [x] Crash harness `scripts/block_crash_test.{ps1,sh}`: hard kill at four
+      named quiescent states (pages2 / full2 / midheader / compacted), torn
+      tail block appended, reopen + committed-view checks + recovery append;
+      **GREEN x2 Windows + WSL** (kill only at quiescent states: the O(file)
+      shim writes are not atomic until S4 -- noted in the probe header)
+- [x] Fuzz: section (f) in `probe_fuzz.xi` -- block store vs model (random
+      put generations, probabilistic commits, open+compare per commit);
+      fuzz x2 both platforms
 
 ## S3 -- DBFile integration + default flip
 
