@@ -1745,6 +1745,15 @@ fn test_btree_churn_order5() -> TestResult {
   return assert(false, "btree: churn order 5 failed");
 }
 
+// Order 3 is the min_keys == 0 regime (empty pass-through chains): this is
+// the exact reproducer of the old out-of-bounds predecessor read (xiom.btree
+// SPEC 2.3; first divergence was op 67 pre-fix).
+fn test_btree_churn_order3() -> TestResult {
+  let rc = run_btree_churn(3, 2000, 16, 777);
+  if rc == 0 { return assert(true, "btree: churn order 3 vs model (min_keys 0 / empty chains)"); }
+  return assert(false, "btree: churn order 3 failed");
+}
+
 // ===========================================================================
 // Integration: Engine + Database facade
 // ===========================================================================
@@ -3685,6 +3694,8 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r73b.passed, r73b.name);
   let r73c = test_btree_churn_order5();
   total = total + 1; failed = failed + report(r73c.passed, r73c.name);
+  let r73d = test_btree_churn_order3();
+  total = total + 1; failed = failed + report(r73d.passed, r73d.name);
 
   // Integration: Engine + Database
   let r74 = test_engine_new();

@@ -64,6 +64,16 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   header slot) -- **suite 127/127 x2 Win + WSL**; API.md storage section
   documents the module. Next S1 item: fuzz extension; then S2 block store
   over the byte-IO shim.
+**Updated:** 2026-10-10 (package relay + order-3 fix, same session): relay
+  from the packages lane (xiom.wal + `xiom.btree` 0.1.0 registry-live; no
+  FFI asks) processed; fixed the upstream **order-3 B-tree defect** the
+  extraction flagged (SPEC 2.3): keyless pass-through chains broke
+  predecessor/successor (OOB `keys[-1]`), `fill_child` (OOB merge) and
+  min/max (empty terminal leaf -> None); suite regression added (their
+  reproducer order 3 / keyspace 16 / seed 777), fuzz rotation now orders
+  3/4/5 -- **suite 128/128 x2 Win + WSL, fuzz x2 both, churn order 3 @
+  20k/4096 GREEN (remaining 1353)**; wishlist delta carries the fix +
+  re-extraction request.
 **Project:** embedded database engine for XIOM -- B-Tree, WAL, query engine,
 crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
 
@@ -319,18 +329,19 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   workaround). New compiler finding **C-ORBIT-06** filed (phantom imports
   silently accepted; C-ORBIT-01..05 stay RESOLVED).
 - **Next action (priority order, per `docs/PRODUCTION-PLAN.md` section 13):**
-  1. **M1.2 byte-page format v2 -- design DONE, S1 DONE**
-     (`docs/BYTE-PAGE-FORMAT-V2.md` + `docs/checklists/byte-page-v2.md`;
-     `src/storage/block.xi` codec in the suite); next S1 fuzz extension,
-     then S2 block store over the byte-IO shim; S4 swaps in real stdlib
-     byte IO + fsync.
-  2. **M4.2 secondary indexes** (catalog `IndexDef`, index-vs-model fuzz) +
+  1. **M1.2 byte-page format v2 -- design DONE, S1 DONE (incl. fuzz
+     section e)** (`docs/BYTE-PAGE-FORMAT-V2.md` + checklist); next S2
+     block store over the byte-IO shim (+ probe + crash harness), then S3
+     default flip; S4 swaps in real stdlib byte IO + fsync.
+  2. Order-3 B-tree fix landed (upstream of `xiom.btree` SPEC 2.3) -- next
+     `xiom.btree` release re-extracts; run the consumer pass then.
+  3. **M4.2 secondary indexes** (catalog `IndexDef`, index-vs-model fuzz) +
      ORDER/LIMIT execution.
-  3. **M5.1 typed values v2** (type-tagged tuples; text at least).
-  4. **M2.1 fsync wiring** when stdlib lands; **M1.1b** lazy load once
+  4. **M5.1 typed values v2** (type-tagged tuples; text at least).
+  5. **M2.1 fsync wiring** when stdlib lands; **M1.1b** lazy load once
      random-access page reads exist; MVCC per M3; keep readiness + relay docs
      current; commit signed at every step.
-  5. **Hybrid regression guard:** re-run `scripts/hybrid_crash_test.*` +
+  6. **Hybrid regression guard:** re-run `scripts/hybrid_crash_test.*` +
      probe `full` x2 both platforms at every wrap, and whenever the XVECTOR
      pin moves; drop the `persist_recovered` workaround once XV-ORBITDB-01
      is fixed upstream.
@@ -473,7 +484,7 @@ results, and any newer COMPILER archive (re-test the seven repro bundles +
 suite first). (XVECTOR's integration reply was processed 2026-10-10.)
 
 CURRENT STATE: v0.64.2 pin; all C-ORBIT compiler workarounds REVERTED and the
-suite is green on the native forms -- conformance 127/127 x2 Win + WSL (see
+suite is green on the native forms -- conformance 128/128 x2 Win + WSL (see
 the findings file for the one consumer-qualification caveat); db_crash five
 scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn discarded,
 committed txn recovered) x2 Win + WSL, each recovery followed by qverify
@@ -507,7 +518,9 @@ validation; wal_bytes stale-handle write guard; NodeStore dirty tracking =
 dirty-only checkpoint flush (M1.1); key-range planner pushdown +
 query_key_range, point/range plans (M4.1); byte-page format v2 codec
 `src/storage/block.xi` (S1: 4096-byte blocks, 40-byte LE header, CRC32C,
-strict decode; design `docs/BYTE-PAGE-FORMAT-V2.md`)). Known limits: no fsync
+strict decode; design `docs/BYTE-PAGE-FORMAT-V2.md`); B-tree order-3
+empty-chain fix (predecessor/successor, fill_child, min/max; suite
+regression + fuzz orders 3/4/5)). Known limits: no fsync
 (process-crash safe only); replay is linear now but file IO is O(n) per read
 (no random access); checkpoint encodes only dirty nodes (M1.1) but the tree
 stays fully resident (lazy load/bounded cache need random-access page reads);
@@ -516,13 +529,15 @@ docs/ISOLATION.md); buffer pool in-memory only (pager seam C3 pending);
 fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-1. M1.2 byte-page format v2: design + S1 DONE (src/storage/block.xi codec in
-   suite 127/127 x2 both platforms); next S1 fuzz extension, then S2 (block
-   store over the byte-IO shim), S3 (DBFile integration + default flip), S4
+1. M1.2 byte-page format v2: design + S1 DONE (block codec + fuzz section e;
+   suite 128/128 x2 both platforms); next S2 (byte-IO shim + block store +
+   probe + crash harness), S3 (DBFile integration + default flip), S4
    (stdlib byte IO + fsync swap).
-2. M4.2 secondary indexes (catalog IndexDef) + ORDER/LIMIT execution.
-3. M5.1 typed values v2 (type-tagged tuples; text at least).
-4. M2.1 fsync wiring when stdlib lands; M1.1b lazy load once random-access
+2. Order-3 B-tree fix is upstream; when the fixed `xiom.btree` package
+   releases, re-extract is theirs -- run our two-way consumer pass then.
+3. M4.2 secondary indexes (catalog IndexDef) + ORDER/LIMIT execution.
+4. M5.1 typed values v2 (type-tagged tuples; text at least).
+5. M2.1 fsync wiring when stdlib lands; M1.1b lazy load once random-access
    page reads exist; MVCC per M3; keep the hybrid harness green at every
    wrap (and when the XVECTOR pin moves); keep SESSION.md STATE, relay docs
    and PRODUCTION-READINESS updated at every wrap; commit signed per step.

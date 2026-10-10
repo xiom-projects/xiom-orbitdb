@@ -12,7 +12,10 @@
 //   (c) page log parser -- latest-wins across CRC-valid versions; corrupted
 //       checksums are skipped; garbage/torn lines never count;
 //   (d) B-tree vs model -- random insert/update/delete/search/range/min/max
-//       against a flat model, several orders and seeds.
+//       against a flat model, several orders and seeds;
+//   (e) block codec v2 -- random page/header roundtrips + single-byte
+//       mutations (decode must reject or reflect the mutation; it must never
+//       decode back to the original view).
 //
 // Env:
 //   ORBITDB_FUZZ_DIR          scratch dir                     (default probe-logs)
@@ -22,6 +25,7 @@
 //   ORBITDB_FUZZ_TUPLE_ITERS  tuple iterations per seed      (default 300)
 //   ORBITDB_FUZZ_WAL_ITERS    WAL files per seed             (default 30)
 //   ORBITDB_FUZZ_PAGE_ITERS   page logs per seed             (default 30)
+//   ORBITDB_FUZZ_BLOCK_ITERS  block-codec iterations per seed (default 200)
 //
 // Exit: 0 = green; non-zero = failing section + first violation (printed).
 
@@ -34,6 +38,7 @@ use xiom.convert.parse;
 use xiom.db.engine;
 use xiom.db.storage.page;
 use xiom.db.storage.page_file;
+use xiom.db.storage.block;
 use xiom.db.storage.tuple;
 use xiom.db.wal_file;
 
@@ -490,6 +495,76 @@ fn fuzz_btree(seed: Int, ops: Int, n: Int, order: Int) -> Int {
   return 0;
 }
 
+// (e) block codec v2 fuzz ----------------------------------------------------
+// Round-trips random page blocks and header slots against a model, then
+// applies single-byte mutations: decode must reject, or reflect the mutation
+// (the kind byte lives outside the payload CRC, so a flip to another valid
+// kind may decode -- it must never decode to the ORIGINAL view).
+fn fuzz_block(seed: Int, iters: Int) -> Int {
+  var state = seed + 555;
+  var it = 0;
+  while it < iters {
+    let gen = rand_next(&mut state) % 1000000;
+    let pid = rand_next(&mut state) % 100000;
+    let len = rand_mod(&mut state, block_payload_capacity() + 1);
+    var payload = Vec[Int].new();
+    var i = 0;
+    while i < len {
+      payload.push(rand_next(&mut state) % 256);
+      i = i + 1;
+    }
+    let b = block_encode_page(gen, pid, &payload);
+    if b.len() != block_size() { return 1; }
+    match block_decode_page(&b) {
+      Some(p) => {
+        if p.generation != gen || p.page_id != pid || !vec_eq(&p.payload, &payload) { return 2; }
+      }
+      None => { return 3; }
+    }
+    let h = BlockHeader{
+      root: rand_next(&mut state) % 100000,
+      order: 3 + rand_mod(&mut state, 8),
+      node_count: rand_next(&mut state) % 100000,
+      checkpoint_lsn: rand_next(&mut state) % 1000000,
+      committed_generation: rand_next(&mut state) % 100000,
+      block_count: rand_next(&mut state) % 100000,
+      next_page_id: rand_next(&mut state) % 100000,
+    };
+    let hb = block_encode_header(&h);
+    match block_decode_header(&hb) {
+      Some(h2) => {
+        if h2.root != h.root || h2.order != h.order || h2.node_count != h.node_count { return 4; }
+        if h2.checkpoint_lsn != h.checkpoint_lsn { return 4; }
+        if h2.committed_generation != h.committed_generation { return 4; }
+        if h2.block_count != h.block_count || h2.next_page_id != h.next_page_id { return 4; }
+      }
+      None => { return 5; }
+    }
+    var m = 0;
+    while m < 6 {
+      let idx = rand_next(&mut state) % block_size();
+      var t = Vec[Int].new();
+      var j = 0;
+      while j < block_size() {
+        t.push(b[j]);
+        j = j + 1;
+      }
+      t[idx] = (t[idx] + 1 + rand_mod(&mut state, 255)) % 256;
+      match block_decode(&t) {
+        Some(v) => {
+          if v.kind == 0x50 && v.generation == gen && v.page_id == pid && v.payload.len() == len {
+            if idx != 5 { return 6; }
+          }
+        }
+        None => {}
+      }
+      m = m + 1;
+    }
+    it = it + 1;
+  }
+  return 0;
+}
+
 fn main() -> Int {
   let dir = env.var_or("ORBITDB_FUZZ_DIR", "probe-logs");
   let seeds = parse_env_int("ORBITDB_FUZZ_SEEDS", 4);
@@ -498,6 +573,7 @@ fn main() -> Int {
   let tuple_iters = parse_env_int("ORBITDB_FUZZ_TUPLE_ITERS", 300);
   let wal_iters = parse_env_int("ORBITDB_FUZZ_WAL_ITERS", 30);
   let page_iters = parse_env_int("ORBITDB_FUZZ_PAGE_ITERS", 30);
+  let block_iters = parse_env_int("ORBITDB_FUZZ_BLOCK_ITERS", 200);
 
   var s = 0;
   while s < seeds {
@@ -518,7 +594,12 @@ fn main() -> Int {
       io.println("fuzz: page FAILED seed=" + convert.int_to_string(seed) + " rc=" + convert.int_to_string(rc_p));
       return 50 + rc_p;
     }
-    let order = 4 + (s % 2);
+    let rc_blk = fuzz_block(seed, block_iters);
+    if rc_blk != 0 {
+      io.println("fuzz: block FAILED seed=" + convert.int_to_string(seed) + " rc=" + convert.int_to_string(rc_blk));
+      return 90 + rc_blk;
+    }
+    let order = 3 + (s % 3);
     let rc_b = fuzz_btree(seed, ops, n, order);
     if rc_b != 0 {
       io.println("fuzz: btree FAILED seed=" + convert.int_to_string(seed) + " order=" + convert.int_to_string(order) + " rc=" + convert.int_to_string(rc_b));

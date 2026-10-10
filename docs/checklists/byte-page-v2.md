@@ -20,8 +20,10 @@
 - [x] Corruption matrix: magic/version/kind/reserved/length/CRC/padding flips
       all reject; header `committed_generation` cross-check rejects even with
       a re-sealed CRC
-- [ ] Fuzz extension: random page sets encode->decode round-trip vs model
-- [x] Evidence: suite **127/127 x2 Windows + WSL** (block v2 section: 4 tests)
+- [x] Fuzz extension (DONE 2026-10-10): section (e) in `probe_fuzz.xi` --
+      random page/header roundtrips + single-byte mutations (decode must
+      reject or reflect the mutation); fuzz x2 Win + WSL
+- [x] Evidence: suite **128/128 x2 Windows + WSL** (block v2 section: 4 tests)
 
 ## S2 -- block store over the shim
 

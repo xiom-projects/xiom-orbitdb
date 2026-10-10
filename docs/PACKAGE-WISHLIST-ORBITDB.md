@@ -137,3 +137,42 @@ into reusable packages as they harden.
   unpublished; the churn gate stays MET.
 - Pins: compiler v0.64.2, stdlib lane checkout, packages lane @ `47202b72`;
   registry live (`xiom.wal` 0.1.0; `xiom.http` 0.1.4 current).
+
+## Delta 2026-10-10 (relay: order-3 upstream fix + xiom.btree registry-live)
+
+- **Relay received (package lane):** no FFI asks; `xiom.wal` 0.1.0 **and
+  `xiom.btree` 0.1.0 are registry-live**; `xiom.db` is ORBITDB's product
+  (owner-parked). Their two open items: the order-3 btree defect (ours to
+  fix upstream) and C-ORBIT-06 (compiler, filed).
+- **Order-3 B-tree defect FIXED upstream** (`fix(btree)` commit, this repo):
+  with `min_keys = (order-2)/2 = 0`, merges can leave keyless pass-through
+  nodes; three algorithms assumed non-empty nodes:
+  1. `get_predecessor` / `get_successor` descended the rightmost/leftmost
+     path into a keyless leaf and read `keys[-1]` / `keys[0]` out of bounds
+     (the reported corruption: the garbage key materialized into the node;
+     diagnosed via a temporary full-model trace: divergence after the
+     delete of key 8, op 67);
+  2. `fill_child` merged on a keyless single-child parent, reading
+     `children[pos + 1]` past the end (their SPEC 2.3 path) -- now descends
+     straight through;
+  3. `btree_min` / `btree_max` returned None when the terminal leaf of the
+     extreme path was empty -- now reuse the empty-chain-aware
+     predecessor/successor.
+  Tests: new suite regression `btree: churn order 3 vs model (min_keys 0 /
+  empty chains)` (their reproducer: order 3, keyspace 16, seed 777, ops
+  2000; first divergence pre-fix op 67) and the fuzz rotation now spans
+  orders 3/4/5.
+- **Evidence:** suite **128/128 x2** Windows + WSL; fuzz x2 both; churn
+  order 3 @ 20k/4096 seeds 777+2026 GREEN (remaining 1353 / 1022), orders
+  4/5 @ 20k/4096 regression GREEN; WSL churn order-3 20k + reproducer GREEN.
+- **For the next `xiom.btree` release:** re-extract the fixed module and
+  re-run the acceptance matrix with `-Order 3` included (their churn runner
+  already supports it). Once the updated package is installed, ORBITDB runs
+  the two-way consumer probe (the `xiom.wal` pattern) -- the extraction now
+  needs no "order >= 4" carve-out.
+- **Minor compiler-lane note (owner relay, no number yet):** standalone
+  `xiom --check src/engine.xi` reports `T001: argument 1 type mismatch:
+  expected Engine, found module` (lines ~1207) while the same file compiles
+  clean as an imported module (suite/probes). Pre-existing on HEAD;
+  minimal repro not yet found (a crafted module/field-name collision did NOT
+  reproduce). Not a gate for this lane (we check through programs).

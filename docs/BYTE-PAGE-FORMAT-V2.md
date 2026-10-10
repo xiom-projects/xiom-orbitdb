@@ -184,8 +184,9 @@ failure is `None`, no partial blocks.
   rejected; empty-vector encode signal for invalid elements), corruption
   matrix (flip a byte in each header field + payload + padding -> `None`;
   header `committed_generation` cross-check rejects with a re-sealed CRC);
-  suite 127/127 x2 Win + WSL. Fuzz extension (random page sets
-  encode->decode round-trip) remains the last S1 item.
+  suite 127/127 x2 Win + WSL (now 128/128 with the order-3 regression).
+  Fuzz extension DONE 2026-10-10 (section (e) in `probe_fuzz.xi`: random
+  roundtrips + single-byte mutations; fuzz x2 both platforms). S1 complete.
 - **S2**: block-store probe mirroring `probe_page_file.xi` (append/read/
   latest-wins/compaction) + crash harness `scripts/`-style: writer hard-kill
   at every named state (after page blocks, after inactive header, mid-slot),

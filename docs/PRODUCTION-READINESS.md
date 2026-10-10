@@ -27,7 +27,7 @@
 
 | Area | Weight | Earned | Status summary |
 |---|---|---|---|
-| A. Correctness & data structures | 20 | 16.0 | B-tree churn-proven; tuple codec v1 KAT-locked; FSM best-fit model-soaked; node-per-page durable pages done, paged access pending |
+| A. Correctness & data structures | 20 | 16.0 | B-tree churn-proven orders 3-6 (order-3 empty-chain fix 2026-10-10); tuple codec v1 KAT-locked; FSM best-fit model-soaked; node-per-page durable pages done, paged access pending |
 | B. Durability & crash safety | 20 | 16.0 | Disk WAL segment + page file + engine WAL-before-ack + incremental generation-committed checkpoint crash-proven; fsync still pending |
 | C. Storage engine (pages/pager) | 15 | 11.0 | Codec + checksum + FSM + durable page file + clock replacer/pinning done; pager substrate pending |
 | D. Transactions & isolation | 10 | 5.0 | Durable transactions: begin/commit/abort + committed/uncommitted recovery crash-proven; MVCC pending |
@@ -36,7 +36,7 @@
 | G. Performance & limits | 5 | 3.0 | Benchmarks published (v0.64.1); WAL segment size policy live (`maybe_checkpoint`); replay constrained by the filed stdlib `str_split` quadratic; page/cache bounds pending |
 | H. Security & integrity | 5 | 4.5 | Checksums + full input validation + deterministic fuzz harness; encryption/supply-chain pinning pending |
 | I. Documentation & evidence | 5 | 5.0 | Full doc set + relay docs + repro bundles + public API/runbook/format reference |
-| **Total** | **100** | **69.5** | **~70% -- alpha-track, durable log + pages + checkpoints + transactions + planner pushdown + clock replacer + fuzz, benchmarks live** |
+| **Total** | **100** | **70.5** | **~70% -- alpha-track, durable log + pages + checkpoints + transactions + planner pushdown + clock replacer + fuzz, benchmarks live, both WAL/B-tree packages registry-live** |
 
 Scoreboard changelog:
 - 2026-10-08: bootstrap complete (suite migrated, engine defects fixed, WAL
@@ -170,13 +170,25 @@ Scoreboard changelog:
   suite **127/127 x2 Win + WSL**; API.md storage section documents the
   module. No score change (A5/C2 evidence groundwork; the store itself is
   S2): 69.5.
+- 2026-10-10 (same day, package relay + order-3 fix): the packages lane
+  confirmed `xiom.wal` 0.1.0 **and `xiom.btree` 0.1.0 registry-live**; fixed
+  the upstream **order-3 B-tree defect** their extraction documented
+  (SPEC 2.3): keyless pass-through chains (min_keys == 0) broke
+  `get_predecessor`/`get_successor` (OOB `keys[-1]` materializing garbage),
+  `fill_child` (merge reading past the children array) and
+  `btree_min`/`btree_max` (None on empty terminal leaf); suite regression
+  from their reproducer (order 3 / keyspace 16 / seed 777), fuzz rotation
+  now orders 3/4/5. Evidence: suite 128/128 x2 Win + WSL, fuzz x2 both,
+  churn order 3 @ 20k/4096 seeds 777+2026 GREEN (+ orders 4/5 regression).
+  **F4 1 -> 2** (both extraction packages live; xiom.wal consumer pass
+  green; xiom.db publish + version stamp pending): 69.5 -> **70.5**.
 
 ## A. Correctness & data structures (20)
 
 | # | Item | Pts | Status | Evidence / gate |
 |---|---|---|---|---|
 | A1 | B-tree insert/search/delete/range/min/max/to_vec | 4 | OK | suite + `probe_core_diag` |
-| A2 | B-tree delete borrow/merge invariants (all key counts valid, uniform leaf depth) | 4 | OK | `probe_btree_churn` structural validator; 20k ops x orders 4/5/6 + seed matrix |
+| A2 | B-tree delete borrow/merge invariants (all key counts valid, uniform leaf depth) | 4 | OK | `probe_btree_churn` structural validator; 20k ops x orders 3/4/5/6 + seed matrix (order-3 empty-chain regime fixed 2026-10-10: predecessor/successor OOB, fill_child merge, min/max; reproducer order 3 / keyspace 16 / seed 777) |
 | A3 | Byte-packed tuple codec with strict decode + budget | 4 | OK | `probe_tuple_codec` KAT/extremes/rejects; suite 99/99 |
 | A4 | Free-space map hardening (best-fit, invariants, model soak) | 4 | OK | `probe_fsm` (use/release/find vs model, invariant checks, 50k ops x 256 pages) + suite best-fit/clamp tests |
 | A5 | Node-per-page B-tree | 4 | WIP | durable node pages + incremental generation-committed flush (snapshot path); live tree still fully resident -- paged/evicting access needs the pager seam |
@@ -227,14 +239,14 @@ Scoreboard changelog:
 | F1 | ps1 + sh twins: dev-env, watchdog runner | 2 | OK | both platforms green |
 | F2 | Crash/reopen + soak harness | 2 | OK | `crash_test.{ps1,sh}`, 200/20k soaks |
 | F3 | CI matrix (Windows/Linux; pinned toolchain from dl); org SHA-pinning | 2 | -- | owner gate: public repo (ops has the mechanics) |
-| F4 | Packaging: `xiom.wal`/`xiom.btree` extraction, `xiom.db` publish, build-info/version stamp | 3 | 1 | `xiom.wal` reference landed; gates met again on btree; no registry publication yet |
+| F4 | Packaging: `xiom.wal`/`xiom.btree` extraction, `xiom.db` publish, build-info/version stamp | 3 | 2 | `xiom.wal` 0.1.0 consumer pass GREEN (18 checks x2 both, two-way interop); `xiom.btree` 0.1.0 registry-live (re-extract with the order-3 fix next); `xiom.db` publish + version stamp pending |
 | F5 | Release engineering: signed tags, notes, artifacts, checksums | 1 | -- | owner gate |
 
 ## G. Performance & limits (5)
 
 | # | Item | Pts | Status | Evidence / gate |
 |---|---|---|---|---|
-| G1 | Benchmarks (insert/search/delete/range; WAL append/replay throughput) | 2 | OK | `scripts/bench.{ps1,sh}` + `probe_bench`; v0.64.1 N=10k: Win btree_insert 1.25M/s, search 3.3M/s, delete 1.67M/s, tuple 714k/s, WAL append 2.9k/s, replay 0.94k/s; WSL native-fs append 26k/s; replay constrained by the filed `str_split` quadratic (44.7 s per 5 MB) |
+| G1 | Benchmarks (insert/search/delete/range; WAL append/replay throughput) | 2 | OK | `scripts/bench.{ps1,sh}` + `probe_bench`; v0.64.1 N=10k: Win btree_insert 1.25M/s, search 3.3M/s, delete 1.67M/s, tuple 714k/s, WAL append 2.9k/s, replay 0.94k/s; WSL native-fs append 26k/s. The filed `str_split`/`read_file_lines` quadratic is fixed in stdlib (linear; 20k-record replay ~9.9 s); re-run the bench on the current pin at G1 refresh |
 | G2 | Memory bounds (page budget, WAL segment size policy, cache) | 2 | 1.0 | tuple budget + WAL segment size policy (`db_file_maybe_checkpoint`, bounded replay after truncate) + compaction-bounded snapshot log; page/cache bounds pending |
 | G3 | Scale soak (1M+ keys, long WAL) | 1 | -- | |
 
@@ -244,7 +256,7 @@ Scoreboard changelog:
 |---|---|---|---|---|
 | H1 | Integrity: checksums on pages, strict decode, no partial rows | 2 | OK | CRC32C + codec KATs |
 | H2 | Input validation (paths, sizes, field counts) | 1 | OK | `db_path_valid` (non-empty, <= 4096, no CR/LF) + `db_file_open_checked` (Err(ConstraintViolation) on bad path/order); sizes/field counts already gated (4096 page contract, 255-field codec, `tuple_fits_page`); suite validation tests x2 Win + WSL |
-| H3 | Fuzz/property testing (codec, WAL parser, B-tree vs model at scale) | 1 | OK | `scripts/fuzz.{ps1,sh}` + `probe_fuzz.xi`: deterministic LCG seeds -- tuple roundtrip/byte-flip/truncation, WAL records + garbage + torn tails + heal-append, page-log latest-wins/CRC rejection, B-tree vs model over orders 4/5 x2 Win + WSL. Continuous CI cadence awaits F3 |
+| H3 | Fuzz/property testing (codec, WAL parser, B-tree vs model at scale) | 1 | OK | `scripts/fuzz.{ps1,sh}` + `probe_fuzz.xi`: deterministic LCG seeds -- tuple roundtrip/byte-flip/truncation, WAL records + garbage + torn tails + heal-append, page-log latest-wins/CRC rejection, block v2 roundtrip/mutation, B-tree vs model over orders 3/4/5 x2 Win + WSL. Continuous CI cadence awaits F3 |
 | H4 | Supply chain: package signature verification, pinned toolchain | 1 | 0.5 | dev-env pins versions; registry adoption not started |
 
 ## I. Documentation & evidence (5)

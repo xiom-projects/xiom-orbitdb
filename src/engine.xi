@@ -359,45 +359,106 @@ fn remove_from_internal(tree: &mut BTree, node_idx: Int, pos: Int, min_keys: Int
   var left_child_idx = node.children[pos];
   var right_child_idx = node.children[pos + 1];
 
+  // Predecessor/successor substitution only when the donor subtree can spare
+  // a key (the old guard); the Option covers degenerate empty chains inside
+  // the donor (order 3), falling through to the merge when neither side can
+  // donate.
   if tree.store.nodes[left_child_idx].keys.len() > min_keys {
-    var pred = get_predecessor(tree, left_child_idx);
-    node.keys[pos] = pred.0;
-    node.values[pos] = pred.1;
-    ns_set(&mut tree.store, node_idx, node);
-    delete_from_node(tree, left_child_idx, pred.0);
-    return;
+    match get_predecessor(tree, left_child_idx) {
+      Some(pred) => {
+        node.keys[pos] = pred.0;
+        node.values[pos] = pred.1;
+        ns_set(&mut tree.store, node_idx, node);
+        delete_from_node(tree, left_child_idx, pred.0);
+        return;
+      }
+      None => {}
+    }
   }
 
   if tree.store.nodes[right_child_idx].keys.len() > min_keys {
-    var succ = get_successor(tree, right_child_idx);
-    node.keys[pos] = succ.0;
-    node.values[pos] = succ.1;
-    ns_set(&mut tree.store, node_idx, node);
-    delete_from_node(tree, right_child_idx, succ.0);
-    return;
+    match get_successor(tree, right_child_idx) {
+      Some(succ) => {
+        node.keys[pos] = succ.0;
+        node.values[pos] = succ.1;
+        ns_set(&mut tree.store, node_idx, node);
+        delete_from_node(tree, right_child_idx, succ.0);
+        return;
+      }
+      None => {}
+    }
   }
 
+  // Both donors are at the floor: merge the two children around the
+  // separator. Safe here because this node holds at least the separator key
+  // (the caller only reaches this with a key at `pos`).
   merge_children(tree, node_idx, pos);
   delete_from_node(tree, left_child_idx, key);
 }
 
-fn get_predecessor(tree: &BTree, node_idx: Int) -> (Int, Int) {
-  var node = tree.store.nodes[node_idx];
-  if node.is_leaf {
-    var last = node.keys.len() - 1;
-    return (node.keys[last], node.values[last]);
+// True when the subtree rooted at node_idx holds at least one key. Keyless
+// chains appear only when min_keys == 0; walking them repeatedly is fine at
+// this scale (depth-bounded, and merges keep the tree shallow).
+fn subtree_has_key(tree: &BTree, node_idx: Int) -> Bool {
+  let node = tree.store.nodes[node_idx];
+  if node.keys.len() > 0 { return true; }
+  if node.is_leaf { return false; }
+  var i = 0;
+  while i < node.children.len() {
+    if subtree_has_key(tree, node.children[i]) { return true; }
+    i = i + 1;
   }
-  var last_child = node.children[node.children.len() - 1];
-  return get_predecessor(tree, last_child);
+  return false;
 }
 
-fn get_successor(tree: &BTree, node_idx: Int) -> (Int, Int) {
-  var node = tree.store.nodes[node_idx];
-  if node.is_leaf {
-    return (node.keys[0], node.values[0]);
+// In-order predecessor (max) of the subtree at node_idx, or None when the
+// subtree is empty. The rightmost path may pass through keyless nodes: when
+// the rightmost subtree is empty the predecessor is this node's own last
+// key; an empty leaf has none. (The old rightmost-only descent read
+// `keys[-1]` on an empty leaf and materialized out-of-bounds garbage -- the
+// order-3 defect in xiom.btree SPEC 2.3.)
+fn get_predecessor(tree: &BTree, node_idx: Int) -> Option[(Int, Int)] {
+  var cur = node_idx;
+  var guard = 0;
+  while guard < 64 {
+    guard = guard + 1;
+    let node = tree.store.nodes[cur];
+    if node.is_leaf {
+      if node.keys.len() == 0 { return None; }
+      let last = node.keys.len() - 1;
+      return Some((node.keys[last], node.values[last]));
+    }
+    let last_child = node.children[node.children.len() - 1];
+    if subtree_has_key(tree, last_child) {
+      cur = last_child;
+    } else {
+      if node.keys.len() == 0 { return None; }
+      let last = node.keys.len() - 1;
+      return Some((node.keys[last], node.values[last]));
+    }
   }
-  var first_child = node.children[0];
-  return get_successor(tree, first_child);
+  return None;
+}
+
+fn get_successor(tree: &BTree, node_idx: Int) -> Option[(Int, Int)] {
+  var cur = node_idx;
+  var guard = 0;
+  while guard < 64 {
+    guard = guard + 1;
+    let node = tree.store.nodes[cur];
+    if node.is_leaf {
+      if node.keys.len() == 0 { return None; }
+      return Some((node.keys[0], node.values[0]));
+    }
+    let first_child = node.children[0];
+    if subtree_has_key(tree, first_child) {
+      cur = first_child;
+    } else {
+      if node.keys.len() == 0 { return None; }
+      return Some((node.keys[0], node.values[0]));
+    }
+  }
+  return None;
 }
 
 fn merge_children(tree: &mut BTree, parent_idx: Int, pos: Int) {
@@ -451,6 +512,14 @@ fn merge_children(tree: &mut BTree, parent_idx: Int, pos: Int) {
 
 fn fill_child(tree: &mut BTree, parent_idx: Int, child_pos: Int, min_keys: Int) -> Int {
   var parent = tree.store.nodes[parent_idx];
+
+  // A keyless parent is a pass-through node (only possible when min_keys ==
+  // 0, i.e. order 3): there is no sibling arrangement to borrow from and no
+  // key to merge down; merging would read `children[pos + 1]` past the end.
+  // Descending straight through is correct -- the child keeps its own count.
+  if parent.keys.len() == 0 {
+    return parent.children[child_pos];
+  }
 
   if child_pos > 0 {
     var left_sib_idx = parent.children[child_pos - 1];
@@ -617,27 +686,23 @@ fn count_keys(tree: &BTree, node_idx: Int) -> Int {
 }
 
 pub fn btree_min(tree: &BTree) -> Option[Int] {
-  var node_idx = tree.root;
-  var node = tree.store.nodes[node_idx];
-  while !node.is_leaf {
-    if node.children.len() == 0 { return None; }
-    node_idx = node.children[0];
-    node = tree.store.nodes[node_idx];
+  // Subtree min: the leftmost in-order key. Empty pass-through chains (order
+  // 3) can end the leftmost path in an empty node while the min key sits at an
+  // internal node -- get_successor handles both, and the old leftmost-only
+  // descent returned None whenever the terminal leaf was empty.
+  match get_successor(tree, tree.root) {
+    Some(p) => { return Some(p.1); }
+    None => { return None; }
   }
-  if node.keys.len() == 0 { return None; }
-  return Some(node.values[0]);
 }
 
 pub fn btree_max(tree: &BTree) -> Option[Int] {
-  var node_idx = tree.root;
-  var node = tree.store.nodes[node_idx];
-  while !node.is_leaf {
-    if node.children.len() == 0 { return None; }
-    node_idx = node.children[node.children.len() - 1];
-    node = tree.store.nodes[node_idx];
+  // See btree_min: the rightmost path can end in an empty node (order 3);
+  // get_predecessor falls back to the owning internal node's last key.
+  match get_predecessor(tree, tree.root) {
+    Some(p) => { return Some(p.1); }
+    None => { return None; }
   }
-  if node.keys.len() == 0 { return None; }
-  return Some(node.values[node.keys.len() - 1]);
 }
 
 pub fn btree_to_vec(tree: &BTree) -> Vec[Int] {
