@@ -12,6 +12,7 @@ Module map (compiled units): `xiom.db.engine` (B-tree, query, in-memory
 engine, `DBFile` -- the consolidated engine), `xiom.db.wal_file` (durable WAL
 segment), `xiom.db.storage.page` (page, checksum, buffer pool, storage
 engine), `xiom.db.storage.page_file` (durable page file + page log),
+`xiom.db.storage.block` (byte-page v2 codec, pure),
 `xiom.db.storage.tuple` (row codec, result set), `xiom.db.storage.free_space_map`,
 `xiom.db.error`, `xiom.db.config`, `xiom.db.ids`, `xiom.db.contracts`,
 `xiom.db.catalog.schema`, `xiom.db.catalog.schema_validator`,
@@ -150,6 +151,21 @@ Statistics fields: `hits`, `misses`, `evictions`, `rejects`.
 | `page_log_read_all(pf)` | `Vec[Page]` | Latest version per id (last valid occurrence wins). |
 | `page_log_len(pf)` | `Int` | Raw well-formed entry count. |
 | `page_log_heal_tail(pf)` | `Bool` | Terminate a torn trailing line. |
+
+## Block codec v2 (`xiom.db.storage.block`)
+
+Pure codec for the 4096-byte block format (M1.2 S1; design
+`BYTE-PAGE-FORMAT-V2.md`). Byte convention: `Vec[Int]` with elements 0..255
+(the value rule; the byte-IO shim converts at the file boundary). No IO.
+
+| Call | Returns | Semantics |
+|------|---------|-----------|
+| `block_size()` / `block_payload_capacity()` | `Int` | 4096 / 4056. |
+| `block_encode_page(generation, page_id, payload)` | `Vec[Int]` | One page block; EMPTY vector for invalid input (element outside 0..255, payload over capacity). |
+| `block_decode_page(bytes)` | `Option[BlockPage]` | Strict: 4096 bytes, magic/version/kind, reserved zero, length range, CRC32C, zero padding. |
+| `block_encode_header(h)` / `block_decode_header(bytes)` | `Vec[Int]` / `Option[BlockHeader]` | Header slot (64-byte payload); decode cross-checks `committed_generation` vs the block stamp and `page_id == 0`. |
+| `block_decode(bytes)` | `Option[BlockView]` | Any kind (`'H'` / `'P'` / `'F'`). |
+| `block_kind_is_free(bytes)` | `Bool` | `'F'` fast path for the store scan (no CRC). |
 
 ## Tuples (`xiom.db.storage.tuple`)
 

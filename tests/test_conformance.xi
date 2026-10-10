@@ -19,6 +19,7 @@ use xiom.db.config;
 use xiom.db.contracts;
 use xiom.db.storage.page;
 use xiom.db.storage.page_file;
+use xiom.db.storage.block;
 use xiom.db.storage.tuple;
 use xiom.db.storage.free_space_map;
 use xiom.db.catalog.schema;
@@ -3263,6 +3264,235 @@ fn test_result_set_ops() -> TestResult {
 }
 
 // ===========================================================================
+// Block codec v2 (M1.2 S1): layout KAT, roundtrip/boundaries, corruption
+// matrix, header slots. Design: docs/BYTE-PAGE-FORMAT-V2.md.
+// ===========================================================================
+
+fn vdup(v: &Vec[Int]) -> Vec[Int] {
+  var out = Vec[Int].new();
+  var i = 0;
+  while i < v.len() {
+    out.push(v[i]);
+    i = i + 1;
+  }
+  return out;
+}
+
+fn set_le8(v: &mut Vec[Int], off: Int, val: Int) {
+  var i = 0;
+  while i < 8 {
+    v[off + i] = (val >> (8 * i)) & 0xFF;
+    i = i + 1;
+  }
+}
+
+fn run_block_v2_kat() -> Int {
+  var payload = Vec[Int].new();
+  payload.push(1);
+  payload.push(2);
+  payload.push(3);
+  let b = block_encode_page(0x0102030405060708, 0x1112131415161718, &payload);
+  if b.len() != 4096 { return 1; }
+  if b[0] != 0x4F || b[1] != 0x50 || b[2] != 0x47 || b[3] != 0x32 { return 2; }
+  if b[4] != 2 || b[5] != 0x50 || b[6] != 0 || b[7] != 0 { return 3; }
+  if b[8] != 8 || b[9] != 7 || b[10] != 6 || b[11] != 5 { return 4; }
+  if b[12] != 4 || b[13] != 3 || b[14] != 2 || b[15] != 1 { return 4; }
+  if b[16] != 0x18 || b[17] != 0x17 || b[18] != 0x16 || b[19] != 0x15 { return 5; }
+  if b[20] != 0x14 || b[21] != 0x13 || b[22] != 0x12 || b[23] != 0x11 { return 5; }
+  if b[24] != 3 || b[25] != 0 || b[26] != 0 || b[27] != 0 { return 6; }
+  if b[28] != 0 || b[29] != 0 || b[30] != 0 || b[31] != 0 { return 7; }
+  let crc = page_compute_checksum(&payload);
+  if b[32] != (crc & 0xFF) || b[33] != ((crc >> 8) & 0xFF) { return 8; }
+  if b[34] != ((crc >> 16) & 0xFF) || b[35] != ((crc >> 24) & 0xFF) { return 8; }
+  if b[36] != 0 || b[37] != 0 || b[38] != 0 || b[39] != 0 { return 8; }
+  if b[40] != 1 || b[41] != 2 || b[42] != 3 || b[43] != 0 { return 9; }
+  if b[4095] != 0 { return 10; }
+  return 0;
+}
+
+fn run_block_v2_roundtrip() -> Int {
+  var empty = Vec[Int].new();
+  let b0 = block_encode_page(0, 7, &empty);
+  match block_decode_page(&b0) {
+    Some(p) => {
+      if p.payload.len() != 0 || p.page_id != 7 || p.generation != 0 { return 1; }
+    }
+    None => { return 1; }
+  }
+  var big = Vec[Int].new();
+  var i = 0;
+  while i < block_payload_capacity() {
+    big.push(i % 256);
+    i = i + 1;
+  }
+  let b1 = block_encode_page(9, 12345, &big);
+  match block_decode_page(&b1) {
+    Some(p) => {
+      if p.payload.len() != big.len() || p.generation != 9 || p.page_id != 12345 { return 2; }
+      var j = 0;
+      while j < big.len() {
+        if p.payload[j] != big[j] { return 2; }
+        j = j + 1;
+      }
+    }
+    None => { return 2; }
+  }
+  var over = Vec[Int].new();
+  i = 0;
+  while i <= block_payload_capacity() {
+    over.push(0);
+    i = i + 1;
+  }
+  if block_encode_page(1, 1, &over).len() != 0 { return 3; }
+  var badbyte = Vec[Int].new();
+  badbyte.push(256);
+  if block_encode_page(1, 1, &badbyte).len() != 0 { return 3; }
+  match block_decode(&b0) {
+    Some(v) => {
+      if v.kind != 0x50 { return 4; }
+    }
+    None => { return 4; }
+  }
+  if block_kind_is_free(&b0) { return 5; }
+  var freeb = vdup(&b0);
+  freeb[5] = 0x46;
+  if !block_kind_is_free(&freeb) { return 5; }
+  return 0;
+}
+
+fn run_block_v2_rejects() -> Int {
+  var empty = Vec[Int].new();
+  let good = block_encode_page(3, 9, &empty);
+  var short = Vec[Int].new();
+  var i = 0;
+  while i < 4095 {
+    short.push(good[i]);
+    i = i + 1;
+  }
+  match block_decode(&short) {
+    Some(_) => { return 1; }
+    None => {}
+  }
+  var t = vdup(&good);
+  t[0] = 0;
+  match block_decode(&t) {
+    Some(_) => { return 2; }
+    None => {}
+  }
+  t = vdup(&good);
+  t[4] = 3;
+  match block_decode(&t) {
+    Some(_) => { return 2; }
+    None => {}
+  }
+  t = vdup(&good);
+  t[5] = 0x51;
+  match block_decode(&t) {
+    Some(_) => { return 2; }
+    None => {}
+  }
+  t = vdup(&good);
+  t[7] = 1;
+  match block_decode(&t) {
+    Some(_) => { return 2; }
+    None => {}
+  }
+  t = vdup(&good);
+  set_le8(&mut t, 24, block_payload_capacity() + 1);
+  match block_decode(&t) {
+    Some(_) => { return 2; }
+    None => {}
+  }
+  t = vdup(&good);
+  t[32] = (t[32] + 1) & 0xFF;
+  match block_decode(&t) {
+    Some(_) => { return 2; }
+    None => {}
+  }
+  t = vdup(&good);
+  t[40] = 1;
+  match block_decode(&t) {
+    Some(_) => { return 2; }
+    None => {}
+  }
+  return 0;
+}
+
+fn run_block_v2_header() -> Int {
+  var empty = Vec[Int].new();
+  let pb = block_encode_page(3, 9, &empty);
+  let h = BlockHeader{
+    root: 5,
+    order: 4,
+    node_count: 100,
+    checkpoint_lsn: 42,
+    committed_generation: 7,
+    block_count: 3,
+    next_page_id: 101,
+  };
+  let b = block_encode_header(&h);
+  if b.len() != 4096 { return 1; }
+  if b[5] != 0x48 { return 1; }
+  match block_decode_header(&b) {
+    Some(h2) => {
+      if h2.root != 5 || h2.order != 4 || h2.node_count != 100 { return 1; }
+      if h2.checkpoint_lsn != 42 || h2.committed_generation != 7 { return 1; }
+      if h2.block_count != 3 || h2.next_page_id != 101 { return 1; }
+    }
+    None => { return 1; }
+  }
+  // committed_generation != block stamp, CRC re-sealed: decode must still
+  // reject (the payload/block cross-check).
+  var t = vdup(&b);
+  set_le8(&mut t, 76, 8);
+  var pl = Vec[Int].new();
+  var i = 0;
+  while i < 64 {
+    pl.push(t[40 + i]);
+    i = i + 1;
+  }
+  set_le8(&mut t, 32, page_compute_checksum(&pl));
+  match block_decode_header(&t) {
+    Some(_) => { return 2; }
+    None => {}
+  }
+  // kind exclusivity
+  match block_decode_header(&pb) {
+    Some(_) => { return 3; }
+    None => {}
+  }
+  match block_decode_page(&b) {
+    Some(_) => { return 3; }
+    None => {}
+  }
+  return 0;
+}
+
+fn test_block_v2_kat() -> TestResult {
+  let rc = run_block_v2_kat();
+  if rc == 0 { return assert(true, "block v2: layout KAT (magic/version/kind/LE fields/CRC)"); }
+  return assert(false, "block v2: layout KAT failed rc=" + int_to_str(rc));
+}
+
+fn test_block_v2_roundtrip() -> TestResult {
+  let rc = run_block_v2_roundtrip();
+  if rc == 0 { return assert(true, "block v2: payload roundtrip + capacity boundaries"); }
+  return assert(false, "block v2: roundtrip failed rc=" + int_to_str(rc));
+}
+
+fn test_block_v2_rejects() -> TestResult {
+  let rc = run_block_v2_rejects();
+  if rc == 0 { return assert(true, "block v2: corruption matrix rejects (None)"); }
+  return assert(false, "block v2: rejection matrix failed rc=" + int_to_str(rc));
+}
+
+fn test_block_v2_header() -> TestResult {
+  let rc = run_block_v2_header();
+  if rc == 0 { return assert(true, "block v2: header slot roundtrip + cross-checks"); }
+  return assert(false, "block v2: header failed rc=" + int_to_str(rc));
+}
+
+// ===========================================================================
 // Main
 // ===========================================================================
 
@@ -3545,6 +3775,16 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r100.passed, r100.name);
   let r93 = test_result_set_ops();
   total = total + 1; failed = failed + report(r93.passed, r93.name);
+
+  // Block v2 codec (M1.2 S1)
+  let r101 = test_block_v2_kat();
+  total = total + 1; failed = failed + report(r101.passed, r101.name);
+  let r102 = test_block_v2_roundtrip();
+  total = total + 1; failed = failed + report(r102.passed, r102.name);
+  let r103 = test_block_v2_rejects();
+  total = total + 1; failed = failed + report(r103.passed, r103.name);
+  let r104 = test_block_v2_header();
+  total = total + 1; failed = failed + report(r104.passed, r104.name);
 
   let passed = total - failed;
   io.println("");

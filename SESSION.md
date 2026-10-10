@@ -50,12 +50,20 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   suite 123/123 x2 both platforms, WAL crash x2 both.
 **Updated:** 2026-10-10 (M1.2 design, same session): byte-page format v2
   design published -- `docs/BYTE-PAGE-FORMAT-V2.md` + checklist
-  `docs/checklists/byte-page-v2.md`: 4096-byte blocks, 32-byte header
-  (magic/kind/flags/generation/page_id/len/CRC32C), two header slots with
+  `docs/checklists/byte-page-v2.md`: 4096-byte blocks, 40-byte header
+  (magic/kind/reserved/generation/page_id/len/CRC32C as 8-byte LE slots),
+  two header slots with
   generation-stamped commit, block store over a six-function byte-IO shim
   (O(file) fallbacks today), v1->v2 migration, KAT/corruption/fuzz matrix.
   **S1 (pure codec + KATs) is unblocked on v0.64.2; S2-S4 per the
   checklist.**
+**Updated:** 2026-10-10 (M1.2 S1 landed, same session): `src/storage/block.xi`
+  (pure byte-page v2 codec: 40-byte header with 8-byte LE slots, payload
+  capacity 4056, CRC32C-in-header, strict decode, header-slot cross-check)
+  + 4 suite tests (layout KAT, roundtrip/boundaries, corruption matrix,
+  header slot) -- **suite 127/127 x2 Win + WSL**; API.md storage section
+  documents the module. Next S1 item: fuzz extension; then S2 block store
+  over the byte-IO shim.
 **Project:** embedded database engine for XIOM -- B-Tree, WAL, query engine,
 crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
 
@@ -311,10 +319,11 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   workaround). New compiler finding **C-ORBIT-06** filed (phantom imports
   silently accepted; C-ORBIT-01..05 stay RESOLVED).
 - **Next action (priority order, per `docs/PRODUCTION-PLAN.md` section 13):**
-  1. **M1.2 byte-page format v2 -- design DONE**
-     (`docs/BYTE-PAGE-FORMAT-V2.md` + `docs/checklists/byte-page-v2.md`);
-     next S1 pure codec + KATs (unblocked on v0.64.2), then S2 block store
-     over the byte-IO shim; S4 swaps in real stdlib byte IO + fsync.
+  1. **M1.2 byte-page format v2 -- design DONE, S1 DONE**
+     (`docs/BYTE-PAGE-FORMAT-V2.md` + `docs/checklists/byte-page-v2.md`;
+     `src/storage/block.xi` codec in the suite); next S1 fuzz extension,
+     then S2 block store over the byte-IO shim; S4 swaps in real stdlib
+     byte IO + fsync.
   2. **M4.2 secondary indexes** (catalog `IndexDef`, index-vs-model fuzz) +
      ORDER/LIMIT execution.
   3. **M5.1 typed values v2** (type-tagged tuples; text at least).
@@ -464,7 +473,7 @@ results, and any newer COMPILER archive (re-test the seven repro bundles +
 suite first). (XVECTOR's integration reply was processed 2026-10-10.)
 
 CURRENT STATE: v0.64.2 pin; all C-ORBIT compiler workarounds REVERTED and the
-suite is green on the native forms -- conformance 123/123 x2 Win + WSL (see
+suite is green on the native forms -- conformance 127/127 x2 Win + WSL (see
 the findings file for the one consumer-qualification caveat); db_crash five
 scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn discarded,
 committed txn recovered) x2 Win + WSL, each recovery followed by qverify
@@ -496,7 +505,9 @@ committed/uncommitted classification, dangling-window abort on open;
 db_file_range + db_file_query; db_path_valid + db_file_open_checked
 validation; wal_bytes stale-handle write guard; NodeStore dirty tracking =
 dirty-only checkpoint flush (M1.1); key-range planner pushdown +
-query_key_range, point/range plans (M4.1)). Known limits: no fsync
+query_key_range, point/range plans (M4.1); byte-page format v2 codec
+`src/storage/block.xi` (S1: 4096-byte blocks, 40-byte LE header, CRC32C,
+strict decode; design `docs/BYTE-PAGE-FORMAT-V2.md`)). Known limits: no fsync
 (process-crash safe only); replay is linear now but file IO is O(n) per read
 (no random access); checkpoint encodes only dirty nodes (M1.1) but the tree
 stays fully resident (lazy load/bounded cache need random-access page reads);
@@ -505,10 +516,10 @@ docs/ISOLATION.md); buffer pool in-memory only (pager seam C3 pending);
 fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-1. M1.2 byte-page format v2: design DONE (docs/BYTE-PAGE-FORMAT-V2.md +
-   docs/checklists/byte-page-v2.md); execute S1 (pure codec + KATs, no IO
-   dependency), then S2 (block store over the byte-IO shim), S3 (DBFile
-   integration + default flip), S4 (stdlib byte IO + fsync swap).
+1. M1.2 byte-page format v2: design + S1 DONE (src/storage/block.xi codec in
+   suite 127/127 x2 both platforms); next S1 fuzz extension, then S2 (block
+   store over the byte-IO shim), S3 (DBFile integration + default flip), S4
+   (stdlib byte IO + fsync swap).
 2. M4.2 secondary indexes (catalog IndexDef) + ORDER/LIMIT execution.
 3. M5.1 typed values v2 (type-tagged tuples; text at least).
 4. M2.1 fsync wiring when stdlib lands; M1.1b lazy load once random-access

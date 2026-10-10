@@ -7,17 +7,21 @@
 > dependency; `[ ]` not started. Every code slice keeps the full evidence
 > matrix: suite x2 + affected crash harness x2 + fuzz, Windows + WSL.
 
-## S1 -- pure codec (unblocked today)
+## S1 -- pure codec (DONE 2026-10-10)
 
-- [ ] `src/storage/block.xi`: `block_encode_page/decode_page`,
+- [x] `src/storage/block.xi`: `block_encode_page/decode_page`,
       `block_encode_header/decode_header`, `block_kind_is_free`
-- [ ] Strict decode: length 4096, magic/version/kind, `len <= 4064`, CRC32C,
+- [x] Strict decode: length 4096, magic/version/kind, `len <= 4056`, CRC32C,
       zero padding; every failure is `None` (no partial blocks)
-- [ ] KATs (hex literal tables) in the suite: one page block, one header slot
-- [ ] Boundary matrix: `len` 0 / 1 / 4064 accepted, 4065 rejected
-- [ ] Corruption matrix: flip a byte in each header field, payload, padding
+- [x] Layout KATs in the suite: header bytes, LE slot bytes, CRC slot,
+      padding (one page block, one header slot)
+- [x] Boundary matrix: `len` 0 / 4056 accepted, 4057 rejected; empty-vector
+      encode signal for invalid bytes
+- [x] Corruption matrix: magic/version/kind/reserved/length/CRC/padding flips
+      all reject; header `committed_generation` cross-check rejects even with
+      a re-sealed CRC
 - [ ] Fuzz extension: random page sets encode->decode round-trip vs model
-- [ ] Evidence: suite x2 Win + WSL (codec tests only, no IO change)
+- [x] Evidence: suite **127/127 x2 Windows + WSL** (block v2 section: 4 tests)
 
 ## S2 -- block store over the shim
 

@@ -2,11 +2,12 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 # Byte-page format v2 -- design (M1.2)
 
-> Status: **DESIGN** (2026-10-10). Implementation slices in
-> `docs/checklists/byte-page-v2.md`. The pure codec (S1) is implementable on
-> v0.64.2 today; the block store (S2) runs against the byte-IO shim; the
-> default flips to v2 in S3, and S4 swaps the shim for real fixed-size IO +
-> fsync when the stdlib storage rows land.
+> Status: **DESIGN + S1 IMPLEMENTED** (2026-10-10). Implementation slices in
+> `docs/checklists/byte-page-v2.md`. S1 (pure codec) landed in
+> `src/storage/block.xi` with 4 suite tests (127/127 x2 Win + WSL); the block
+> store (S2) runs against the byte-IO shim; the default flips to v2 in S3,
+> and S4 swaps the shim for real fixed-size IO + fsync when the stdlib
+> storage rows land.
 >
 > Scope: replace the text page file / page log (FORMATS.md sections 3-4)
 > with 4096-byte blocks: fixed-size IO, generation-stamped commit, CRC32C in
@@ -34,26 +35,29 @@ on disk with per-byte parsing overhead. v2 fixes IO shape and density:
 
 ## 2. Block layout (4096 bytes)
 
-Every block (header slot or page) shares the 32-byte block header:
+Every block (header slot or page) shares the 40-byte block header. All
+numeric fields are little-endian 8-byte slots (the `tuple_push_int_le` /
+`tuple_read_int_le` helpers), so the codec has a single integer path; the
+fields are non-negative i64:
 
 | Offset | Size | Field | Notes |
 |---|---|---|---|
 | 0 | 4 | magic = `'O','P','G','2'` | `0x4F 0x50 0x47 0x32` |
 | 4 | 1 | format_version = `2` | reader reject otherwise |
 | 5 | 1 | kind | `'H'` = `0x48` header slot, `'P'` = `0x50` page, `'F'` = `0x46` free (aborted in-progress block) |
-| 6 | 2 | flags (LE) | reserved `0`; bit0 = header slot "active" marker (informational; generation decides) |
+| 6 | 2 | reserved | must be `0` (decode enforces) |
 | 8 | 8 | generation (LE) | commit stamp; header commit = highest valid generation |
 | 16 | 8 | page_id (LE) | logical page id; `0` in header slots |
-| 24 | 4 | payload_len (LE) | `0 <= len <= 4064` (strict) |
-| 28 | 4 | crc32c (LE) | CRC32C of the payload bytes only |
-| 32 | 4064 | payload | zero-padded; bytes `32+len .. 4096` MUST be zero |
+| 24 | 8 | payload_len (LE) | `0 <= len <= 4056` (strict) |
+| 32 | 8 | crc32c (LE) | CRC32C of the payload bytes only (low 32 bits used; high 32 must be zero) |
+| 40 | 4056 | payload | zero-padded; bytes `40+len .. 4096` MUST be zero |
 
-**Page max payload = 4064 bytes** (4096 - 32 header). The v1 `Page` contract
-allows 4096 payload bytes; v2 tightens the *store* capacity to 4064 and
+**Page max payload = 4056 bytes** (4096 - 40 header). The v1 `Page` contract
+allows 4096 payload bytes; v2 tightens the *store* capacity to 4056 and
 `tuple_fits_page` must consult the active store's capacity (v1: 4096, v2:
-4064). The 4064/4096 overhead is documented in FORMATS.md when v2 lands.
+4056). The overhead is documented in FORMATS.md when v2 lands.
 
-Header **slot** payload (block kind `'H'`, 64 bytes used):
+Header **slot** payload (block kind `'H'`, exactly 64 bytes):
 
 | Offset | Size | Field |
 |---|---|---|
@@ -66,6 +70,9 @@ Header **slot** payload (block kind `'H'`, 64 bytes used):
 | 44 | 8 | block_count (file size in blocks) |
 | 52 | 8 | next_page_id |
 | 60 | 4 | reserved `0` |
+
+Decode cross-checks that the payload's `committed_generation` equals the
+block's `generation` field, so a slot cannot be half-updated undetected.
 
 Layout of the file:
 
@@ -129,27 +136,32 @@ conversion). S2/S3 therefore land behind a config flag
 only flips in S3 after the full evidence matrix. The value of S1+S2 is the
 frozen format + codec + crash contract so that S4 (stdlib) is a clean swap.
 
-## 5. Codec API (S1, pure -- no IO)
+## 5. Codec API (S1, pure -- no IO; IMPLEMENTED 2026-10-10 in `src/storage/block.xi`)
 
-New module `xiom.db.storage.block`:
+Module `xiom.db.storage.block` (byte convention: `Vec[Int]` with elements
+0..255, matching `Page.data`; the byte-IO shim converts to/from `Vec[UInt8]`
+at the file boundary when the stdlib row lands):
 
 ```xiom
 pub fn block_size() -> Int                      // 4096
-pub fn block_payload_capacity() -> Int          // 4064
-pub fn block_encode_page(generation: Int, page_id: Int, payload: &Vec[Int]) -> Vec[UInt8]
-pub fn block_decode_page(bytes: &Vec[UInt8]) -> Option[BlockPage]
-pub fn block_encode_header(h: &BlockHeader) -> Vec[UInt8]
-pub fn block_decode_header(bytes: &Vec[UInt8]) -> Option[BlockHeader]
-pub fn block_kind_is_free(bytes: &Vec[UInt8]) -> Bool   // 'F' fast path
+pub fn block_payload_capacity() -> Int          // 4056
+pub fn block_encode_page(generation: Int, page_id: Int, payload: &Vec[Int]) -> Vec[Int]
+pub fn block_decode_page(bytes: &Vec[Int]) -> Option[BlockPage]
+pub fn block_encode_header(h: &BlockHeader) -> Vec[Int]
+pub fn block_decode_header(bytes: &Vec[Int]) -> Option[BlockHeader]
+pub fn block_decode(bytes: &Vec[Int]) -> Option[BlockView]      // any kind
+pub fn block_kind_is_free(bytes: &Vec[Int]) -> Bool             // 'F' fast path
 ```
 
-`BlockPage = { generation: Int; page_id: Int; payload: Vec[Int]; }`
-`BlockHeader` carries the header-slot payload fields above.
+`BlockPage = { generation; page_id; payload }`;
+`BlockHeader = { root; order; node_count; checkpoint_lsn;
+committed_generation; block_count; next_page_id }`.
 
-Decode is strict: exact 4096 length, magic/version/kind, `payload_len` in
-range, CRC32C match, zero padding (a non-zero pad byte is corruption), and
-`kind == 'P'` for pages. Rejects are `None` -- no partial pages, matching the
-v1 "strict decode, no silent acceptance" rule.
+`block_encode*` returns an EMPTY vector for invalid input (payload over
+capacity, element outside 0..255) -- callers treat that as a programming
+error. Decode is strict: length, magic/version/kind, reserved zero,
+`payload_len` range, CRC32C, zero padding, header cross-checks -- every
+failure is `None`, no partial blocks.
 
 ## 6. Migration (v1 -> v2)
 
@@ -167,10 +179,13 @@ v1 "strict decode, no silent acceptance" rule.
 
 ## 7. Test plan (evidence per slice)
 
-- **S1**: byte-exact KATs (hex literal tables for a page block and a header
-  slot), boundaries (`len` 0 / 1 / 4064 / 4065-rejected), corruption matrix
-  (flip a byte in each header field + payload + padding -> `None`), fuzz:
-  random page sets encode->decode==input (extend `probe_fuzz.xi`).
+- **S1 (DONE 2026-10-10)**: byte-exact layout KATs (header bytes, LE slot
+  bytes, CRC slot, padding), boundaries (`len` 0 / 4056 accepted, 4057
+  rejected; empty-vector encode signal for invalid elements), corruption
+  matrix (flip a byte in each header field + payload + padding -> `None`;
+  header `committed_generation` cross-check rejects with a re-sealed CRC);
+  suite 127/127 x2 Win + WSL. Fuzz extension (random page sets
+  encode->decode round-trip) remains the last S1 item.
 - **S2**: block-store probe mirroring `probe_page_file.xi` (append/read/
   latest-wins/compaction) + crash harness `scripts/`-style: writer hard-kill
   at every named state (after page blocks, after inactive header, mid-slot),

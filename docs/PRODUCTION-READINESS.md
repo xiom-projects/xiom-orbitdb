@@ -162,6 +162,14 @@ Scoreboard changelog:
   KAT/corruption/fuzz matrix; S1 (pure codec) unblocked, S2-S4 per the
   checklist. No score change (A5/C2 stay WIP until implementation evidence
   lands): 69.5.
+- 2026-10-10 (same day, M1.2 S1): byte-page v2 codec landed --
+  `src/storage/block.xi` (pure: 4096-byte blocks, 40-byte header with 8-byte
+  LE slots, payload capacity 4056, CRC32C over payload, strict decode,
+  header `committed_generation` cross-check, free-block fast path) + 4 suite
+  tests (layout KAT, roundtrip/boundaries, corruption matrix, header slot);
+  suite **127/127 x2 Win + WSL**; API.md storage section documents the
+  module. No score change (A5/C2 evidence groundwork; the store itself is
+  S2): 69.5.
 
 ## A. Correctness & data structures (20)
 
