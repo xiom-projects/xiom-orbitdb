@@ -148,6 +148,9 @@ stood up the consumer probe:
 
 ### Consumer finding -> XVECTOR: XV-ORBITDB-01 (chained persist/load goes empty)
 
+> Bus: `REL-20261010-1550-orbitdb-11` (opened 2026-10-10); track/fix status
+> there.
+
 Repro: `tests/hybrid/repro_chain.xi` (v0.64.2, Win + WSL). Sequence:
 persist a live engine -> `wal_load` -> `engine_recover` -> persist the
 recovered engine's compacted WAL -> `wal_load`: **`load2 records=0`**

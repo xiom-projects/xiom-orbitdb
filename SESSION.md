@@ -64,6 +64,11 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   header slot) -- **suite 127/127 x2 Win + WSL**; API.md storage section
   documents the module. Next S1 item: fuzz extension; then S2 block store
   over the byte-IO shim.
+**Updated:** 2026-10-10 (relay bus onboarding): joined `xiom-relays`; 11
+  open cross-lane items migrated as separate items (ids in section 1);
+  SESSION rules updated (pull at session start/before finishing; never edit
+  another lane's item); doorbell cron every 3h; C-ORBIT-06 already
+  cross-filed by packages.
 **Updated:** 2026-10-10 (package relay + order-3 fix, same session): relay
   from the packages lane (xiom.wal + `xiom.btree` 0.1.0 registry-live; no
   FFI asks) processed; fixed the upstream **order-3 B-tree defect** the
@@ -308,7 +313,9 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     only on the next write); no MVCC -- see `docs/ISOLATION.md`.
   - B-tree nodes are append-only (no free list); `btree_to_vec` is
     value-only.
-- **Relay status:** all per-lane messages delivered (owner relays).
+- **Relay status:** cross-lane coordination runs on the **xiom-relays bus**
+  (section 1; all open items migrated 2026-10-10, ids listed there). The
+  historical per-lane docs stay as closed record:
   `docs/COMPILER-FINDINGS-ORBITDB.md` + `docs/RELAY-COMPILER-ORBITDB.md`
   now record **C-ORBIT-01..05 RESOLVED on v0.64.2** (m223/m224/m225/m226/
   m235; one consumer-scope caveat on m225) plus the incoming relay
@@ -351,6 +358,22 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
 - **Never edit** `E:\xiom-lang\stdlib`, `E:\xiom-lang\xiom`,
   `E:\xiom-packages\packages`. Record lane HEADs each wrap:
   `git -C <lane> log -1 --format="%h %cI %s"`.
+- **Coordination bus (2026-10-10):** all cross-lane messages go through the
+  private `xiom-relays` repo at `E:\xiom-lang\xiom-relays` (README + PROTOCOL
+  there; `tools/relay.py`, stdlib-only Python). **Pull at session start and
+  before finishing any task**: `git -C E:\xiom-lang\xiom-relays pull --ff-only`
+  then `python tools/relay.py view --lane orbitdb`, and process items
+  addressed to this lane (ack -> fix -> verify per protocol). **Never edit
+  another lane's item; open a new item instead.** Doorbell: a recurring
+  session check every 3h (cron) pulls the bus, processes the orbitdb queue
+  and updates statuses.
+- **Our open bus items (migrated 2026-10-10):** owner ack
+  `REL-20261010-1550-orbitdb`; compiler `REL-20261010-1550-orbitdb-2`
+  (standalone-check quirk; C-ORBIT-06 itself is packages' cross-file
+  `REL-20261010-1549-packages-4`); stdlib `-3` fsync, `-4` append handle,
+  `-5` truncate, `-6` byte-IO random access, `-7` append+repair, `-8` tail
+  check; packages `-9` btree re-extract, `-10` variant qualification;
+  xvector `-11` (XV-ORBITDB-01).
 - Report upstream only through the relay docs + SESSION rows; the owner
   relays. Read PULSE's relay docs before filing (reference their IDs).
 - Packages only from the registry; never vendor. Extraction candidates go to
@@ -464,7 +487,11 @@ docs/PRODUCTION-PLAN.md for the strategy, workstreams and slice order).
 Consumer lane: never edit E:\xiom-lang\stdlib, E:\xiom-lang\xiom,
 E:\xiom-packages\packages. Repo PRIVATE; no pushes without owner approval.
 Identity "Lefteris Notas <lefterisnotas@gmail.com>"; conventional commits,
-DCO sign-off (git commit -s). Owner relays upstream messages.
+DCO sign-off (git commit -s). Cross-lane coordination: the xiom-relays bus
+(E:\xiom-lang\xiom-relays) -- git pull --ff-only at session start and before
+finishing any task, then python tools/relay.py view --lane orbitdb and
+process items to this lane; never edit another lane's item (open a new one);
+owner relays human gates.
 
 TOOLCHAIN (latest-tracking): compiler v0.64.2 Windows + WSL; stdlib
 E:\xiom-lang\stdlib; XIOM_RUNTIME_DIR retired. Dot-source scripts\dev-env.ps1

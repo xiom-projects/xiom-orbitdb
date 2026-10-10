@@ -2,6 +2,12 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 # XIOM ORBITDB -> stdlib lane: wishlist
 
+> **Bus (2026-10-10):** open rows migrated to `xiom-relays` as separate
+> items: fsync `REL-20261010-1550-orbitdb-3`, append handle `-4`, truncate
+> `-5`, byte-IO random access `-6`, append+repair `-7`, tail check `-8`.
+> Track them there (pull + `relay.py view --lane stdlib`); this file keeps
+> the resolved history below.
+
 **Relay:** hand this file to the stdlib-lane session. ORBITDB is a consumer
 lane; it never edits `E:\xiom-lang\stdlib`. Evidence paths are from
 `E:\xiom-projects\xiom-orbitdb` (app context) or exact stdlib `file:line` on

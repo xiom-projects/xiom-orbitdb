@@ -16,6 +16,11 @@ ORBITDB + XVECTOR source trees for the hybrid probe (bundle
 dead `db_error_from_core`/`database_config_from_core` folds retired); suite
 123/123 x2 both platforms.
 
+> **Bus (2026-10-10):** open items now live on `xiom-relays`. C-ORBIT-06 is
+> `REL-20261010-1549-packages-4` (cross-filed by packages, cites our repro
+> bundle); the standalone-check quirk is `REL-20261010-1550-orbitdb-2`. Below
+> is closed history; open new bus items instead of editing this file.
+
 **Relay:** hand this file to the compiler-lane session together with the
 matching `docs/repro/<bundle>/` directories from the ORBITDB repo
 (`E:\xiom-projects\xiom-orbitdb`). ORBITDB is a consumer lane; it does not

@@ -1,6 +1,12 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-# XIOM ORBITDB -> packages lane: wishlist + consumer notes
+# XIOM ORBITDB -> packages lane: wishlist
+
+> **Bus (2026-10-10):** open asks migrated to `xiom-relays`: xiom.btree
+> re-extract with the order-3 fix `REL-20261010-1550-orbitdb-9`, variant
+> qualification `REL-20261010-1550-orbitdb-10`. Track them there (pull +
+> `relay.py view --lane packages`); this file keeps the closed history and
+> the deltas below. + consumer notes
 
 **Relay:** hand this file to the packages-lane session. ORBITDB consumes
 packages from the registry only (never vendored, never edited). Evidence
