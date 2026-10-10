@@ -105,3 +105,35 @@ into reusable packages as they harden.
   XVECTOR is the hybrid-join counterpart. `xiom.db` publish priority
   follows the production plan's M6; the API promise is exactly
   `docs/PULSE-INTEGRATION.md` (no more).
+
+## Delta 2026-10-10 (xiom.wal 0.1.0 -- first registry consumer pass)
+
+- **`xiom.wal` 0.1.0 is published (eco-v0.1.121) and installed; ORBITDB ran
+  the promised first consumer pass** (PULSE pattern): project
+  `tests/pkg/xiom.toml` (registry dep `xiom-wal = "0.1.0"`, mapped to the
+  installed package by the v0.64.2 resolver) + `tests/pkg/probe_pkg_wal.xi`.
+  **18 checks GREEN x2 Windows + WSL:**
+  - API: LSN assignment/resume, `wal_len`/`wal_last_lsn`, tagged payload
+    round-trip (`payload[0]` subtype), op codes 1..10 + write-kind,
+    truncate keeping `lsn >= from` with payload/timestamp preserved,
+    torn-tail skipped on replay + heal-before-append, `wal_flush` documented
+    no-op.
+  - **Two-way format interop** (the "one format" claim): a package-written
+    segment reads bit-equal through `src/wal_file.xi` (records + LSN
+    resume), an ORBITDB-written segment replays through the package with
+    identical fields, and the codec v1 byte literals are identical.
+- **Composite finding (v0.64.2):** importing the package next to our
+  reference module re-exposed the m225 twin-enum caveat ACROSS packages --
+  `src/wal_file.xi`'s bare `WALOpKind` variants resolved to the package's
+  same-variant-name `WalOpKind` and failed T001 (`expected WALOpKind,
+  found Checkpoint`) until the three functions were re-qualified. The
+  package's own bare variants happened to pass in this composition, but the
+  resolution looks order-sensitive: we recommend the package qualify its
+  internal variants too (cheap, removes the fragility); compiler-lane
+  follow-up: declaring-module preference does not hold cross-package.
+- **Adoption decision:** ORBITDB keeps its in-repo reference module through
+  Phase 2 (zero-dep engine); the probe now guards the format, so adopting
+  the registry package later is a one-step change. `xiom.btree` remains
+  unpublished; the churn gate stays MET.
+- Pins: compiler v0.64.2, stdlib lane checkout, packages lane @ `47202b72`;
+  registry live (`xiom.wal` 0.1.0; `xiom.http` 0.1.4 current).

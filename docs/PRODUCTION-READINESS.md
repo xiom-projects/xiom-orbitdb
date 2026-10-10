@@ -145,6 +145,15 @@ Scoreboard changelog:
   **C-ORBIT-06** with a repro bundle, docs coupled. No score change (F2/I2
   already OK; the hybrid harness extends the existing crash-harness class):
   69.5.
+- 2026-10-10 (same day, registry sweep): first ORBITDB consumer pass on a
+  registry package -- `xiom.wal` 0.1.0 (eco-v0.1.121; the stand-alone
+  extraction of our WAL) via `tests/pkg/probe_pkg_wal.xi`: 18 checks GREEN
+  x2 Windows + WSL including two-way format interop with `src/wal_file.xi`
+  and byte-level codec v1 parity. Importing the package next to our module
+  re-exposed the m225 twin-enum caveat cross-package (T001 until
+  `src/wal_file.xi` variants were re-qualified); filed in the package
+  wishlist delta. Suite 123/123 x2 both platforms; WAL crash harness x2
+  both. No score change (F4 evidence; publish gates unchanged): 69.5.
 
 ## A. Correctness & data structures (20)
 

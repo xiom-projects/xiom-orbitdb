@@ -42,6 +42,12 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   goes empty; probe carries the re-LSN workaround); composition exposed and
   retired the dead `xiom.core.*` folds (**C-ORBIT-06** filed with repro);
   suite 123/123 x2 Win + WSL on the current stdlib.
+**Updated:** 2026-10-10 (registry consumer pass, same session): `xiom.wal`
+  0.1.0 (eco-v0.1.121) found on the registry + installed; `tests/pkg/`
+  probe green x2 Win + WSL (18 checks incl. two-way interop with our
+  reference reader and byte-level codec parity); `src/wal_file.xi` variants
+  re-qualified for the cross-package twin; wishlist delta + RUNBOOK row;
+  suite 123/123 x2 both platforms, WAL crash x2 both.
 **Project:** embedded database engine for XIOM -- B-Tree, WAL, query engine,
 crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
 

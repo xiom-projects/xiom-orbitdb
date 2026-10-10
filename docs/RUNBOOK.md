@@ -57,6 +57,7 @@ killed); harnesses print `GREEN`/`RED` and exit 0/1.
 | `tests/hybrid/probe_hybrid.xi` | `ORBITDB_HYBRID_MODE=full/writer/verify` | ORBITDB <-> XVECTOR hybrid acceptance (source-level composition via `tests/hybrid/xiom.toml`). `full` = 36-check in-process run; `writer`/`verify` are driven by the hybrid crash harness. |
 | | `ORBITDB_HYBRID_ROWS`, `ORBITDB_HYBRID_VEC`, `ORBITDB_HYBRID_N`, `ORBITDB_HYBRID_DIM`, `ORBITDB_HYBRID_SKIP`, `ORBITDB_HYBRID_LAG`, `ORBITDB_HYBRID_CHUNK`, `ORBITDB_HYBRID_Q`, `ORBITDB_HYBRID_K` | Row-store path, vector-WAL path and scale knobs (defaults 1000 / 8 / 10 / 3 / 200 / 8 / 20). |
 | `tests/hybrid/repro_chain.xi` | paths are repo-relative | XV-ORBITDB-01 repro: chained persist -> load -> recover -> persist -> load (load2 loses the log; see `docs/XVECTOR-INTEGRATION.md` section 7). |
+| `tests/pkg/probe_pkg_wal.xi` | `ORBITDB_PKG_WAL` (segment path, default `probe-logs/pkg-wal.log`) | First registry consumer pass: `xiom.wal` 0.1.0 conformance + two-way format interop with `src/wal_file.xi` (project `tests/pkg/xiom.toml`; needs the installed package). Syntax: `scripts/run.ps1 tests\pkg\probe_pkg_wal.xi -TimeoutSec 180`. |
 
 Standard soak (policy checkpoints every 250 records):
 

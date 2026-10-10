@@ -61,50 +61,51 @@ pub type WALFile = {
 
 pub fn wal_op_code(op: WALOpKind) -> Int {
   match op {
-    Insert => { return 1; }
-    Update => { return 2; }
-    Delete => { return 3; }
-    SegmentSeal => { return 4; }
-    ManifestUpdate => { return 5; }
-    Checkpoint => { return 6; }
-    SnapshotMarker => { return 7; }
-    BeginTxn => { return 8; }
-    CommitTxn => { return 9; }
-    AbortTxn => { return 10; }
+    WALOpKind.Insert => { return 1; }
+    WALOpKind.Update => { return 2; }
+    WALOpKind.Delete => { return 3; }
+    WALOpKind.SegmentSeal => { return 4; }
+    WALOpKind.ManifestUpdate => { return 5; }
+    WALOpKind.Checkpoint => { return 6; }
+    WALOpKind.SnapshotMarker => { return 7; }
+    WALOpKind.BeginTxn => { return 8; }
+    WALOpKind.CommitTxn => { return 9; }
+    WALOpKind.AbortTxn => { return 10; }
   }
 }
 
-// C-ORBIT-04 (fixed in v0.64.2/m225): unqualified variants here used to be
-// lowered against `xiom.db.txn.transaction`'s same-named `WALOp` enum when
-// both modules were in one compilation unit; qualification was the
-// workaround. Variant resolution is now scoped to the declaring module, so
-// the unqualified form is restored. History: COMPILER-FINDINGS-ORBITDB.md.
+// C-ORBIT-04 (fixed in v0.64.2/m225 for same-catalog twins): variants stay
+// qualified here because a same-named twin from ANOTHER package in the
+// program (`xiom.wal`'s `WalOpKind` -- the registry extraction of this very
+// module) resolves cross-package bare variants to the wrong enum on v0.64.2
+// (see the xiom.wal consumer pass in docs/PACKAGE-WISHLIST-ORBITDB.md).
+// History: COMPILER-FINDINGS-ORBITDB.md.
 pub fn wal_op_from_code(code: Int) -> WALOpKind {
-  if code == 2 { return Update; }
-  if code == 3 { return Delete; }
-  if code == 4 { return SegmentSeal; }
-  if code == 5 { return ManifestUpdate; }
-  if code == 6 { return Checkpoint; }
-  if code == 7 { return SnapshotMarker; }
-  if code == 8 { return BeginTxn; }
-  if code == 9 { return CommitTxn; }
-  if code == 10 { return AbortTxn; }
-  return Insert;
+  if code == 2 { return WALOpKind.Update; }
+  if code == 3 { return WALOpKind.Delete; }
+  if code == 4 { return WALOpKind.SegmentSeal; }
+  if code == 5 { return WALOpKind.ManifestUpdate; }
+  if code == 6 { return WALOpKind.Checkpoint; }
+  if code == 7 { return WALOpKind.SnapshotMarker; }
+  if code == 8 { return WALOpKind.BeginTxn; }
+  if code == 9 { return WALOpKind.CommitTxn; }
+  if code == 10 { return WALOpKind.AbortTxn; }
+  return WALOpKind.Insert;
 }
 
 // True for record kinds that mutate an index (replay applies these).
 pub fn wal_op_is_write(op: WALOpKind) -> Bool {
   match op {
-    Insert => { return true; }
-    Update => { return true; }
-    Delete => { return true; }
-    SegmentSeal => { return false; }
-    ManifestUpdate => { return false; }
-    Checkpoint => { return false; }
-    SnapshotMarker => { return false; }
-    BeginTxn => { return false; }
-    CommitTxn => { return false; }
-    AbortTxn => { return false; }
+    WALOpKind.Insert => { return true; }
+    WALOpKind.Update => { return true; }
+    WALOpKind.Delete => { return true; }
+    WALOpKind.SegmentSeal => { return false; }
+    WALOpKind.ManifestUpdate => { return false; }
+    WALOpKind.Checkpoint => { return false; }
+    WALOpKind.SnapshotMarker => { return false; }
+    WALOpKind.BeginTxn => { return false; }
+    WALOpKind.CommitTxn => { return false; }
+    WALOpKind.AbortTxn => { return false; }
   }
 }
 
