@@ -154,6 +154,14 @@ Scoreboard changelog:
   `src/wal_file.xi` variants were re-qualified); filed in the package
   wishlist delta. Suite 123/123 x2 both platforms; WAL crash harness x2
   both. No score change (F4 evidence; publish gates unchanged): 69.5.
+- 2026-10-10 (same day, M1.2 design): byte-page format v2 design published
+  (`docs/BYTE-PAGE-FORMAT-V2.md`; checklist `docs/checklists/byte-page-v2.md`):
+  4096-byte blocks, 32-byte header (magic/kind/generation/page_id/len/CRC32C),
+  two generation-stamped header slots, block store over a six-function
+  byte-IO shim with documented O(file) fallbacks, v1->v2 migration,
+  KAT/corruption/fuzz matrix; S1 (pure codec) unblocked, S2-S4 per the
+  checklist. No score change (A5/C2 stay WIP until implementation evidence
+  lands): 69.5.
 
 ## A. Correctness & data structures (20)
 

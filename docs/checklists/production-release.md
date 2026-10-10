@@ -14,8 +14,10 @@
 - [ ] Lazy node load (no whole-snapshot residency requirement)
 - [ ] Bounded node cache with clock eviction + write-back (C4 semantics)
 - [ ] 1M-key soak with memory plateau (needs stdlib byte IO for speed)
-- [ ] Byte-packed page format v2 design (generation-stamped pages)
-- [ ] Page format v2 codec + KATs (blocked: stdlib byte IO row)
+- [x] Byte-packed page format v2 design (generation-stamped pages) --
+      `docs/BYTE-PAGE-FORMAT-V2.md`, slices in `docs/checklists/byte-page-v2.md`
+- [ ] Page format v2 codec + KATs -- S1 is unblocked (pure codec, no IO);
+      store slices S2-S4 run against the byte-IO shim until the stdlib rows land
 
 ## M2 -- Recovery & durability
 

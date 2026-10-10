@@ -215,7 +215,11 @@ suite.
 2. **M4.1 -- planner pushdown (E2).** Key-range/point pushdown now that the
    semantics decision is ours; cost estimate; executor uses range scans.
 3. **M1.2 -- byte-page format v2 design + codec** (works the moment stdlib
-   byte IO lands; design now, implement against a shim).
+   byte IO lands; design now, implement against a shim). **Design DONE
+   2026-10-10:** `docs/BYTE-PAGE-FORMAT-V2.md` + checklist
+   `docs/checklists/byte-page-v2.md` (S1 pure codec is unblocked today; S2
+   block store runs against the byte-IO shim; S3 default flip; S4 stdlib
+   swap).
 4. **M5.1 -- typed values v2** (type-tagged tuples; text at least).
 5. **M2.1 -- fsync wiring + fault injection** when the stdlib row lands.
 6. M6.1 -- cursor API + error taxonomy; bindings spike.

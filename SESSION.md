@@ -48,6 +48,14 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   reference reader and byte-level codec parity); `src/wal_file.xi` variants
   re-qualified for the cross-package twin; wishlist delta + RUNBOOK row;
   suite 123/123 x2 both platforms, WAL crash x2 both.
+**Updated:** 2026-10-10 (M1.2 design, same session): byte-page format v2
+  design published -- `docs/BYTE-PAGE-FORMAT-V2.md` + checklist
+  `docs/checklists/byte-page-v2.md`: 4096-byte blocks, 32-byte header
+  (magic/kind/flags/generation/page_id/len/CRC32C), two header slots with
+  generation-stamped commit, block store over a six-function byte-IO shim
+  (O(file) fallbacks today), v1->v2 migration, KAT/corruption/fuzz matrix.
+  **S1 (pure codec + KATs) is unblocked on v0.64.2; S2-S4 per the
+  checklist.**
 **Project:** embedded database engine for XIOM -- B-Tree, WAL, query engine,
 crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
 
@@ -303,8 +311,10 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   workaround). New compiler finding **C-ORBIT-06** filed (phantom imports
   silently accepted; C-ORBIT-01..05 stay RESOLVED).
 - **Next action (priority order, per `docs/PRODUCTION-PLAN.md` section 13):**
-  1. **M1.2 byte-page format v2 design** now (generation-stamped pages, byte
-     codec); implement when the stdlib byte-IO row lands.
+  1. **M1.2 byte-page format v2 -- design DONE**
+     (`docs/BYTE-PAGE-FORMAT-V2.md` + `docs/checklists/byte-page-v2.md`);
+     next S1 pure codec + KATs (unblocked on v0.64.2), then S2 block store
+     over the byte-IO shim; S4 swaps in real stdlib byte IO + fsync.
   2. **M4.2 secondary indexes** (catalog `IndexDef`, index-vs-model fuzz) +
      ORDER/LIMIT execution.
   3. **M5.1 typed values v2** (type-tagged tuples; text at least).
@@ -495,8 +505,10 @@ docs/ISOLATION.md); buffer pool in-memory only (pager seam C3 pending);
 fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-1. M1.2 byte-page format v2 design (generation-stamped pages, byte codec);
-   implement when the stdlib byte-IO row lands.
+1. M1.2 byte-page format v2: design DONE (docs/BYTE-PAGE-FORMAT-V2.md +
+   docs/checklists/byte-page-v2.md); execute S1 (pure codec + KATs, no IO
+   dependency), then S2 (block store over the byte-IO shim), S3 (DBFile
+   integration + default flip), S4 (stdlib byte IO + fsync swap).
 2. M4.2 secondary indexes (catalog IndexDef) + ORDER/LIMIT execution.
 3. M5.1 typed values v2 (type-tagged tuples; text at least).
 4. M2.1 fsync wiring when stdlib lands; M1.1b lazy load once random-access
