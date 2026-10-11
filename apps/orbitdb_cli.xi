@@ -42,6 +42,8 @@ fn cli_usage() {
   io.println("  putrow <k> <spec>  typed row (M5.3): spec = comma list of");
   io.println("                  int | s:text | f:float | n  (no commas in text)");
   io.println("  getrow <k>      decode + print a typed row (none if int row)");
+  io.println("  qrow <col> <op> <literal>  typed query: match rows where");
+  io.println("                  column <col> (row id: -1) <op> <literal>");
   io.println("  info            handle + file state");
   io.println("  recover         close + reopen (snapshot load / WAL replay)");
   io.println("  kill            exit WITHOUT cleanup -- restart to watch recovery");
@@ -297,6 +299,74 @@ fn cli_run_getrow(db: &DBFile, toks: &Vec[Str]) -> Bool {
   return true;
 }
 
+fn cli_parse_literal(t: Str) -> Result[TValue, Str] {
+  if t == "n" { return Ok(TValue.VNull); }
+  if t.len() >= 2 && t.substr(0, 2) == "s:" {
+    return Ok(TValue.VText(t.substr(2, t.len())));
+  }
+  if t.len() >= 2 && t.substr(0, 2) == "f:" {
+    match parse.parse_float(t.substr(2, t.len())) {
+      Err(_) => { return Err("bad float: " + t); }
+      Ok(f) => { return Ok(TValue.VFloat(f)); }
+    }
+  }
+  if t.len() >= 2 && t.substr(0, 2) == "i:" {
+    match parse.parse_int(t.substr(2, t.len())) {
+      Err(_) => { return Err("bad int: " + t); }
+      Ok(x) => { return Ok(TValue.VInt(x)); }
+    }
+  }
+  match parse.parse_int(t) {
+    Err(_) => { return Err("bad literal (use int | i: | s: | f: | n): " + t); }
+    Ok(x) => { return Ok(TValue.VInt(x)); }
+  }
+}
+
+fn cli_parse_op(t: Str) -> Result[QueryOp, Str] {
+  if t == "=" || t == "eq" { return Ok(QueryOp.Eq); }
+  if t == "!=" || t == "ne" { return Ok(QueryOp.Neq); }
+  if t == "<" || t == "lt" { return Ok(QueryOp.Lt); }
+  if t == "<=" || t == "le" { return Ok(QueryOp.Lte); }
+  if t == ">" || t == "gt" { return Ok(QueryOp.Gt); }
+  if t == ">=" || t == "ge" { return Ok(QueryOp.Gte); }
+  return Err("bad op (use = != < <= > >=): " + t);
+}
+
+fn cli_run_qrow(db: &DBFile, toks: &Vec[Str]) -> Bool {
+  if toks.len() < 4 {
+    io.println("usage: qrow <col> <op> <literal>   (col -1 = id; op = != < <= > >=)");
+    return true;
+  }
+  match cli_arg_int(toks, 1) {
+    Err(_) => { io.println("usage: qrow <col> <op> <literal>"); return true; }
+    Ok(col) => {
+      match cli_parse_op(toks[2]) {
+        Err(e) => { io.println(e); return true; }
+        Ok(op) => {
+          match cli_parse_literal(toks[3]) {
+            Err(e) => { io.println(e); return true; }
+            Ok(lit) => {
+              var q = typed_query_new();
+              typed_query_where(&mut q, col, op, lit);
+              let hits = db_file_query_typed(db, &q);
+              io.print("matches=" + cli_i2s(hits.len()) + " pks=[");
+              var i = 0;
+              while i < hits.len() && i < 16 {
+                if i > 0 { io.print(","); }
+                io.print(cli_i2s(hits[i]));
+                i = i + 1;
+              }
+              if hits.len() > 16 { io.print(",..."); }
+              io.println("]");
+            }
+          }
+        }
+      }
+    }
+  }
+  return true;
+}
+
 // Dispatch one line. Returns: 0 = quit, 1 = continue, 2 = reopen request.
 fn cli_dispatch(db: &mut DBFile, toks: &Vec[Str]) -> Int {
   if toks.len() == 0 { return 1; }
@@ -338,6 +408,10 @@ fn cli_dispatch(db: &mut DBFile, toks: &Vec[Str]) -> Int {
   }
   if cmd == "getrow" {
     let _ = cli_run_getrow(db, toks);
+    return 1;
+  }
+  if cmd == "qrow" {
+    let _ = cli_run_qrow(db, toks);
     return 1;
   }
   if cmd == "recover" { return 2; }

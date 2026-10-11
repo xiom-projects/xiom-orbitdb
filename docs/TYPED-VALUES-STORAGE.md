@@ -1,8 +1,9 @@
 # Typed values in storage -- the container decision (M5.2 -> M5.3)
 
-Status: **S3 LANDED 2026-10-11** (M5.1 codec, M5.2 schema layer, M5.3 engine
-persistence). Remaining works that build on it: typed-column query/index
-predicates (compares decoded values; S4). This document is the contract that
+Status: **S3 + typed query predicates LANDED 2026-10-11** (M5.1 codec, M5.2
+schema layer, M5.3 engine persistence, M5-S4 typed predicates). Remaining
+follow-on: typed SECONDARY INDEXES (value-ordered (typed value, pk) entries;
+not required by the M5 checklist gates). This document is the contract that
 was implemented; see "Landed details" for the as-built specifics.
 Copyright (c) 2026 Eleftherios Notas and The XIOM Authors.
 SPDX-License-Identifier: MIT OR Apache-2.0
@@ -100,6 +101,14 @@ values, so they build on S3, not beside it).
 
 ## Landed details (as-built deltas from the original contract)
 
+- **Typed predicates (M5-S4)**: `TypedQuery`/`TypedCond` +
+  `db_file_query_typed` return matching pks in key order; `tuple2_compare`
+  defines the total order Null < numeric < Text < Blob (`VInt(1) ==
+  VFloat(1.0)`, NaN first/self-equal, text bytewise, blob element-wise);
+  `col = -1` addresses the row id; int rows and undecodable payloads never
+  match. Suite x3 (comparator table + ops/persistence) + fuzz (k) vs an
+  independent model; CLI `qrow`. Typed secondary INDEXES remain a
+  follow-on.
 - **WAL example**: `7|1|42|42|0|1,219,2,6,...` -- subtype `1` then row bytes;
   the record `value` mirrors the key.
 - **Byte discipline**: `db_file_put_typed` validates elements 0..255 and

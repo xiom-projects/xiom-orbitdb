@@ -1102,6 +1102,147 @@ pub fn query_has_offset(q: &Query) -> Bool {
   return q.offset > 0;
 }
 
+// ============================================================================
+// TYPED QUERIES (M5-S4): predicates over decoded row columns
+// ============================================================================
+
+// One condition: `value_at(row, column) OP literal`. `column` indexes the
+// decoded row's values; column -1 addresses the row id (pk). Comparisons
+// use the codec's total order (tuple2_compare): Null < numeric (Int/Float,
+// numeric) < Text (bytewise) < Blob (bytewise). No SQL three-valued logic:
+// every condition is true or false against that order.
+pub type TypedCond = {
+  column: Int;
+  op: QueryOp;
+  value: TValue;
+}
+
+pub type TypedQuery = {
+  conditions: Vec[TypedCond];
+  limit: Int;
+  offset: Int;
+}
+
+pub fn typed_query_new() -> TypedQuery {
+  var conditions = Vec[TypedCond].new();
+  return TypedQuery{ conditions: conditions, limit: 0, offset: 0 };
+}
+
+pub fn typed_query_where(q: &mut TypedQuery, column: Int, op: QueryOp, value: TValue) {
+  var cond = TypedCond{ column: column, op: op, value: value };
+  q.conditions.push(cond);
+}
+
+pub fn typed_query_limit(q: &mut TypedQuery, limit: Int)
+  requires: limit > 0
+{
+  q.limit = limit;
+}
+
+pub fn typed_query_offset(q: &mut TypedQuery, offset: Int)
+  requires: offset >= 0
+{
+  q.offset = offset;
+}
+
+fn typed_op_matches(cmp: Int, op: QueryOp) -> Bool {
+  match op {
+    Eq => cmp == 0,
+    Neq => cmp != 0,
+    Lt => cmp < 0,
+    Lte => cmp <= 0,
+    Gt => cmp > 0,
+    Gte => cmp >= 0,
+  }
+}
+
+fn typed_row_matches(row: &TypedRow, conditions: &Vec[TypedCond]) -> Bool {
+  var i = 0;
+  while i < conditions.len() {
+    let c = conditions[i];
+    var v = TValue.VNull;
+    if c.column == -1 {
+      v = TValue.VInt(row.id);
+    } else {
+      if c.column < 0 { return false; }
+      if c.column >= row.values.len() { return false; }
+      v = row.values[c.column];
+    }
+    if !typed_op_matches(tuple2_compare(v, c.value), c.op) { return false; }
+    i = i + 1;
+  }
+  return true;
+}
+
+// In-order walk collecting (key, payload) pairs of payload-bearing entries.
+fn collect_typed_inorder(tree: &BTree, node_idx: Int,
+                         keys: &mut Vec[Int], pays: &mut Vec[Vec[Int]]) {
+  var node = tree.store.nodes[node_idx];
+  if node.is_leaf {
+    var i = 0;
+    while i < node.keys.len() {
+      let p = node_payload(&node, i);
+      if p.len() > 0 {
+        keys.push(node.keys[i]);
+        pays.push(p);
+      }
+      i = i + 1;
+    }
+    return;
+  }
+  var i = 0;
+  while i < node.keys.len() {
+    if i < node.children.len() {
+      collect_typed_inorder(tree, node.children[i], keys, pays);
+    }
+    let p = node_payload(&node, i);
+    if p.len() > 0 {
+      keys.push(node.keys[i]);
+      pays.push(p);
+    }
+    i = i + 1;
+  }
+  if i < node.children.len() {
+    collect_typed_inorder(tree, node.children[i], keys, pays);
+  }
+}
+
+// Matching primary keys in key order (conditions ANDed; offset/limit apply
+// to the matches). Plain int rows and undecodable payloads never match:
+// typed predicates apply to typed rows.
+pub fn db_file_query_typed(db: &DBFile, q: &TypedQuery) -> Vec[Int] {
+  var keys = Vec[Int].new();
+  var pays = Vec[Vec[Int]].new();
+  collect_typed_inorder(&db.tree, db.tree.root, &mut keys, &mut pays);
+
+  var hits = Vec[Int].new();
+  var i = 0;
+  while i < keys.len() {
+    let p = pays[i];
+    match tuple2_decode_row(&p) {
+      Err(_) => {}
+      Ok(row) => {
+        let r: TypedRow = row;
+        if typed_row_matches(&r, q.conditions) { hits.push(keys[i]); }
+      }
+    }
+    i = i + 1;
+  }
+
+  var out = Vec[Int].new();
+  var start = q.offset;
+  var end = hits.len();
+  if q.limit > 0 && start + q.limit < end {
+    end = start + q.limit;
+  }
+  var k = start;
+  while k < end {
+    out.push(hits[k]);
+    k = k + 1;
+  }
+  return out;
+}
+
 pub fn query_reset(q: &mut Query) {
   var empty = Vec[QueryCondition].new();
   q.conditions = empty;

@@ -48,6 +48,7 @@
 //   ORBITDB_FUZZ_TUPLE2_ITERS   tuple-v2 iterations per seed    (default 200)
 //   ORBITDB_FUZZ_SCHEMA_ITERS   schema-row iterations per seed  (default 150)
 //   ORBITDB_FUZZ_TYPED_ITERS    db typed-row iterations per seed (default 200)
+//   ORBITDB_FUZZ_TQUERY_ITERS   typed-query iterations per seed  (default 150)
 //
 // Exit: 0 = green; non-zero = failing section + first violation (printed).
 
@@ -1349,6 +1350,230 @@ fn fuzz_db_typed(seed: Int, iters: Int, dir: Str) -> Int {
   return 0;
 }
 
+// (k) typed queries (M5-S4) --------------------------------------------------
+// Random typed rows (col0 int|null, col1 text|null, col2 float|null) + random
+// conditions vs an INDEPENDENT model: model values live in their natural
+// domains (ints, half-scaled ints for floats, bytewise-ordered table indexes
+// for text), the comparator and op logic are re-implemented here, and the
+// engine's db_file_query_typed must match after every op (incl. checkpoints
+// and reopens).
+fn tq_model_text(i: Int) -> Str {
+  if i == 0 { return ""; }
+  if i == 1 { return " z"; }
+  if i == 2 { return "a"; }
+  if i == 3 { return "apple"; }
+  if i == 4 { return "b"; }
+  return "banana";
+}
+
+// Domain compare: kind 0 = null, kind 1 = natural-domain value (ints; text
+// table indexes in bytewise order; floats as exact halves).
+fn tq_model_cmp(ak: Int, av: Int, bk: Int, bv: Int) -> Int {
+  if ak == 0 && bk == 0 { return 0; }
+  if ak == 0 { return -1; }
+  if bk == 0 { return 1; }
+  if av < bv { return -1; }
+  if av > bv { return 1; }
+  return 0;
+}
+
+fn tq_model_op_ok(cmp: Int, op: Int) -> Bool {
+  if op == 0 { return cmp == 0; }
+  if op == 1 { return cmp != 0; }
+  if op == 2 { return cmp < 0; }
+  if op == 3 { return cmp <= 0; }
+  if op == 4 { return cmp > 0; }
+  return cmp >= 0;
+}
+
+fn tq_model_literal(kind: Int, v: Int) -> TValue {
+  if kind == 0 { return TValue.VNull; }
+  if kind == 1 { return TValue.VInt(v); }
+  if kind == 2 { return TValue.VText(tq_model_text(v)); }
+  return TValue.VFloat(convert.int_to_float(v) / 2.0);
+}
+
+fn tq_engine_op(op: Int) -> QueryOp {
+  if op == 0 { return QueryOp.Eq; }
+  if op == 1 { return QueryOp.Neq; }
+  if op == 2 { return QueryOp.Lt; }
+  if op == 3 { return QueryOp.Lte; }
+  if op == 4 { return QueryOp.Gt; }
+  return QueryOp.Gte;
+}
+
+fn fuzz_typed_query(seed: Int, iters: Int, dir: Str) -> Int {
+  let path = dir + "/fuzz-tquery.wal";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(path + ".snap");
+  var state = seed;
+  var db = db_file_open(path, 4);
+
+  let nkeys = 30;
+  var mk = Vec[Int].new();    // 0 absent, 1 typed row, 2 int row
+  var m0k = Vec[Int].new();   // col0: 0 null, 1 int
+  var m0v = Vec[Int].new();
+  var m1k = Vec[Int].new();   // col1: 0 null, 2 text (table index in m1v)
+  var m1v = Vec[Int].new();
+  var m2k = Vec[Int].new();   // col2: 0 null, 3 float (half-units in m2v)
+  var m2v = Vec[Int].new();
+  var k0 = 0;
+  while k0 <= nkeys {
+    mk.push(0);
+    m0k.push(0);
+    m0v.push(0);
+    m1k.push(0);
+    m1v.push(0);
+    m2k.push(0);
+    m2v.push(0);
+    k0 = k0 + 1;
+  }
+
+  var it = 0;
+  while it < iters {
+    let roll = rand_mod(&mut state, 100);
+    if roll < 40 {
+      let k = 1 + rand_mod(&mut state, nkeys);
+      var c0k = rand_mod(&mut state, 4);
+      var c1k = rand_mod(&mut state, 4);
+      var c2k = rand_mod(&mut state, 4);
+      var v0 = 0;
+      if c0k > 0 {
+        c0k = 1;
+        v0 = rand_mod(&mut state, 7) - 3;
+      }
+      var v1 = 0;
+      if c1k > 0 {
+        c1k = 2;
+        v1 = rand_mod(&mut state, 6);
+      }
+      var v2 = 0;
+      if c2k > 0 {
+        c2k = 3;
+        v2 = rand_mod(&mut state, 13) - 6;
+      }
+      var vals = Vec[TValue].new();
+      vals.push(tq_model_literal(c0k, v0));
+      vals.push(tq_model_literal(c1k, v1));
+      vals.push(tq_model_literal(c2k, v2));
+      match tuple2_encode_row_checked(k, &vals) {
+        Err(_) => { return 1; }
+        Ok(buf) => {
+          if !db_file_put_typed(&mut db, k, buf) { return 2; }
+        }
+      }
+      mk[k] = 1;
+      m0k[k] = c0k;
+      m0v[k] = v0;
+      m1k[k] = c1k;
+      m1v[k] = v1;
+      m2k[k] = c2k;
+      m2v[k] = v2;
+    } elif roll < 60 {
+      let k = 1 + rand_mod(&mut state, nkeys);
+      if mk[k] > 0 {
+        if !db_file_delete(&mut db, k) { return 3; }
+        mk[k] = 0;
+      }
+    } elif roll < 70 {
+      let k = 1 + rand_mod(&mut state, nkeys);
+      let v = rand_next(&mut state) % 2000 - 1000;
+      if !db_file_put(&mut db, k, v) { return 4; }
+      mk[k] = 2;
+    } elif roll < 90 {
+      // Build 1..3 conditions and compare query result vs the model.
+      let nconds = 1 + rand_mod(&mut state, 3);
+      var cols = Vec[Int].new();
+      var ops = Vec[Int].new();
+      var cks = Vec[Int].new();
+      var cvs = Vec[Int].new();
+      var q = typed_query_new();
+      var ci = 0;
+      while ci < nconds {
+        let col = rand_mod(&mut state, 3);
+        let op = rand_mod(&mut state, 6);
+        var ck = 0;
+        var cv = 0;
+        if col == 0 {
+          if rand_mod(&mut state, 3) == 0 {
+            ck = 0;
+          } else {
+            ck = 1;
+            cv = rand_mod(&mut state, 7) - 3;
+          }
+        }
+        if col == 1 {
+          if rand_mod(&mut state, 3) == 0 {
+            ck = 0;
+          } else {
+            ck = 2;
+            cv = rand_mod(&mut state, 6);
+          }
+        }
+        if col == 2 {
+          if rand_mod(&mut state, 3) == 0 {
+            ck = 0;
+          } else {
+            ck = 3;
+            cv = rand_mod(&mut state, 13) - 6;
+          }
+        }
+        typed_query_where(&mut q, col, tq_engine_op(op), tq_model_literal(ck, cv));
+        cols.push(col);
+        ops.push(op);
+        cks.push(ck);
+        cvs.push(cv);
+        ci = ci + 1;
+      }
+      let lim = rand_mod(&mut state, 4);   // 0..3, 0 = no limit
+      let off = rand_mod(&mut state, 3);
+      if lim > 0 { typed_query_limit(&mut q, lim); }
+      if off > 0 { typed_query_offset(&mut q, off); }
+
+      // Model evaluation.
+      var hits = Vec[Int].new();
+      var k = 1;
+      while k <= nkeys {
+        if mk[k] == 1 {
+          var ok = true;
+          var cj = 0;
+          while cj < nconds {
+            let col = cols[cj];
+            var rk = 0;
+            var rv = 0;
+            if col == 0 { rk = m0k[k]; rv = m0v[k]; }
+            if col == 1 { rk = m1k[k]; rv = m1v[k]; }
+            if col == 2 { rk = m2k[k]; rv = m2v[k]; }
+            if !tq_model_op_ok(tq_model_cmp(rk, rv, cks[cj], cvs[cj]), ops[cj]) { ok = false; }
+            cj = cj + 1;
+          }
+          if ok { hits.push(k); }
+        }
+        k = k + 1;
+      }
+      var out = Vec[Int].new();
+      var start = off;
+      var end = hits.len();
+      if lim > 0 && start + lim < end { end = start + lim; }
+      var m2 = start;
+      while m2 < end {
+        out.push(hits[m2]);
+        m2 = m2 + 1;
+      }
+      let got = db_file_query_typed(&db, &q);
+      if !vec_eq(&got, &out) { return 5; }
+    } elif roll < 95 {
+      if db_file_checkpoint(&mut db) < 0 { return 6; }
+    } else {
+      db = db_file_open(path, 4);
+    }
+    it = it + 1;
+  }
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(path + ".snap");
+  return 0;
+}
+
 
 fn main() -> Int {
   let dir = env.var_or("ORBITDB_FUZZ_DIR", "probe-logs");
@@ -1364,6 +1589,7 @@ fn main() -> Int {
   let tuple2_iters = parse_env_int("ORBITDB_FUZZ_TUPLE2_ITERS", 200);
   let schema_iters = parse_env_int("ORBITDB_FUZZ_SCHEMA_ITERS", 150);
   let typed_iters = parse_env_int("ORBITDB_FUZZ_TYPED_ITERS", 200);
+  let tquery_iters = parse_env_int("ORBITDB_FUZZ_TQUERY_ITERS", 150);
 
   var s = 0;
   while s < seeds {
@@ -1414,6 +1640,11 @@ fn main() -> Int {
       io.println("fuzz: db_typed FAILED seed=" + convert.int_to_string(seed) + " rc=" + convert.int_to_string(rc_td));
       return 190 + rc_td;
     }
+    let rc_tq = fuzz_typed_query(seed, tquery_iters, dir);
+    if rc_tq != 0 {
+      io.println("fuzz: typed_query FAILED seed=" + convert.int_to_string(seed) + " rc=" + convert.int_to_string(rc_tq));
+      return 210 + rc_tq;
+    }
     let order = 3 + (s % 3);
     let rc_b = fuzz_btree(seed, ops, n, order);
     if rc_b != 0 {
@@ -1427,4 +1658,5 @@ fn main() -> Int {
     + " n=" + convert.int_to_string(n));
   return 0;
 }
+
 

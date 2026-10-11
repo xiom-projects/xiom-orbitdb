@@ -3,6 +3,7 @@
 
 module xiom.db.storage.tuple
 
+use xiom.convert;
 use xiom.string;
 
 // Local error type for tuple encoding -- mirrors xiom.db.error.DbError.
@@ -448,6 +449,138 @@ pub fn tuple2_blob_value(v: TValue) -> Option[Vec[Int]] {
   match v {
     VBlob(b) => { return Some(b); }
     _ => { return None; }
+  }
+}
+
+// --- Typed comparisons (M5-S4) --------------------------------------------
+//
+// Total order over TValue, used by typed query predicates:
+//   Null < numeric (Int/Float, compared numerically) < Text < Blob.
+// Int vs float compares numerically via Float64 (lossy beyond 2^53 -- the
+// documented approximation); int vs int is exact; floats are natural with
+// NaN first (NaN == NaN); text is bytewise lexicographic (UTF-8 bytes);
+// blob is element-wise 0..255. `tuple2_compare` == 0 IS equality (so
+// VInt(1) equals VFloat(1.0)). No SQL three-valued logic: every condition
+// evaluates to true/false against this order.
+
+// 0 null, 1 numeric, 2 text, 3 blob.
+fn tuple2_kind_rank(v: TValue) -> Int {
+  match v {
+    VNull => { return 0; }
+    VInt(_) => { return 1; }
+    VFloat(_) => { return 1; }
+    VText(_) => { return 2; }
+    VBlob(_) => { return 3; }
+  }
+}
+
+fn tuple2_f64_cmp(a: Float64, b: Float64) -> Int {
+  if a != a {
+    if b != b { return 0; }
+    return -1;
+  }
+  if b != b { return 1; }
+  if a < b { return -1; }
+  if a > b { return 1; }
+  return 0;
+}
+
+fn tuple2_text_cmp(a: Str, b: Str) -> Int {
+  let la = a.len();
+  let lb = b.len();
+  var i = 0;
+  while i < la && i < lb {
+    let ba = string.byte_at(a, i);
+    let bb = string.byte_at(b, i);
+    if ba < bb { return -1; }
+    if ba > bb { return 1; }
+    i = i + 1;
+  }
+  if la < lb { return -1; }
+  if la > lb { return 1; }
+  return 0;
+}
+
+fn tuple2_blob_cmp(a: &Vec[Int], b: &Vec[Int]) -> Int {
+  var i = 0;
+  while i < a.len() && i < b.len() {
+    if a[i] < b[i] { return -1; }
+    if a[i] > b[i] { return 1; }
+    i = i + 1;
+  }
+  if a.len() < b.len() { return -1; }
+  if a.len() > b.len() { return 1; }
+  return 0;
+}
+
+pub fn tuple2_compare(a: TValue, b: TValue) -> Int {
+  let ra = tuple2_kind_rank(a);
+  let rb = tuple2_kind_rank(b);
+  if ra != rb {
+    if ra < rb { return -1; }
+    return 1;
+  }
+  if ra == 0 { return 0; }
+  if ra == 1 {
+    let ka = tuple2_kind(a);
+    let kb = tuple2_kind(b);
+    if ka == 0x01 && kb == 0x01 {
+      match tuple2_int_value(a) {
+        None => { return 0; }
+        Some(ia) => {
+          match tuple2_int_value(b) {
+            None => { return 0; }
+            Some(ib) => {
+              if ia < ib { return -1; }
+              if ia > ib { return 1; }
+              return 0;
+            }
+          }
+        }
+      }
+    }
+    // At least one float: numeric compare through Float64.
+    var fa = 0.0;
+    var fb = 0.0;
+    match tuple2_float_value(a) {
+      Some(x) => { fa = x; }
+      None => {
+        match tuple2_int_value(a) {
+          Some(n) => { fa = convert.int_to_float(n); }
+          None => {}
+        }
+      }
+    }
+    match tuple2_float_value(b) {
+      Some(x) => { fb = x; }
+      None => {
+        match tuple2_int_value(b) {
+          Some(n) => { fb = convert.int_to_float(n); }
+          None => {}
+        }
+      }
+    }
+    return tuple2_f64_cmp(fa, fb);
+  }
+  if ra == 2 {
+    match tuple2_text_value(a) {
+      None => { return 0; }
+      Some(sa) => {
+        match tuple2_text_value(b) {
+          None => { return 0; }
+          Some(sb) => { return tuple2_text_cmp(sa, sb); }
+        }
+      }
+    }
+  }
+  match tuple2_blob_value(a) {
+    None => { return 0; }
+    Some(ba) => {
+      match tuple2_blob_value(b) {
+        None => { return 0; }
+        Some(bb) => { return tuple2_blob_cmp(&ba, &bb); }
+      }
+    }
   }
 }
 

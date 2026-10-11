@@ -3237,6 +3237,239 @@ fn test_db_typed_txn_window_replay() -> TestResult {
 }
 
 // ===========================================================================
+// Typed comparisons + typed queries (M5-S4): the total order over TValue
+// (Null < numeric < text < blob) and db_file_query_typed predicates.
+// ===========================================================================
+
+fn tq_blob(a: Int, b: Int) -> Vec[Int] {
+  var v = Vec[Int].new();
+  v.push(a);
+  v.push(b);
+  return v;
+}
+
+fn tq_blob1(a: Int) -> Vec[Int] {
+  var v = Vec[Int].new();
+  v.push(a);
+  return v;
+}
+
+fn tq_blob3(a: Int, b: Int, c: Int) -> Vec[Int] {
+  var v = Vec[Int].new();
+  v.push(a);
+  v.push(b);
+  v.push(c);
+  return v;
+}
+
+fn run_tuple2_compare() -> Int {
+  // Null is the minimum; rank order numeric < text < blob.
+  if tuple2_compare(TValue.VNull, TValue.VNull) != 0 { return 1; }
+  if tuple2_compare(TValue.VNull, TValue.VInt(0)) != -1 { return 2; }
+  if tuple2_compare(TValue.VInt(0), TValue.VNull) != 1 { return 3; }
+  if tuple2_compare(TValue.VNull, TValue.VText("")) != -1 { return 4; }
+  if tuple2_compare(TValue.VText(""), TValue.VNull) != 1 { return 5; }
+  // Ints exact; int/float numeric coercion.
+  if tuple2_compare(TValue.VInt(-5), TValue.VInt(-4)) != -1 { return 6; }
+  if tuple2_compare(TValue.VInt(7), TValue.VInt(7)) != 0 { return 7; }
+  if tuple2_compare(TValue.VInt(1), TValue.VFloat(1.0)) != 0 { return 8; }
+  if tuple2_compare(TValue.VInt(2), TValue.VFloat(1.5)) != 1 { return 9; }
+  if tuple2_compare(TValue.VInt(1), TValue.VFloat(1.5)) != -1 { return 10; }
+  // Floats: natural order, NaN first, NaN == NaN.
+  if tuple2_compare(TValue.VFloat(-2.5), TValue.VFloat(0.0)) != -1 { return 11; }
+  if tuple2_compare(TValue.VFloat(0.0), TValue.VFloat(2.5)) != -1 { return 12; }
+  if tuple2_compare(TValue.VFloat(3.0), TValue.VFloat(3.0)) != 0 { return 13; }
+  // Numeric ranks above/below across kinds.
+  if tuple2_compare(TValue.VInt(999), TValue.VText("")) != -1 { return 14; }
+  if tuple2_compare(TValue.VText(""), TValue.VBlob(tq_blob(0, 0))) != -1 { return 15; }
+  // Text bytewise lexicographic (prefix smaller).
+  if tuple2_compare(TValue.VText("a"), TValue.VText("ab")) != -1 { return 16; }
+  if tuple2_compare(TValue.VText("ab"), TValue.VText("b")) != -1 { return 17; }
+  if tuple2_compare(TValue.VText("apple"), TValue.VText("apple")) != 0 { return 18; }
+  // Multibyte UTF-8 compares by bytes.
+  if tuple2_compare(TValue.VText("z"), TValue.VText("\xC3\xA9")) != -1 { return 19; }
+  // Blobs element-wise.
+  if tuple2_compare(TValue.VBlob(tq_blob(1, 2)), TValue.VBlob(tq_blob(1, 3))) != -1 { return 20; }
+  if tuple2_compare(TValue.VBlob(tq_blob(1, 2)), TValue.VBlob(tq_blob3(1, 2, 0))) != -1 { return 21; }
+  if tuple2_compare(TValue.VBlob(tq_blob1(9)), TValue.VBlob(tq_blob(1, 9))) != 1 { return 22; }
+  return 0;
+}
+
+fn test_tuple2_compare() -> TestResult {
+  let rc = run_tuple2_compare();
+  if rc == 0 { return assert(true, "tuple v2: total order (null < numeric < text < blob; coercion; NaN)"); }
+  return assert(false, "tuple v2: comparator failed rc=" + int_to_str(rc));
+}
+
+fn tq_put_row(db: &mut DBFile, id: Int, v0: TValue, v1: TValue, v2: TValue) -> Bool {
+  var vals = Vec[TValue].new();
+  vals.push(v0);
+  vals.push(v1);
+  vals.push(v2);
+  match tuple2_encode_row_checked(id, &vals) {
+    Err(_) => { return false; }
+    Ok(buf) => { return db_file_put_typed(db, id, buf); }
+  }
+}
+
+fn tq_seed(db: &mut DBFile) -> Int {
+  if !tq_put_row(db, 1, TValue.VInt(10), TValue.VText("apple"), TValue.VFloat(1.5)) { return 1; }
+  if !tq_put_row(db, 2, TValue.VInt(20), TValue.VText("banana"), TValue.VFloat(-2.0)) { return 2; }
+  if !tq_put_row(db, 3, TValue.VNull, TValue.VText("apple"), TValue.VFloat(0.0)) { return 3; }
+  if !tq_put_row(db, 4, TValue.VInt(10), TValue.VText("apricot"), TValue.VFloat(2.5)) { return 4; }
+  if !db_file_put(db, 5, 555) { return 5; }
+  var raw = Vec[Int].new();
+  raw.push(1);
+  raw.push(2);
+  raw.push(3);
+  if !db_file_put_typed(db, 6, raw) { return 6; }
+  return 0;
+}
+
+fn tq_expect(db: &DBFile, q: &TypedQuery, want: &Vec[Int]) -> Bool {
+  let got = db_file_query_typed(db, q);
+  if got.len() != want.len() { return false; }
+  var i = 0;
+  while i < got.len() {
+    if got[i] != want[i] { return false; }
+    i = i + 1;
+  }
+  return true;
+}
+
+fn tq_want(a: Int, b: Int, c: Int, d: Int) -> Vec[Int] {
+  var v = Vec[Int].new();
+  if a >= 0 { v.push(a); }
+  if b >= 0 { v.push(b); }
+  if c >= 0 { v.push(c); }
+  if d >= 0 { v.push(d); }
+  return v;
+}
+
+fn run_typed_query_ops() -> Int {
+  let path = "orbitdb-suite-tquery.wal";
+  tdb_cleanup(path);
+  var db = db_file_open(path, 4);
+  let seed = tq_seed(&mut db);
+  if seed != 0 { return seed; }
+
+  var q = typed_query_new();
+  // Eq int -> [1,4]
+  typed_query_where(&mut q, 0, QueryOp.Eq, TValue.VInt(10));
+  if !tq_expect(&db, &q, &tq_want(1, 4, -1, -1)) { return 10; }
+  // Gt int -> [2]
+  q = typed_query_new();
+  typed_query_where(&mut q, 0, QueryOp.Gt, TValue.VInt(10));
+  if !tq_expect(&db, &q, &tq_want(2, -1, -1, -1)) { return 11; }
+  // Lte includes the null (null < numeric) -> [1,3,4]
+  q = typed_query_new();
+  typed_query_where(&mut q, 0, QueryOp.Lte, TValue.VInt(10));
+  if !tq_expect(&db, &q, &tq_want(1, 3, 4, -1)) { return 12; }
+  // Lt -> only the null -> [3]
+  q = typed_query_new();
+  typed_query_where(&mut q, 0, QueryOp.Lt, TValue.VInt(10));
+  if !tq_expect(&db, &q, &tq_want(3, -1, -1, -1)) { return 13; }
+  // Neq null excludes null rows -> [1,2,4]
+  q = typed_query_new();
+  typed_query_where(&mut q, 0, QueryOp.Neq, TValue.VNull);
+  if !tq_expect(&db, &q, &tq_want(1, 2, 4, -1)) { return 14; }
+  // Gte null -> everything typed -> [1,2,3,4]
+  q = typed_query_new();
+  typed_query_where(&mut q, 0, QueryOp.Gte, TValue.VNull);
+  if !tq_expect(&db, &q, &tq_want(1, 2, 3, 4)) { return 15; }
+  // Text equality -> [1,3]
+  q = typed_query_new();
+  typed_query_where(&mut q, 1, QueryOp.Eq, TValue.VText("apple"));
+  if !tq_expect(&db, &q, &tq_want(1, 3, -1, -1)) { return 16; }
+  // Text Gt -> [2,4]
+  q = typed_query_new();
+  typed_query_where(&mut q, 1, QueryOp.Gt, TValue.VText("apple"));
+  if !tq_expect(&db, &q, &tq_want(2, 4, -1, -1)) { return 17; }
+  // Float vs int literal across kinds (numeric): Eq 2.5 -> [4]
+  q = typed_query_new();
+  typed_query_where(&mut q, 2, QueryOp.Eq, TValue.VFloat(2.5));
+  if !tq_expect(&db, &q, &tq_want(4, -1, -1, -1)) { return 18; }
+  // Column -1 addresses the row id.
+  q = typed_query_new();
+  typed_query_where(&mut q, -1, QueryOp.Eq, TValue.VInt(3));
+  if !tq_expect(&db, &q, &tq_want(3, -1, -1, -1)) { return 19; }
+  // Out-of-range column never matches.
+  q = typed_query_new();
+  typed_query_where(&mut q, 9, QueryOp.Eq, TValue.VInt(1));
+  if !tq_expect(&db, &q, &tq_want(-1, -1, -1, -1)) { return 20; }
+  // No conditions: every decodable typed row (int row 5 and malformed 6 out).
+  q = typed_query_new();
+  if !tq_expect(&db, &q, &tq_want(1, 2, 3, 4)) { return 21; }
+  // AND of two conditions: [1]
+  q = typed_query_new();
+  typed_query_where(&mut q, 0, QueryOp.Eq, TValue.VInt(10));
+  typed_query_where(&mut q, 1, QueryOp.Eq, TValue.VText("apple"));
+  if !tq_expect(&db, &q, &tq_want(1, -1, -1, -1)) { return 22; }
+  // Limit/offset on matches.
+  q = typed_query_new();
+  typed_query_where(&mut q, 0, QueryOp.Eq, TValue.VInt(10));
+  typed_query_limit(&mut q, 1);
+  if !tq_expect(&db, &q, &tq_want(1, -1, -1, -1)) { return 23; }
+  q = typed_query_new();
+  typed_query_where(&mut q, 0, QueryOp.Eq, TValue.VInt(10));
+  typed_query_offset(&mut q, 1);
+  if !tq_expect(&db, &q, &tq_want(4, -1, -1, -1)) { return 24; }
+  q = typed_query_new();
+  typed_query_where(&mut q, 0, QueryOp.Eq, TValue.VInt(10));
+  typed_query_limit(&mut q, 1);
+  typed_query_offset(&mut q, 1);
+  if !tq_expect(&db, &q, &tq_want(4, -1, -1, -1)) { return 25; }
+
+  tdb_cleanup(path);
+  return 0;
+}
+
+fn test_typed_query_ops() -> TestResult {
+  let rc = run_typed_query_ops();
+  if rc == 0 { return assert(true, "typed query: ops over int/text/float/null + id column + limit/offset"); }
+  return assert(false, "typed query: ops failed rc=" + int_to_str(rc));
+}
+
+fn run_typed_query_persistence() -> Int {
+  let path = "orbitdb-suite-tquery2.wal";
+  tdb_cleanup(path);
+  var db = db_file_open(path, 4);
+  let seed = tq_seed(&mut db);
+  if seed != 0 { return 1; }
+  if db_file_checkpoint(&mut db) < 0 { return 2; }
+  // Tail after the snapshot.
+  if !tq_put_row(&mut db, 7, TValue.VInt(10), TValue.VText("avocado"), TValue.VFloat(3.5)) { return 3; }
+
+  var db2 = db_file_open(path, 4);
+  var q = typed_query_new();
+  typed_query_where(&mut q, 0, QueryOp.Eq, TValue.VInt(10));
+  if !tq_expect(&db2, &q, &tq_want(1, 4, 7, -1)) { return 4; }
+  q = typed_query_new();
+  typed_query_where(&mut q, 1, QueryOp.Gte, TValue.VText("apricot"));
+  if !tq_expect(&db2, &q, &tq_want(2, 4, 7, -1)) { return 5; }
+
+  // Mutation visibility: delete 4, add 8 -> queries reflect both.
+  if !db_file_delete(&mut db2, 4) { return 6; }
+  if !tq_put_row(&mut db2, 8, TValue.VInt(10), TValue.VText(" almond"), TValue.VFloat(0.5)) { return 7; }
+  q = typed_query_new();
+  typed_query_where(&mut q, 0, QueryOp.Eq, TValue.VInt(10));
+  if !tq_expect(&db2, &q, &tq_want(1, 7, 8, -1)) { return 8; }
+  // Text range: space-leading " almond" sorts before letters.
+  q = typed_query_new();
+  typed_query_where(&mut q, 1, QueryOp.Lt, TValue.VText("a"));
+  if !tq_expect(&db2, &q, &tq_want(8, -1, -1, -1)) { return 9; }
+
+  tdb_cleanup(path);
+  return 0;
+}
+
+fn test_typed_query_persistence() -> TestResult {
+  let rc = run_typed_query_persistence();
+  if rc == 0 { return assert(true, "typed query: survives checkpoint/reopen; mutations visible"); }
+  return assert(false, "typed query: persistence failed rc=" + int_to_str(rc));
+}
+
+// ===========================================================================
 // Durable page file (text v1, CRC32C verified, atomic rewrite)
 // ===========================================================================
 
@@ -5246,6 +5479,14 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r122.passed, r122.name);
   let r123 = test_db_typed_txn_window_replay();
   total = total + 1; failed = failed + report(r123.passed, r123.name);
+
+  // Typed comparisons + typed queries (M5-S4)
+  let r124 = test_tuple2_compare();
+  total = total + 1; failed = failed + report(r124.passed, r124.name);
+  let r125 = test_typed_query_ops();
+  total = total + 1; failed = failed + report(r125.passed, r125.name);
+  let r126 = test_typed_query_persistence();
+  total = total + 1; failed = failed + report(r126.passed, r126.name);
 
   let passed = total - failed;
   io.println("");

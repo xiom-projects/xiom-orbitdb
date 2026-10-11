@@ -237,6 +237,9 @@ fields (`ids` / `blocks` / `gens` directory, `header`, `active_slot`,
 | `tuple2_read_value(buf, at)` | `DbResult[TValue]` | One tagged value; consumed length is `tuple2_value_len(v)`. |
 | `tuple2_value_len(v)` / `tuple2_encoded_len(values)` / `tuple2_fits_page(values, page_size)` | `Int` / `Int` / `Bool` | Size helpers (page budget gate). |
 | `tuple2_kind` / `tuple2_is_null` / `tuple2_int_value` / `tuple2_float_value` / `tuple2_text_value` / `tuple2_blob_value` | `Int` / `Bool` / `Option[...]` | Accessors (kind tag + per-kind extraction). |
+| `tuple2_compare(a, b)` | `Int` | Total order for typed predicates: Null < numeric (Int/Float compared numerically; `VInt(1)` equals `VFloat(1.0)`) < Text (bytewise) < Blob (element-wise); NaN sorts first and equals itself. `0` is equality. |
+| `typed_query_new` / `typed_query_where(q, col, op, literal)` / `typed_query_limit` / `typed_query_offset` | `TypedQuery` | Builder (conditions ANDed; `op` is `QueryOp.Eq`..`Gte`; `literal` is a `TValue`). |
+| `db_file_query_typed(db, q)` | `Vec[Int]` | Matching primary keys in key order. Conditions are ANDed and use `tuple2_compare` semantics (no SQL 3-valued logic); `col` indexes the decoded row values, `col = -1` is the row id; plain int rows and undecodable payloads never match; offset/limit apply to the matches. |
 | `ResultSet.new(columns)` / `add_row` / `row_count` / `column_count` / `get_row` | -- | In-memory result materialization. |
 
 ## Schema rows (`xiom.db.catalog.schema` + `xiom.db.catalog.schema_row`)
