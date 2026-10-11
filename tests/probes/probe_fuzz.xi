@@ -25,7 +25,11 @@
 //       plan as IndexValue;
 //   (h) tuple codec v2 -- typed-value rows (null/int/float/text/blob):
 //       encode -> decode -> per-kind model assertions -> single-byte
-//       mutations (reject or visibly change the row).
+//       mutations (reject or visibly change the row);
+//   (i) schema rows -- random schemas (1..6 cols, random types/nullability,
+//       int pk) + valid rows: validate/key/encode/decode must agree and
+//       roundtrip byte-identically; every single-column violation (null on
+//       non-nullable, kind mismatch, pk non-int) must be rejected.
 //
 // Env:
 //   ORBITDB_FUZZ_DIR          scratch dir                     (default probe-logs)
@@ -39,6 +43,7 @@
 //   ORBITDB_FUZZ_BLOCKSTORE_GENS  block-store generations per seed (default 12)
 //   ORBITDB_FUZZ_QUERY_ITERS    query/index iterations per seed (default 150)
 //   ORBITDB_FUZZ_TUPLE2_ITERS   tuple-v2 iterations per seed    (default 200)
+//   ORBITDB_FUZZ_SCHEMA_ITERS   schema-row iterations per seed  (default 150)
 //
 // Exit: 0 = green; non-zero = failing section + first violation (printed).
 
@@ -56,6 +61,8 @@ use xiom.db.storage.block_store;
 use xiom.db.secondary_index;
 use xiom.db.storage.tuple;
 use xiom.db.wal_file;
+use xiom.db.catalog.schema;
+use xiom.db.catalog.schema_row;
 
 fn rand_next(state: &mut Int) -> Int {
   *state = (*state * 1103515245 + 12345) % 2147483648;
@@ -988,6 +995,234 @@ fn fuzz_tuple2(seed: Int, iters: Int) -> Int {
   return 0;
 }
 
+// (i) schema rows -- schema-driven typed rows (M5.2) -------------------------
+fn fuzz_schema_col_type(code: Int) -> ColumnType {
+  if code == 1 { return ColumnType.IntType; }
+  if code == 2 { return ColumnType.FloatType; }
+  if code == 3 { return ColumnType.BoolType; }
+  if code == 4 { return ColumnType.StringType; }
+  return ColumnType.BytesType;
+}
+
+fn fuzz_schema_expected_kind(code: Int) -> Int {
+  if code == 2 { return 0x02; } // float
+  if code == 4 { return 0x03; } // text
+  if code == 5 { return 0x04; } // blob
+  return 0x01;                  // int + bool
+}
+
+fn fuzz_schema_value(state: &mut Int, code: Int) -> TValue {
+  if code == 1 { return TValue.VInt(rand_next(state) % 2000003 - 1000000); }
+  if code == 2 {
+    let a = rand_next(state) % 2000003 - 1000000;
+    return TValue.VFloat(convert.int_to_float(a) / 16.0);
+  }
+  if code == 3 { return TValue.VInt(rand_next(state) % 2); }
+  if code == 4 {
+    let l = rand_mod(state, 8);
+    var s = "";
+    var k = 0;
+    while k < l {
+      s = s + "ab";
+      k = k + 1;
+    }
+    return TValue.VText(s);
+  }
+  let l = rand_mod(state, 8);
+  var b = Vec[Int].new();
+  var k = 0;
+  while k < l {
+    b.push(rand_next(state) % 256);
+    k = k + 1;
+  }
+  return TValue.VBlob(b);
+}
+
+// A value that must violate the column: null when the column is
+// non-nullable, otherwise a kind that can never match (per type code).
+fn fuzz_schema_bad_value(code: Int, nullable: Bool) -> TValue {
+  if !nullable { return TValue.VNull; }
+  if code == 1 { return TValue.VText("x"); }
+  if code == 2 { return TValue.VInt(1); }
+  if code == 3 { return TValue.VText("1"); }
+  if code == 4 { return TValue.VBlob(fuzz_byte_vec()); }
+  return TValue.VInt(1);
+}
+
+fn fuzz_byte_vec() -> Vec[Int] {
+  var b = Vec[Int].new();
+  b.push(1);
+  return b;
+}
+
+fn fuzz_schema_row(seed: Int, iters: Int) -> Int {
+  var state = seed;
+  var it = 0;
+  while it < iters {
+    let ncols = 1 + rand_mod(&mut state, 6);
+    let pk = rand_mod(&mut state, ncols);
+    var cols = Vec[ColumnDef].new();
+    var types = Vec[Int].new();
+    var nullables = Vec[Int].new();
+    var j = 0;
+    while j < ncols {
+      var tc = 1 + rand_mod(&mut state, 5);
+      if j == pk { tc = 1; } // the int-keyed storage path needs an int pk
+      let nullable = rand_mod(&mut state, 4) == 0;
+      let name = "c" + convert.int_to_string(j);
+      if nullable {
+        cols.push(ColumnDef.optional(name, fuzz_schema_col_type(tc), None));
+        nullables.push(1);
+      } else {
+        cols.push(ColumnDef.new(name, fuzz_schema_col_type(tc)));
+        nullables.push(0);
+      }
+      types.push(tc);
+      j = j + 1;
+    }
+    let schema = Schema.new("f", cols, pk);
+
+    // Valid row by construction: pk always carries VInt.
+    var vals = Vec[TValue].new();
+    var pkval = 0;
+    j = 0;
+    while j < ncols {
+      let tc = types[j];
+      let nullable = nullables[j] == 1;
+      if j == pk {
+        pkval = rand_next(&mut state) % 2000003 - 1000000;
+        vals.push(TValue.VInt(pkval));
+      } elif nullable && rand_mod(&mut state, 3) == 0 {
+        vals.push(TValue.VNull);
+      } else {
+        vals.push(fuzz_schema_value(&mut state, tc));
+      }
+      j = j + 1;
+    }
+
+    match schema_row_validate(&schema, &vals) {
+      Err(_) => { return 1; }
+      Ok(_) => {}
+    }
+    match schema_row_key(&schema, &vals) {
+      Err(_) => { return 2; }
+      Ok(k) => { if k != pkval { return 3; } }
+    }
+    match schema_row_encode(&schema, &vals) {
+      Err(_) => { return 4; }
+      Ok(buf) => {
+        let x: Vec[Int] = buf;
+        if x.len() != tuple2_encoded_len(&vals) { return 5; }
+        match schema_row_decode(&schema, &x) {
+          Err(_) => { return 6; }
+          Ok(row) => {
+            let r: TypedRow = row;
+            if r.id != pkval { return 7; }
+            if r.values.len() != vals.len() { return 8; }
+            var k = 0;
+            while k < r.values.len() {
+              let orig = vals[k];
+              let got = r.values[k];
+              if tuple2_is_null(orig) {
+                if !tuple2_is_null(got) { return 9; }
+              } else {
+                if tuple2_kind(got) != fuzz_schema_expected_kind(types[k]) { return 10; }
+                // Value equality per kind (accessor-based).
+                if types[k] == 1 || types[k] == 3 {
+                  match tuple2_int_value(got) {
+                    None => { return 11; }
+                    Some(gv) => {
+                      match tuple2_int_value(orig) {
+                        None => { return 12; }
+                        Some(ov) => { if gv != ov { return 13; } }
+                      }
+                    }
+                  }
+                }
+                if types[k] == 2 {
+                  match tuple2_float_value(got) {
+                    None => { return 14; }
+                    Some(gv) => {
+                      match tuple2_float_value(orig) {
+                        None => { return 15; }
+                        Some(ov) => { if gv != ov { return 16; } }
+                      }
+                    }
+                  }
+                }
+                if types[k] == 4 {
+                  match tuple2_text_value(got) {
+                    None => { return 17; }
+                    Some(gv) => {
+                      match tuple2_text_value(orig) {
+                        None => { return 18; }
+                        Some(ov) => { if gv != ov { return 19; } }
+                      }
+                    }
+                  }
+                }
+                if types[k] == 5 {
+                  match tuple2_blob_value(got) {
+                    None => { return 20; }
+                    Some(gv) => {
+                      match tuple2_blob_value(orig) {
+                        None => { return 21; }
+                        Some(ov) => { if !vec_eq(&gv, &ov) { return 22; } }
+                      }
+                    }
+                  }
+                }
+              }
+              k = k + 1;
+            }
+          }
+        }
+        // Re-encode the decoded row: byte-identical.
+        match schema_row_decode(&schema, &x) {
+          Err(_) => { return 23; }
+          Ok(row2) => {
+            let r2: TypedRow = row2;
+            match schema_row_encode(&schema, &r2.values) {
+              Err(_) => { return 24; }
+              Ok(buf2) => {
+                let x2: Vec[Int] = buf2;
+                if !vec_eq(&x2, &x) { return 25; }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Every single-column violation must be rejected.
+    j = 0;
+    while j < ncols {
+      var bad = Vec[TValue].new();
+      var k2 = 0;
+      while k2 < vals.len() {
+        if k2 == j {
+          bad.push(fuzz_schema_bad_value(types[j], nullables[j] == 1));
+        } else {
+          bad.push(vals[k2]);
+        }
+        k2 = k2 + 1;
+      }
+      match schema_row_validate(&schema, &bad) {
+        Ok(_) => { return 26; }
+        Err(_) => {}
+      }
+      match schema_row_encode(&schema, &bad) {
+        Ok(_) => { return 27; }
+        Err(_) => {}
+      }
+      j = j + 1;
+    }
+    it = it + 1;
+  }
+  return 0;
+}
+
+
 fn main() -> Int {
   let dir = env.var_or("ORBITDB_FUZZ_DIR", "probe-logs");
   let seeds = parse_env_int("ORBITDB_FUZZ_SEEDS", 4);
@@ -1000,6 +1235,7 @@ fn main() -> Int {
   let blockstore_gens = parse_env_int("ORBITDB_FUZZ_BLOCKSTORE_GENS", 12);
   let query_iters = parse_env_int("ORBITDB_FUZZ_QUERY_ITERS", 150);
   let tuple2_iters = parse_env_int("ORBITDB_FUZZ_TUPLE2_ITERS", 200);
+  let schema_iters = parse_env_int("ORBITDB_FUZZ_SCHEMA_ITERS", 150);
 
   var s = 0;
   while s < seeds {
@@ -1039,6 +1275,11 @@ fn main() -> Int {
     if rc_t2 != 0 {
       io.println("fuzz: tuple2 FAILED seed=" + convert.int_to_string(seed) + " rc=" + convert.int_to_string(rc_t2));
       return 150 + rc_t2;
+    }
+    let rc_sr = fuzz_schema_row(seed, schema_iters);
+    if rc_sr != 0 {
+      io.println("fuzz: schema_row FAILED seed=" + convert.int_to_string(seed) + " rc=" + convert.int_to_string(rc_sr));
+      return 170 + rc_sr;
     }
     let order = 3 + (s % 3);
     let rc_b = fuzz_btree(seed, ops, n, order);

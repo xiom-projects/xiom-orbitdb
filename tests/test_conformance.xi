@@ -25,6 +25,7 @@ use xiom.db.storage.fault;
 use xiom.db.storage.tuple;
 use xiom.db.storage.free_space_map;
 use xiom.db.catalog.schema;
+use xiom.db.catalog.schema_row;
 use xiom.db.catalog.schema_validator;
 use xiom.db.txn.transaction;
 
@@ -2638,6 +2639,316 @@ fn test_tuple2_budget() -> TestResult {
 }
 
 // ===========================================================================
+// Schema-driven rows (M5.2): ColumnType <-> TValue bridge, validation, and
+// the schema row codec (tuple v2 with id = pk). Pure layer; persistence +
+// container decision documented in docs/TYPED-VALUES-STORAGE.md.
+// ===========================================================================
+
+fn srowt_blob(a: Int, b: Int, c: Int) -> Vec[Int] {
+  var v = Vec[Int].new();
+  v.push(a);
+  v.push(b);
+  v.push(c);
+  return v;
+}
+
+fn srowt_schema() -> Schema {
+  var cols = Vec[ColumnDef].new();
+  cols.push(ColumnDef.new("id", ColumnType.IntType));
+  cols.push(ColumnDef.optional("score", ColumnType.FloatType, None));
+  cols.push(ColumnDef.new("ok", ColumnType.BoolType));
+  cols.push(ColumnDef.new("name", ColumnType.StringType));
+  cols.push(ColumnDef.new("raw", ColumnType.BytesType));
+  return Schema.new("t", cols, 0);
+}
+
+fn srowt_ok_row() -> Vec[TValue] {
+  var vals = Vec[TValue].new();
+  vals.push(TValue.VInt(42));
+  vals.push(TValue.VFloat(2.5));
+  vals.push(TValue.VInt(1));
+  vals.push(TValue.VText("h\xC3\xA9llo"));
+  vals.push(TValue.VBlob(srowt_blob(1, 2, 3)));
+  return vals;
+}
+
+fn run_schema_row_kinds() -> Int {
+  var cols = Vec[ColumnDef].new();
+  cols.push(ColumnDef.new("i", ColumnType.IntType));
+  cols.push(ColumnDef.new("f", ColumnType.FloatType));
+  cols.push(ColumnDef.new("b", ColumnType.BoolType));
+  cols.push(ColumnDef.new("s", ColumnType.StringType));
+  cols.push(ColumnDef.new("y", ColumnType.BytesType));
+  let c0 = cols[0];
+  let c1 = cols[1];
+  let c2 = cols[2];
+  let c3 = cols[3];
+  let c4 = cols[4];
+
+  if !schema_row_value_ok(&c0, TValue.VInt(1)) { return 1; }
+  if schema_row_value_ok(&c0, TValue.VText("x")) { return 2; }
+  if schema_row_value_ok(&c0, TValue.VNull) { return 3; }
+  if !schema_row_value_ok(&c1, TValue.VFloat(0.5)) { return 4; }
+  if schema_row_value_ok(&c1, TValue.VInt(1)) { return 5; }
+  if !schema_row_value_ok(&c2, TValue.VInt(0)) { return 6; }
+  if !schema_row_value_ok(&c2, TValue.VInt(1)) { return 7; }
+  if schema_row_value_ok(&c2, TValue.VInt(2)) { return 8; }
+  if schema_row_value_ok(&c2, TValue.VText("1")) { return 9; }
+  if !schema_row_value_ok(&c3, TValue.VText("")) { return 10; }
+  if schema_row_value_ok(&c3, TValue.VBlob(srowt_blob(1, 0, 0))) { return 11; }
+  if !schema_row_value_ok(&c4, TValue.VBlob(srowt_blob(1, 0, 0))) { return 12; }
+  if schema_row_value_ok(&c4, TValue.VInt(1)) { return 13; }
+  let nullable_col = ColumnDef.optional("n", ColumnType.StringType, None);
+  if !schema_row_value_ok(&nullable_col, TValue.VNull) { return 14; }
+  if !schema_row_value_ok(&nullable_col, TValue.VText("a")) { return 15; }
+  if schema_row_value_ok(&nullable_col, TValue.VInt(1)) { return 16; }
+  if column_type_code(ColumnType.IntType) != 1 { return 17; }
+  if column_type_code(ColumnType.FloatType) != 2 { return 18; }
+  if column_type_code(ColumnType.BoolType) != 3 { return 19; }
+  if column_type_code(ColumnType.StringType) != 4 { return 20; }
+  if column_type_code(ColumnType.BytesType) != 5 { return 21; }
+  return 0;
+}
+
+fn test_schema_row_kinds() -> TestResult {
+  let rc = run_schema_row_kinds();
+  if rc == 0 { return assert(true, "schema_row: ColumnType<->TValue kind mapping + nullability + bool domain"); }
+  return assert(false, "schema_row: kinds failed rc=" + int_to_str(rc));
+}
+
+fn run_schema_row_roundtrip() -> Int {
+  let schema = srowt_schema();
+  let vals = srowt_ok_row();
+  match schema_row_validate(&schema, &vals) {
+    Err(_) => { return 1; }
+    Ok(_) => {}
+  }
+  match schema_row_key(&schema, &vals) {
+    Err(_) => { return 2; }
+    Ok(k) => { if k != 42 { return 3; } }
+  }
+  let enc = schema_row_encode(&schema, &vals);
+  match enc {
+    Err(_) => { return 4; }
+    Ok(buf) => {
+      let bytes: Vec[Int] = buf;
+      if bytes.len() != tuple2_encoded_len(&vals) { return 5; }
+      let dec = schema_row_decode(&schema, &bytes);
+      match dec {
+        Err(_) => { return 6; }
+        Ok(row) => {
+          let r: TypedRow = row;
+          if r.id != 42 { return 7; }
+          if r.values.len() != 5 { return 8; }
+          match tuple2_int_value(r.values[0]) { None => { return 9; } Some(v) => { if v != 42 { return 10; } } }
+          match tuple2_float_value(r.values[1]) { None => { return 11; } Some(f) => { if f != 2.5 { return 12; } } }
+          match tuple2_int_value(r.values[2]) { None => { return 13; } Some(v) => { if v != 1 { return 14; } } }
+          match tuple2_text_value(r.values[3]) { None => { return 15; } Some(s) => { if s != "h\xC3\xA9llo" { return 16; } } }
+          match tuple2_blob_value(r.values[4]) {
+            None => { return 17; }
+            Some(b) => {
+              if b.len() != 3 { return 18; }
+              if b[0] != 1 { return 19; }
+              if b[2] != 3 { return 20; }
+            }
+          }
+          // Re-encode the decoded row: byte-identical (canonical codec).
+          match schema_row_encode(&schema, &r.values) {
+            Err(_) => { return 21; }
+            Ok(buf2) => {
+              let b2: Vec[Int] = buf2;
+              if b2.len() != bytes.len() { return 22; }
+              var i = 0;
+              while i < b2.len() {
+                if b2[i] != bytes[i] { return 23; }
+                i = i + 1;
+              }
+            }
+          }
+        }
+      }
+      // The raw codec sees the same row (composition).
+      match tuple2_decode_row(&bytes) {
+        Err(_) => { return 24; }
+        Ok(r2) => { if r2.id != 42 { return 25; } }
+      }
+    }
+  }
+  return 0;
+}
+
+fn test_schema_row_roundtrip() -> TestResult {
+  let rc = run_schema_row_roundtrip();
+  if rc == 0 { return assert(true, "schema_row: validate/key/encode/decode roundtrip + byte-identity"); }
+  return assert(false, "schema_row: roundtrip failed rc=" + int_to_str(rc));
+}
+
+fn run_schema_row_rejects() -> Int {
+  let schema = srowt_schema();
+
+  // Arity: too few / too many.
+  var four = Vec[TValue].new();
+  four.push(TValue.VInt(1));
+  four.push(TValue.VFloat(1.0));
+  four.push(TValue.VInt(1));
+  four.push(TValue.VText("n"));
+  match schema_row_validate(&schema, &four) { Ok(_) => { return 1; } Err(e) => { if schema_row_error_code(e) != 4 { return 2; } } }
+  var six = srowt_ok_row();
+  six.push(TValue.VNull);
+  match schema_row_validate(&schema, &six) { Ok(_) => { return 3; } Err(e) => { if schema_row_error_code(e) != 4 { return 4; } } }
+
+  // Null on a non-nullable column.
+  var nullrow = srowt_ok_row();
+  nullrow[3] = TValue.VNull;
+  match schema_row_validate(&schema, &nullrow) {
+    Ok(_) => { return 5; }
+    Err(e) => { if schema_row_error_code(e) != 3 { return 6; } }
+  }
+
+  // Null on the NULLABLE column is fine.
+  var oknull = srowt_ok_row();
+  oknull[1] = TValue.VNull;
+  match schema_row_validate(&schema, &oknull) { Err(_) => { return 7; } Ok(_) => {} }
+
+  // Wrong kinds per column.
+  var bad = srowt_ok_row();
+  bad[0] = TValue.VText("x");
+  match schema_row_validate(&schema, &bad) { Ok(_) => { return 8; } Err(e) => { if schema_row_error_code(e) != 4 { return 9; } } }
+  bad = srowt_ok_row();
+  bad[1] = TValue.VInt(1);
+  match schema_row_validate(&schema, &bad) { Ok(_) => { return 10; } Err(e) => { if schema_row_error_code(e) != 4 { return 11; } } }
+  bad = srowt_ok_row();
+  bad[2] = TValue.VInt(2);
+  match schema_row_validate(&schema, &bad) { Ok(_) => { return 12; } Err(e) => { if schema_row_error_code(e) != 3 { return 13; } } }
+  bad = srowt_ok_row();
+  bad[3] = TValue.VBlob(srowt_blob(1, 0, 0));
+  match schema_row_validate(&schema, &bad) { Ok(_) => { return 14; } Err(e) => { if schema_row_error_code(e) != 4 { return 15; } } }
+  bad = srowt_ok_row();
+  bad[4] = TValue.VInt(1);
+  match schema_row_validate(&schema, &bad) { Ok(_) => { return 16; } Err(e) => { if schema_row_error_code(e) != 4 { return 17; } } }
+
+  // Non-VInt pk (even when the declared type is int).
+  var pkbad = srowt_ok_row();
+  pkbad[0] = TValue.VText("42");
+  match schema_row_key(&schema, &pkbad) { Ok(_) => { return 18; } Err(e) => { if schema_row_error_code(e) != 4 { return 19; } } }
+
+  // Nullable pk schema + VNull pk: int-keyed storage refuses.
+  var pcols = Vec[ColumnDef].new();
+  pcols.push(ColumnDef.optional("id", ColumnType.IntType, None));
+  let pschema = Schema.new("p", pcols, 0);
+  var pvals = Vec[TValue].new();
+  pvals.push(TValue.VNull);
+  match schema_row_validate(&pschema, &pvals) { Ok(_) => { return 20; } Err(e) => { if schema_row_error_code(e) != 4 { return 21; } } }
+
+  // 256 columns: valid per schema, refused by the codec (u8 field count).
+  var wide_cols = Vec[ColumnDef].new();
+  var wide_vals = Vec[TValue].new();
+  var i = 0;
+  while i < 256 {
+    wide_cols.push(ColumnDef.new("c" + int_to_str(i), ColumnType.IntType));
+    wide_vals.push(TValue.VInt(i));
+    i = i + 1;
+  }
+  let wide_schema = Schema.new("w", wide_cols, 0);
+  match schema_row_validate(&wide_schema, &wide_vals) { Err(_) => { return 22; } Ok(_) => {} }
+  match schema_row_encode(&wide_schema, &wide_vals) { Ok(_) => { return 23; } Err(e) => { if schema_row_error_code(e) != 3 { return 24; } } }
+
+  // Decode: v1 bytes are not schema rows.
+  var v1data = Vec[Int].new();
+  v1data.push(1);
+  let v1row = Row.new(1, v1data);
+  let v1enc = tuple_encode_checked(&v1row);
+  match v1enc {
+    Err(_) => { return 25; }
+    Ok(v1buf) => {
+      let b1: Vec[Int] = v1buf;
+      match schema_row_decode(&schema, &b1) { Ok(_) => { return 26; } Err(e) => { if schema_row_error_code(e) != 6 { return 27; } } }
+    }
+  }
+
+  // Decode: id/pk mismatch is corruption (encoded via the raw codec with a
+  // different id).
+  let vals = srowt_ok_row();
+  let raw = tuple2_encode_row_checked(99, &vals);
+  match raw {
+    Err(_) => { return 28; }
+    Ok(rawbuf) => {
+      let rb: Vec[Int] = rawbuf;
+      match schema_row_decode(&schema, &rb) { Ok(_) => { return 29; } Err(e) => { if schema_row_error_code(e) != 6 { return 30; } } }
+    }
+  }
+
+  // Decode: schema drift (column 3 declared int instead of string).
+  var drift_cols = Vec[ColumnDef].new();
+  drift_cols.push(ColumnDef.new("id", ColumnType.IntType));
+  drift_cols.push(ColumnDef.optional("score", ColumnType.FloatType, None));
+  drift_cols.push(ColumnDef.new("ok", ColumnType.BoolType));
+  drift_cols.push(ColumnDef.new("name", ColumnType.IntType));
+  drift_cols.push(ColumnDef.new("raw", ColumnType.BytesType));
+  let drift = Schema.new("t", drift_cols, 0);
+  let enc = schema_row_encode(&schema, &vals);
+  match enc {
+    Err(_) => { return 31; }
+    Ok(buf) => {
+      let bytes: Vec[Int] = buf;
+      match schema_row_decode(&drift, &bytes) { Ok(_) => { return 32; } Err(e) => { if schema_row_error_code(e) != 4 { return 33; } } }
+    }
+  }
+  return 0;
+}
+
+fn test_schema_row_rejects() -> TestResult {
+  let rc = run_schema_row_rejects();
+  if rc == 0 { return assert(true, "schema_row: rejects arity/null/kind/bool/pk + corruption + schema drift"); }
+  return assert(false, "schema_row: rejects failed rc=" + int_to_str(rc));
+}
+
+// Bool domain + empty text/blob round-trips through the schema layer.
+fn run_schema_row_bool_and_empty() -> Int {
+  var cols = Vec[ColumnDef].new();
+  cols.push(ColumnDef.new("id", ColumnType.IntType));
+  cols.push(ColumnDef.new("b", ColumnType.BoolType));
+  cols.push(ColumnDef.new("s", ColumnType.StringType));
+  let schema = Schema.new("be", cols, 0);
+
+  var v0 = Vec[TValue].new();
+  v0.push(TValue.VInt(1));
+  v0.push(TValue.VInt(0));
+  v0.push(TValue.VText(""));
+  var v1 = Vec[TValue].new();
+  v1.push(TValue.VInt(2));
+  v1.push(TValue.VInt(1));
+  var empty = Vec[Int].new();
+  v1.push(TValue.VBlob(empty));
+
+  match schema_row_encode(&schema, &v0) {
+    Err(_) => { return 1; }
+    Ok(b0) => {
+      let bytes: Vec[Int] = b0;
+      match schema_row_decode(&schema, &bytes) {
+        Err(_) => { return 2; }
+        Ok(r) => {
+          match tuple2_int_value(r.values[1]) { None => { return 3; } Some(b) => { if b != 0 { return 4; } } }
+          match tuple2_text_value(r.values[2]) { None => { return 5; } Some(s) => { if s != "" { return 6; } } }
+        }
+      }
+    }
+  }
+  // Column 2 is a String column: a blob is a kind violation even when empty.
+  match schema_row_encode(&schema, &v1) {
+    Ok(_) => { return 7; }
+    Err(e) => { if schema_row_error_code(e) != 4 { return 8; } }
+  }
+  return 0;
+}
+
+fn test_schema_row_bool_and_empty() -> TestResult {
+  let rc = run_schema_row_bool_and_empty();
+  if rc == 0 { return assert(true, "schema_row: bool 0/1 domain + empty text roundtrip + kind strictness"); }
+  return assert(false, "schema_row: bool/empty failed rc=" + int_to_str(rc));
+}
+
+// ===========================================================================
 // Durable page file (text v1, CRC32C verified, atomic rewrite)
 // ===========================================================================
 
@@ -4625,6 +4936,16 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r113.passed, r113.name);
   let r114 = test_tuple2_budget();
   total = total + 1; failed = failed + report(r114.passed, r114.name);
+
+  // Schema-driven rows (M5.2)
+  let r115 = test_schema_row_kinds();
+  total = total + 1; failed = failed + report(r115.passed, r115.name);
+  let r116 = test_schema_row_roundtrip();
+  total = total + 1; failed = failed + report(r116.passed, r116.name);
+  let r117 = test_schema_row_rejects();
+  total = total + 1; failed = failed + report(r117.passed, r117.name);
+  let r118 = test_schema_row_bool_and_empty();
+  total = total + 1; failed = failed + report(r118.passed, r118.name);
 
   let passed = total - failed;
   io.println("");

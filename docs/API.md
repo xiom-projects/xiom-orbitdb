@@ -236,6 +236,24 @@ fields (`ids` / `blocks` / `gens` directory, `header`, `active_slot`,
 | `tuple2_kind` / `tuple2_is_null` / `tuple2_int_value` / `tuple2_float_value` / `tuple2_text_value` / `tuple2_blob_value` | `Int` / `Bool` / `Option[...]` | Accessors (kind tag + per-kind extraction). |
 | `ResultSet.new(columns)` / `add_row` / `row_count` / `column_count` / `get_row` | -- | In-memory result materialization. |
 
+## Schema rows (`xiom.db.catalog.schema` + `xiom.db.catalog.schema_row`)
+
+| Function | Returns | Notes |
+|----------|---------|-------|
+| `ColumnDef.new(name, col_type)` / `ColumnDef.optional(name, col_type, default)` | `ColumnDef` | Non-nullable / nullable column; `col_type` is `ColumnType.IntType` / `FloatType` / `BoolType` / `StringType` / `BytesType`. |
+| `Schema.new(table, cols, pk)` / `Schema.column_index(schema, name)` | `Schema` / `Option[Int]` | Catalog metadata (purity + shape validation in `schema_validator`). |
+| `column_type_code(t)` | `Int` | Stable column-type code (1..5); compare codes instead of pattern-matching the enum (m225/C-ORBIT-07). |
+| `schema_row_value_ok(col, v)` | `Bool` | `TValue` admissibility incl. nullability and the bool 0/1 domain. |
+| `schema_row_validate(schema, values)` | `DbResult[Bool]` | Arity + kind + nullability + pk-is-`VInt` rules; `SchemaMismatch` / `ConstraintViolation`. |
+| `schema_row_key(schema, values)` | `DbResult[Int]` | The pk int (the future storage key); validates first. |
+| `schema_row_encode(schema, values)` | `DbResult[Vec[Int]]` | Validate + tuple v2 row (id = pk). |
+| `schema_row_decode(schema, buf)` | `DbResult[TypedRow]` | Codec + schema checks; id/pk mismatch = `Corruption`; schema drift = `SchemaMismatch`/`ConstraintViolation`. |
+| `schema_row_error_code(e)` | `Int` | 1 NotFound .. 6 Corruption (consumer-safe comparison). |
+
+Persistence of typed rows is specified in `docs/TYPED-VALUES-STORAGE.md`
+(container decision; engine slice M5.3). Kind mapping: Int->`VInt`,
+Float->`VFloat`, Bool->`VInt` 0/1, String->`VText`, Bytes->`VBlob`.
+
 ## Free-space map (`xiom.db.storage.free_space_map`)
 
 `free_space_map_new()`; `fsm_register_page(fsm, capacity)`; `fsm_record_used` /

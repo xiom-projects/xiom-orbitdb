@@ -214,7 +214,10 @@ Typed value model (M5):
   writes use v2 while readers keep accepting both; the flip is gated per
   container exactly like `page_format` 2. `tuple_decode` (v1) rejects v2
   bytes and `tuple2_decode_row` rejects v1 -- the version byte is the
-  discriminator.
+  discriminator. **Engine persistence contract (container decision):
+  `docs/TYPED-VALUES-STORAGE.md`** -- WAL rides the existing tagged-payload
+  records (subtype 1), snapshot node pages grow a payload section at
+  version 3, int users keep byte-identical records.
 
 ## 6. Database file set
 

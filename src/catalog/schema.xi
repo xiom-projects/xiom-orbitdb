@@ -32,6 +32,20 @@ pub fn ColumnDef.new(name: Str, col_type: ColumnType) -> ColumnDef
   };
 }
 
+// Stable code for a column type (1 int, 2 float, 3 bool, 4 string, 5 bytes).
+// Kept WITH the definition so consumers never pattern-match an imported enum
+// (m225 consumer-scope caveat; C-ORBIT-07 hygiene) -- storage/schema layers
+// compare codes instead.
+pub fn column_type_code(t: ColumnType) -> Int {
+  match t {
+    IntType => { return 1; }
+    FloatType => { return 2; }
+    BoolType => { return 3; }
+    StringType => { return 4; }
+    BytesType => { return 5; }
+  }
+}
+
 pub fn ColumnDef.optional(name: Str, col_type: ColumnType, default_val: Option[Int]) -> ColumnDef
   requires: name.len() > 0
 {
