@@ -198,6 +198,26 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   marked complete. Typed secondary indexes are an optional follow-on (not
   required by the M5 gates). Readiness holds at 73.5 (extends the awarded
   E4 evidence).
+**Updated:** 2026-10-11 (M5 COMPLETE -- CLEAN HANDOFF, next session): the
+  session landed, in order: user shell v0 (`apps/orbitdb_cli.xi` ->
+  `out/orbitdb.exe` / `out/orbitdb-cli`; put/get/del/range/count/ckpt/bench/
+  info/recover/kill + putrow/getrow/qrow); M5.2 schema layer
+  (`schema_row`); M5.3 typed rows in the engine (parallel
+  `BTreeNode.payloads`, WAL subtype-1 tagged records, node pages v2 with
+  auto-detect, `db_file_put_typed`/`get_typed` + byte/budget enforcement,
+  legacy v1-node-artifact load + migration verified); M5-S4 typed
+  predicates (`tuple2_compare` total order + `db_file_query_typed`); plus
+  C-ORBIT-07 (consumer fn hijack; `probe_arm` rename) and C-ORBIT-08
+  (enum-in-tuple miscompile; fixed-array cast sign-extension) with verified
+  bundles; and the hybrid-composition fix (tests/hybrid/xiom.toml deps
+  mirror; WSL shared-home restore). **State at handoff: NO WIP** -- working
+  tree CLEAN at `414746b`+docs; suite 152/152 x2 Win + WSL; fuzz (h)/(i)/
+  (j)/(k) x2 both; fault probe 56 checks x2 both; hybrid probe x4 +
+  crash x4 green across platforms today; readiness **73.5**; doorbell
+  re-armed this session (18:00Z, 21:00Z...). Lane heads stdlib `b8eda7d` /
+  xvector `ede0e20` / packages `263684d9` / relays `88c2343`. Next per
+  task order: **M3 MVCC minimal subset** (snapshot pinning + savepoint
+  slice per docs/REFERENCE-STUDY.md).
 **Updated:** 2026-10-11 (reference study, owner grant): cloned + studied
   bbolt (MIT), redb (MIT/Apache-2.0) and SQLite (public domain) under
   `E:\repos`; `docs/REFERENCE-STUDY.md` maps their load-bearing mechanisms
@@ -333,10 +353,10 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     with-twin still red on v0.64.3 (correction
     `REL-20261010-1802-orbitdb`), release-check row `-2` still open.
     Rollback option: v0.64.2 (`xiom.new`; findings file keeps the notes).
-  - Lane heads at the 2026-10-11 M5.3 wrap: stdlib `4fbc226`,
-    xvector `03a90bc`, packages `68569e9c`, relays `428a47f` (all moved
-    during the day; re-check at the next wrap -- release rows on the bus are
-    the contract).
+  - Lane heads at the 2026-10-11 M5 handoff: stdlib `b8eda7d`,
+    xvector `ede0e20`, packages `263684d9`, relays `88c2343` (all moving
+    fast today; re-check at the next wrap -- release rows on the bus are the
+    contract).
   - stdlib: `E:\xiom-lang\stdlib` @ `7e513f9` (2026-10-10; handoff snapshot
     25) = `/mnt/e/xiom-lang/stdlib`. **stdlib-v0.64.3 RELEASED + registry
     live** (stdlib lane version, built with compiler v0.64.2; sha256
@@ -351,7 +371,7 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     sets `XIOM_COMPILER`/`XIOM_STDLIB` explicitly.
 - **Green evidence (exact commands; all GREEN x2 Windows + WSL unless noted):**
   - Suite: `scripts/run.ps1 tests/test_conformance.xi -TimeoutSec 300` ->
-    **136/136, exit 0** (x2 Win + WSL; v0.64.3 with **all C-ORBIT workarounds
+    **152/152, exit 0** (x2 Win + WSL; v0.64.3 with **all C-ORBIT workarounds
     reverted**). Composition: 93 base + 2 churn +
     CRC32C KAT + 3 tuple-codec + 2 FSM + 2 page-file + 1 page-log + 15 db-file
     (roundtrip, checkpoint, churn, query/range, incremental, uncommitted
@@ -360,7 +380,10 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     durability (API defaults/setters + reopen reset; syncfail latch + reopen
     recovery) + 2
     buffer-pool (clock order, pinning/reject) + 2 planner (plan kinds,
-    200-case property vs brute force).
+    200-case property vs brute force) + 4 tuple v2 (KAT, roundtrip incl.
+    UTF-8/NaN, rejects, budget) + 4 schema_row (kinds, roundtrip, rejects,
+    bool/empty) + 5 db typed (roundtrip, v1/v2 checkpoints, budget/guards,
+    crafted txn window) + 1 tuple2_compare + 2 typed query (ops, persistence).
   - Crash/recovery harnesses: `scripts/crash_test.ps1 -Events 20` (WAL; 200
     soak), `scripts/page_crash_test.ps1 -Pages 20`, `scripts/db_crash_test.ps1
     -Keys 20 -Tail 3 -Tx 5` (five scenarios: WAL-only, snapshot-only,
@@ -842,7 +865,8 @@ stdlib); bench harness live; app build `scripts/build.ps1` embeds
 assets/orbitdb.ico (--icon verified); readiness
 73.5/100 (docs/PRODUCTION-READINESS.md -- recompute + changelog every wrap);
 reference docs docs/API.md + docs/RUNBOOK.md + docs/FORMATS.md +
-docs/ISOLATION.md + docs/REFERENCE-STUDY.md; production plan
+docs/ISOLATION.md + docs/REFERENCE-STUDY.md + docs/TYPED-VALUES-STORAGE.md;
+production plan
 docs/PRODUCTION-PLAN.md +
 docs/checklists/production-release.md (M1-M8, gates P-alpha -> 1.0, release
 signal). Durable pieces: src/wal_file.xi (segment +
@@ -887,24 +911,25 @@ docs/ISOLATION.md); buffer pool in-memory only (pager seam C3 pending);
 fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-1. **M5 COMPLETE 2026-10-11** (codec -> schema -> engine persistence ->
-   typed predicates; suite 152 x2 both + fuzz (h)/(i)/(j)/(k) + fault E;
-   `docs/TYPED-VALUES-STORAGE.md` landed; readiness 73.5; CLI
-   putrow/getrow/qrow). Optional follow-on: typed secondary indexes.
-   Next actionable: **M3 MVCC minimal subset** (snapshot pinning +
-   savepoint slice per docs/REFERENCE-STUDY.md) -- self-contained, no
-   stdlib dependency; while watching the stdlib rows (M1.2 S4) and the
-   `xiom.btree` re-extract (bus -9) to slot in when they land.
-2. M1.2 S4 when the stdlib rows land (byte-IO/fsync swap -- bus -3..-8
+1. M5 typed values END-TO-END COMPLETE 2026-10-11 (codec -> schema ->
+   engine persistence -> typed predicates; suite 152 x2 both + fuzz
+   (h)/(i)/(j)/(k) + fault E; `docs/TYPED-VALUES-STORAGE.md` landed;
+   readiness 73.5; CLI putrow/getrow/qrow). Optional follow-on only:
+   typed secondary indexes.
+2. **M3 MVCC minimal subset** (snapshot pinning + savepoint slice per
+   docs/REFERENCE-STUDY.md) -- the next actionable slice: read the plan's
+   M3 rows + the reference study's snapshot/savepoint notes, write the
+   design note, then implement; the single-writer model is documented in
+   docs/ISOLATION.md and stays the base.
+3. M1.2 S4 when the stdlib rows land (byte-IO/fsync swap -- bus -3..-8
    acked; v2 default flip + fresh bench + FORMATS 3v2 tables; M2.1 second
    half rides here), then M1.1b (pager: deterministic deferred-free
    allocator per docs/REFERENCE-STUDY.md).
-3. When the fixed `xiom.btree` is re-extracted (order-3; bus -9 acked), run
+4. When the fixed `xiom.btree` is re-extracted (order-3; bus -9 acked), run
    our two-way consumer pass.
-4. M3 MVCC minimal subset (snapshot pinning + savepoint slice) per the
-   reference study; keep the hybrid harness green at every wrap (and when
-   the XVECTOR pin moves); keep SESSION.md STATE, the bus items and
-   PRODUCTION-READINESS updated at every wrap; commit signed per step.
+5. Keep the hybrid harness green at every wrap (and when the XVECTOR pin
+   moves); keep SESSION.md STATE, the bus items and PRODUCTION-READINESS
+   updated at every wrap; commit signed per step.
 
 DISCIPLINE (v0.64.3; C-ORBIT workarounds DROPPED -- see COMPILER-FINDINGS):
 - Never keep an unresolvable `use` or an undeclared type (C-ORBIT-06): it
@@ -922,6 +947,16 @@ DISCIPLINE (v0.64.3; C-ORBIT workarounds DROPPED -- see COMPILER-FINDINGS):
   and pass positions separately). Mask fixed-size array byte reads
   (C-ORBIT-08B: `[N]UInt8` element `as Int` sign-extends; use
   `(b[i] as Int) & 0xFF`; `Vec[UInt8]` casts are correct).
+- Typed rows (M5): payload bytes are 0..255 and must fit
+  `db_file_typed_payload_max(order)` (1978/1308/973 at orders 3/4/5) --
+  both enforced by `db_file_put_typed`; typed writes are
+  non-transactional in S3 (txn paths refuse); WAL subtype 1 = tuple v2 row
+  bytes; node pages v2 carry payloads (v1 pages decode with empty
+  payloads); typed predicates use `tuple2_compare`'s total order
+  (Null < numeric < text < blob), never SQL 3-valued logic.
+- Never pass an empty value to `env.set_var` (the stdlib cstr contract
+  rejects it); the hybrid probe `full` mode needs FRESH paths (no cleanup);
+  WSL: at most ONE heavy harness per command.
 - Prefer parallel vectors over Vec[Option] element writes for hot caches
   (design choice; m226 fixed the language bug).
 - Deep equality works (m239): Vec/Str == compare by content; hand-written
