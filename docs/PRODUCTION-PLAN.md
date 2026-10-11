@@ -99,13 +99,16 @@ sequenceDiagram
 ## 5. Concurrency model
 
 - **Now:** single-writer per handle, optimistic stale-write guard, open-time
-  snapshot readers, buffer-until-commit transactions (`docs/ISOLATION.md`).
-- **Next:** in-process reader/writer coordination (pin/refcounts at the node
-  store), multi-process advisory locks when `xiom.os` exposes real
-  `file_lock` (stdlib row).
-- **Then (phase 3):** MVCC -- version chains in pages, txn ids, visibility
-  rules, version GC tied to checkpoint compaction. Prerequisites: pager with
-  pinning (C3), paged node store, txid-carrying page format.
+  snapshot readers, buffer-until-commit transactions plus **savepoints**
+  (`docs/ISOLATION.md`); **in-process snapshot pins with copy-on-write writes
+  landed 2026-10-11** (M3 minimal subset: stable pinned read views, snapshot
+  reads, compaction refusal while pinned, deferred-free hook;
+  `docs/MVCC.md`).
+- **Next:** multi-process advisory locks when `xiom.os` exposes real
+  `file_lock` (stdlib row); pager-backed lazy reads (M1.1b) turn pins into a
+  disk-generation contract.
+- **Then (phase 3):** full MVCC -- version GC tied to checkpoint compaction,
+  txid-carrying page format, threads when the platform has them.
 
 ## 6. Workstreams
 
@@ -255,9 +258,18 @@ suite.
    `db_file_query_typed`; suite x3 + fuzz (k) vs an independent model; CLI
    `qrow`). M5 is complete; typed secondary indexes are an optional
    follow-on (not required by the M5 gates).
-6. **M2.1 -- fsync wiring + fault injection** when the stdlib row lands.
-7. M6.1 -- cursor API + error taxonomy; bindings spike.
-8. **M6.0 -- consumer handshakes** (done at doc level): PULSE
+6. **M3.1 -- snapshot pins + savepoints. DONE 2026-10-11:** in-process
+   stable snapshots (`db_file_snapshot_begin/end` + reads over a pinned
+   arena root; copy-on-write writes while pinned so pinned views never
+   change; compaction refusal + `compaction_deferred`; deferred-free hook
+   `db_file_min_pinned_lsn`) and txn-scoped savepoints (buffer trim + WAL
+   window splice). Design `docs/MVCC.md`; suite 159 x2 both, probe_mvcc 36
+   checks x2 both, fuzz (l) x2 both. Next M3 increments: multi-process
+   advisory locks (stdlib `file_lock` row), pager-backed lazy reads
+   (M1.1b), version GC.
+7. **M2.1 -- fsync wiring + fault injection** when the stdlib row lands.
+8. M6.1 -- cursor API + error taxonomy; bindings spike.
+9. **M6.0 -- consumer handshakes** (done at doc level): PULSE
    (`docs/PULSE-INTEGRATION.md`: driver mapping, pin, crash semantics,
    conformance proposal) and XVECTOR (`docs/XVECTOR-INTEGRATION.md`:
    row-first hybrid contract; relay archived). Stand up

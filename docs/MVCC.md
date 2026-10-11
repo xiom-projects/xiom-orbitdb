@@ -2,6 +2,15 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 # M3 minimal subset: snapshot pins + savepoints (design note, 2026-10-11)
 
+> **LANDED 2026-10-11** (engine `ed901cb`): pins, COW writes, deferred
+> compaction, savepoints and the evidence ladder below all shipped. Suite
+> 159/159 x2 Win + WSL, `probe_mvcc.xi` 36 checks GREEN x2 both, fuzz
+> section (l) OK x2 both, db_crash 25/25 x2 both. One implementation note
+> grew out of it: nested Vec storage is SHARED by struct assignment and
+> element assignment writes through the shared buffer (compiler finding
+> **C-ORBIT-09**, bundle `docs/repro/vec-copy-alias/`), so `cow_shadow`
+> builds shadows through `node_deep_copy`, which rebuilds every vector.
+>
 > **Scope.** The first actionable slice of M3 ("Concurrency / MVCC",
 > `docs/PRODUCTION-PLAN.md` sec. 6). In-process stable snapshots via
 > **pinned generations + copy-on-write writes**, and a **savepoint** slice on
@@ -70,8 +79,12 @@ increments on every pin creation. Invariants:
    until a **newer** pin makes them protected.
 3. `cow_shadow(tree, idx)`: identity when no pins exist or
    `births[idx] > pin_clock`; otherwise copy the node to a fresh slot (birth =
-   `pin_clock + 1`) and return the copy. Callers must store the result in the
-   (already fresh) parent's child pointer, or in `tree.root`.
+   `pin_clock + 1`) and return the copy. **The copy is a `node_deep_copy`:**
+   plain struct assignment shares the nested `Vec` storage, and element
+   assignment through the "copy" writes through to the source buffer
+   (C-ORBIT-09), which would corrupt the pinned original. Callers must store
+   the result in the (already fresh) parent's child pointer, or in
+   `tree.root`.
 
 All write paths route through this discipline — the exact sites:
 
@@ -135,11 +148,18 @@ in-memory buffer in agreement — the property the crash harness checks.
 - Probe `tests/probes/probe_mvcc.xi`: seeded randomized churn under multiple
   interleaved pins vs per-pin models; forced compaction deferral (page-log
   entry counting) + post-release compaction; savepoint splice matrix across
-  reopen; guard matrix.
+  reopen; guard matrix; typed pins.
 - Fuzz `probe_fuzz.xi` section (l): random op/pin/savepoint/reopen streams vs
-  an independent model (keys/values copied at pin time).
+  an independent model (keys/values copied at pin time; live tree + every
+  live pin verified after every op).
 - Regression at every wrap: suite x2 Win + WSL, db_crash five scenarios x2
   (the splice rides the same window classification), fuzz OK x2.
+
+**Landed results (2026-10-11):** suite 159/159 x2 Win + WSL (7 new tests);
+`probe_mvcc.xi` 36 checks GREEN x2 both (three pins over 600 ops + two
+checkpoints; compaction deferral forced with 81 checkpoints + post-release
+shrink; savepoint matrix C1-C5; typed pins); fuzz section (l) OK x2 both;
+db_crash 25/25 x2 both.
 
 ## 5. Limits (documented, not hidden)
 

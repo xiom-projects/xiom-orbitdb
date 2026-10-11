@@ -30,13 +30,13 @@
 | A. Correctness & data structures | 20 | 16.0 | B-tree churn-proven orders 3-6 (order-3 empty-chain fix 2026-10-10); tuple codec v1 KAT-locked; FSM best-fit model-soaked; node-per-page durable pages done, paged access pending |
 | B. Durability & crash safety | 20 | 16.0 | Disk WAL segment + page file + engine WAL-before-ack + incremental generation-committed checkpoint crash-proven; fsync still pending |
 | C. Storage engine (pages/pager) | 15 | 11.0 | Codec + checksum + FSM + durable page file + clock replacer/pinning done; pager substrate pending |
-| D. Transactions & isolation | 10 | 5.0 | Durable transactions: begin/commit/abort + committed/uncommitted recovery crash-proven; MVCC pending |
+| D. Transactions & isolation | 10 | 7.0 | Durable transactions: begin/commit/abort + committed/uncommitted recovery crash-proven; savepoints + in-process snapshot pins (MVCC minimal subset, M3.1) with COW writes + compaction refusal; multi-process/GC pending |
 | E. Query & schema | 10 | 7.0 | Value-filter query + DBFile bindings + key-range planner pushdown (point/range plans, bounds-aware estimate, property-pinned) + secondary index (build/maintenance/IndexValue plan) + ORDER/LIMIT; typed values + durable index storage pending |
 | F. Operations & tooling | 10 | 4.0 | ps1/sh runners, crash harness, probes; no CI/packaging/version stamp |
 | G. Performance & limits | 5 | 3.0 | Benchmarks published (v0.64.1); WAL segment size policy live (`maybe_checkpoint`); replay constrained by the filed stdlib `str_split` quadratic; page/cache bounds pending |
 | H. Security & integrity | 5 | 4.5 | Checksums + full input validation + deterministic fuzz harness; encryption/supply-chain pinning pending |
 | I. Documentation & evidence | 5 | 5.0 | Full doc set + relay docs + repro bundles + public API/runbook/format reference |
-| **Total** | **100** | **73.5** | **~74% -- alpha-track, durable log + pages + checkpoints + transactions + planner pushdown + secondary index + ORDER/LIMIT + clock replacer + typed rows (codec -> schema -> engine persistence -> typed predicates) + fuzz, benchmarks live, both WAL/B-tree packages registry-live** |
+| **Total** | **100** | **75.5** | **~76% -- alpha-track, durable log + pages + checkpoints + transactions + savepoints/snapshot pins (M3 minimal) + planner pushdown + secondary index + ORDER/LIMIT + clock replacer + typed rows (codec -> schema -> engine persistence -> typed predicates) + fuzz, benchmarks live, both WAL/B-tree packages registry-live** |
 
 Scoreboard changelog:
 - 2026-10-08: bootstrap complete (suite migrated, engine defects fixed, WAL
@@ -300,6 +300,23 @@ Scoreboard changelog:
   INDEPENDENT model (4 seeds x 150 iters, per-op verification across
   checkpoints/reopens); CLI `qrow`. No score change (extends the awarded
   E4 evidence; typed secondary indexes remain a follow-on): 73.5.
+- 2026-10-11 (M3.1 -- MVCC minimal subset: snapshot pins + savepoints): the
+  first M3 slice landed (`docs/MVCC.md`). Pins capture `{root, lsn,
+  generation}` over the node arena; while pins exist every write path
+  copy-on-writes the nodes it touches (birth epochs + `cow_shadow`;
+  `node_deep_copy` after finding **C-ORBIT-09** -- element assignment through
+  a copied Vec handle aliases the source, bundle `docs/repro/vec-copy-alias/`),
+  so pinned views never change; snapshot reads via
+  `db_file_snapshot_get/_typed/_range/_count`; checkpoint compaction defers
+  while pinned (`compaction_deferred`) and `db_file_min_pinned_lsn` is the
+  M1.1b deferred-free hook; txn-scoped savepoints trim the buffer and splice
+  the WAL window (Abort + Begin + re-log). Evidence: 7 suite tests (**159/159
+  x2 Win + WSL**), `probe_mvcc.xi` 36 checks GREEN x2 both (three pins over
+  600 ops + two checkpoints; forced compaction deferral with 81 checkpoints
+  and post-release shrink; savepoint matrix C1-C5; typed pins), fuzz section
+  (l) OK x2 both, db_crash 25/25 x2 both. **D3 WIP -> 2/4** (in-process pins
+  + savepoints crash-proven; multi-process locks, pager-backed lazy reads and
+  version GC remain): 73.5 -> **75.5**.
 
 ## A. Correctness & data structures (20)
 
@@ -339,7 +356,7 @@ Scoreboard changelog:
 |---|---|---|---|---|
 | D1 | Txn state machine (active/committed/aborted, op list) | 2 | OK (state only) | suite txn tests |
 | D2 | Crash-safe redo/undo with committed/uncommitted classification | 4 | OK | WAL BeginTxn/CommitTxn/AbortTxn (codes 8/9/10) + `db_file_txn_*` (log as you go, apply at commit, abort discards); replay applies committed windows and drops unterminated ones, finalizing a dangling window with an Abort record; checkpoint + auto-commit rejected mid-txn; suite txn tests + `db_crash_test` scenarios D/E x2 Win + WSL |
-| D3 | MVCC snapshots / version-aware reads | 4 | WIP | Decision recorded (`docs/ISOLATION.md`): single-writer + open-time snapshot + optimistic stale-handle write guard (no lock files); MVCC deferred to Phase 3 with prerequisites (pager, txn ids in pages, version GC, concurrency story) |
+| D3 | MVCC snapshots / version-aware reads | 4 | WIP 2 | **M3 minimal subset landed 2026-10-11** (`docs/MVCC.md`): snapshot pins capture `{root, lsn, generation}`; writes copy-on-write the touched node paths while pinned (deep-copied shadows; C-ORBIT-09), so pinned views are exact; snapshot reads (`db_file_snapshot_get/typed/range/count`); compaction refuses while pinned (`compaction_deferred`); deferred-free hook `db_file_min_pinned_lsn`; txn savepoints (buffer trim + WAL window splice). Evidence: 7 suite tests (159 x2 Win + WSL), `probe_mvcc` 36 checks x2 both, fuzz (l) x2 both, db_crash 25/25 x2. Remaining: multi-process locks (stdlib row), pager-backed lazy reads (M1.1b), version GC |
 
 ## E. Query & schema (10)
 
@@ -404,7 +421,8 @@ Scoreboard changelog:
 - [x] Fuzz/property harness (codec, WAL parser, page log, B-tree vs model).
 - [ ] Pager substrate; torn-page detection.
 - [x] Redo/undo with committed/uncommitted classification (crash scenarios D/E).
-- [ ] MVCC story decided.
+- [x] MVCC story decided (`docs/MVCC.md`; M3.1 pins + savepoints landed
+      2026-10-11; multi-process locks + version GC remain).
 - [ ] Benchmarks with published numbers and no unbounded memory growth.
 - [ ] CI matrix green on Windows/Linux with pinned toolchain and SHA-pinned
       actions; release artifacts + SHA256SUMS; build-info/version stamp.

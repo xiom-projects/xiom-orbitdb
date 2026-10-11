@@ -29,11 +29,11 @@
 
 ## M3 -- Concurrency / MVCC
 
-- [ ] In-process reader/writer coordination (node pinning)
+- [x] In-process reader/writer coordination (snapshot pins + COW writes; M3.1 2026-10-11, `docs/MVCC.md`)
 - [ ] Multi-process advisory locks (blocked: stdlib file_lock stub)
-- [ ] MVCC design doc (version chains, txids, visibility, GC)
-- [ ] MVCC implementation + snapshot tests
-- [ ] Version GC tied to checkpoint compaction
+- [x] MVCC design doc (version chains, txids, visibility, GC) -- `docs/MVCC.md` adapts: pins + COW, no per-page chains
+- [x] MVCC minimal implementation + snapshot tests (pins + savepoints; suite x2 both, `probe_mvcc` 36 checks x2, fuzz (l) x2)
+- [ ] Version GC tied to checkpoint compaction (M1.1b free list; hook `db_file_min_pinned_lsn`)
 
 ## M4 -- Query & indexes
 

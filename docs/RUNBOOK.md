@@ -63,6 +63,7 @@ killed); harnesses print `GREEN`/`RED` and exit 0/1.
 | `tests/probes/probe_block_store.xi` | `ORBITDB_BLOCK_MODE=full/writer/verify`; `ORBITDB_BLOCK_DB`, `ORBITDB_BLOCK_N`, `ORBITDB_BLOCK_BATCH`, `ORBITDB_BLOCK_KILL_AT` | M1.2 S2 block store: `full` = 26-check functional battery; `writer`/`verify` drive `scripts/block_crash_test.*` (kill states pages2/full2/midheader/compacted). |
 | `tests/probes/probe_fault_sync.xi` | `ORBITDB_FAULT_DB`, `ORBITDB_FAULT_CKPT_DB`, `ORBITDB_FAULT_BLOCK` (paths only) | M2.1+M5.3 durability/fault battery (56 checks): put/delete/typed-put syncfail latch + reopen recovery, checkpoint 2PC pre-sync failure (snapshot file size unchanged, WAL untruncated, tail replayed), block-store partial writes (torn page append/update, torn header slot fallback). |
 | | `ORBITDB_FAULT_AT` / `ORBITDB_FAULT_MODE` (`kill`/`partial`/`skip`/`syncfail`) / `ORBITDB_FAULT_TAIL` | **Test-only** fault layer (`src/storage/fault.xi`, wired into the `byte_io` gates): fires on the Nth write-ish op (or sync for `syncfail`), one fire per arming; `fault_reset()` + removing the env re-arms. Never set in production. |
+| `tests/probes/probe_mvcc.xi` | `ORBITDB_MVCC_DIR` (scratch dir, default `probe-logs`) | M3 snapshot-pin + savepoint battery (36 checks): three interleaved pins over 600 churn ops + two checkpoints vs per-pin models; compaction deferral under a pin (page log grows past node_count + 64, shrinks after release) with generation bookkeeping; savepoint matrix across reopen "crashes"; typed payload pins. Run: `scripts\run.ps1 tests\probes\probe_mvcc.xi -TimeoutSec 300`. |
 
 Standard soak (policy checkpoints every 250 records):
 
@@ -155,6 +156,18 @@ scripts\run.ps1 tests\probes\probe_db_file.xi -TimeoutSec 180
   `REL-20261011-1124-orbitdb`). Symptom shape: bogus contract panic in a
   stdlib module reached through the hijacked call, no file name in the
   message.
+- Copying a Vec (or a struct containing Vecs) by assignment does NOT give an
+  owned copy: element assignment (`v[i] = x`) through the copy writes through
+  to the source buffer, while push/pop copy-on-write (C-ORBIT-09; bundle
+  `docs/repro/vec-copy-alias/`). "Clone then mutate in place" code must build
+  an owned copy explicitly (fresh vectors + push loops; see `node_deep_copy`
+  in `src/engine.xi` -- the M3 COW shadows corrupted pinned views before it).
+- Snapshot pins are handle-local and in-memory: a reopen starts with none.
+  While a pin is live, node versions accumulate in the arena (no GC until
+  M1.1b) and checkpoint compaction defers (`db_file_compaction_deferrals`
+  counts it; the page log grows until the pin is released). Do not cache pin
+  ids across reopen; `db_file_snapshot_*` returns None/empty/-1 for ids that
+  are not live.
 - Hybrid probe `full` mode assumes FRESH paths (it does not clean up):
   reusing a previous run's WAL/vector pair can trip a contract on WSL
   (observed `ensures at 51:12` while Windows tolerated the same reuse). Use

@@ -52,7 +52,7 @@ use-after-move involved. Found by the M3 snapshot-pin COW (the shadow copy of
 a node still shared `keys`/`values`/`children` buffers with the pinned
 original; pinned reads returned post-write values). Bundle
 `docs/repro/vec-copy-alias/`; workaround applied (`node_deep_copy` in
-`src/engine.xi` rebuilds every vector). Bus item filed this session.
+`src/engine.xi` rebuilds every vector). Bus item `REL-20261011-1659-orbitdb`.
 
 **Relay:** hand this file to the compiler-lane session together with the
 matching `docs/repro/<bundle>/` directories from the ORBITDB repo

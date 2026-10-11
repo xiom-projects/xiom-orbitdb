@@ -14,7 +14,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0
 
 xiom-db is an embedded database engine in pure XIOM. It provides a B-Tree storage index, a write-ahead log (WAL) for crash recovery, and a query engine with filtering / pagination -- all with contract-guaranteed integrity. As of `0.2.0` the package is organized as a **layered architecture** and depends on `xiom-core` for shared IDs, errors, config, contracts, and metrics.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the module tree and ownership rules, [ROADMAP.md](ROADMAP.md) for the phased plan, and [`docs/`](docs/) for subsystem deep-dives. Start with [API.md](docs/API.md) (public API reference), [RUNBOOK.md](docs/RUNBOOK.md) (commands, recovery, gotchas), [FORMATS.md](docs/FORMATS.md) (versioned on-disk formats), and [ISOLATION.md](docs/ISOLATION.md) (single-writer / multi-handle model). The production strategy is [PRODUCTION-PLAN.md](docs/PRODUCTION-PLAN.md) with the execution checklist in [docs/checklists/production-release.md](docs/checklists/production-release.md).
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the module tree and ownership rules, [ROADMAP.md](ROADMAP.md) for the phased plan, and [`docs/`](docs/) for subsystem deep-dives. Start with [API.md](docs/API.md) (public API reference), [RUNBOOK.md](docs/RUNBOOK.md) (commands, recovery, gotchas), [FORMATS.md](docs/FORMATS.md) (versioned on-disk formats), [ISOLATION.md](docs/ISOLATION.md) (single-writer / multi-handle model), and [MVCC.md](docs/MVCC.md) (M3 minimal subset: snapshot pins + savepoints). The production strategy is [PRODUCTION-PLAN.md](docs/PRODUCTION-PLAN.md) with the execution checklist in [docs/checklists/production-release.md](docs/checklists/production-release.md).
 
 ## Installation
 ```bash
@@ -138,15 +138,15 @@ src/
 |---------|--------|
 | Layered architecture | [OK] Complete (0.2.0) |
 | B-Tree (insert/search/delete/range) | [OK] Complete |
-| WAL (write-ahead log) | [OK] Complete (in-memory) |
-| Crash recovery (WAL replay) | [OK] Complete (in-memory) |
+| WAL (write-ahead log) | [OK] Durable disk segment + recovery (no fsync yet) |
+| Crash recovery (WAL replay) | [OK] Durable: snapshot + tail replay, torn-tail tolerant |
 | Query engine (filter/limit/offset) | [OK] Complete |
 | Public Database facade | [OK] Complete |
 | Schema catalog + validation | [OK] Types + validation |
-| Transactions (isolation/MVCC) | [WARN] State machine only |
-| Query planner (index-aware) | [WIP] Scaffolded (Phase 3) |
+| Transactions (isolation/MVCC) | [WIP] Durable txn + savepoints; in-process snapshot pins (M3 minimal, `docs/MVCC.md`); multi-process pending |
+| Query planner (index-aware) | [OK] Point/range pushdown + secondary index (`IndexValue`) |
 | Free-space map | [WIP] Scaffolded (Phase 1) |
-| Disk persistence (real pager) | [FAIL] Phase 1-2 |
+| Disk persistence (real pager) | [WIP] Durable snapshot/WAL; paged node store pending (A5/C3) |
 
 See [ROADMAP.md](ROADMAP.md) for the honest, phased plan.
 

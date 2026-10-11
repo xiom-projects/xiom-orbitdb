@@ -218,6 +218,35 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   xvector `ede0e20` / packages `263684d9` / relays `88c2343`. Next per
   task order: **M3 MVCC minimal subset** (snapshot pinning + savepoint
   slice per docs/REFERENCE-STUDY.md).
+**Updated:** 2026-10-11 (M3.1 snapshot pins + savepoints, same session): the
+  **M3 minimal subset LANDED**. Design `docs/MVCC.md` (pin = {root, lsn,
+  generation}; copy-on-write writes while pinned via birth epochs +
+  `cow_shadow`; compaction deferred while pinned + `compaction_deferred`;
+  savepoints = txn-buffer markers + WAL window splice Abort+Begin+re-log).
+  Engine: `DBSnapshot`, `db_file_snapshot_begin/end/get/get_typed/range/
+  count`, `db_file_snapshot_pins`, `db_file_min_pinned_lsn`,
+  `db_file_snap_generation`, `db_file_compaction_deferrals`,
+  `db_file_txn_savepoint/_restore/_release/_active`; NodeStore
+  births/pins/pin_clock. Found **C-ORBIT-09** (element assignment through a
+  copied Vec handle aliases the SOURCE buffer -- the COW shadow corrupted
+  pinned views until `node_deep_copy` rebuilt every vector; bundle
+  `docs/repro/vec-copy-alias/`, bus `REL-20261011-1659-orbitdb`). Evidence:
+  suite **159/159 x2 Win + WSL** (7 new tests), `probe_mvcc.xi` 36 checks
+  GREEN x2 both, fuzz section (l) x2 both, db_crash 25/25 x2 both; readiness
+  **D3 2/4 -> 75.5**. Docs: MVCC.md + ISOLATION rewrite + API/RUNBOOK/README/
+  plan/checklist coupled.
+**Updated:** 2026-10-11 (M3.1 wrap -- CLEAN HANDOFF, next session): tree
+  clean at the M3.1 wrap commit; lane heads at this wrap: stdlib `7e82225`
+  (v0.64.3 sweep verdicts -- docs-only move; suite re-verified on it) /
+  xvector `200cbc7` / packages `7ab0d82f` / relays `dd0d624` (this lane's
+  C-ORBIT-09 push; compiler lane `c86e2f2d` -- m268/m269 on main, no new
+  archive yet, WATCH armed). Bus: orbitdb queue clear (packages-8 stays
+  `fixed` awaiting THEIR verification; compiler batch plan open, no fix
+  batches landed); C-ORBIT-09 filed + pushed. Next per task order: **M1.2 S4
+  when the stdlib byte-IO/fsync rows land** (bus -3..-8 acked), else M1.1b
+  pager groundwork (deterministic deferred-free allocator; the M3 pins feed
+  its min-pinned-LSN hook); re-run the hybrid battery when the XVECTOR pin
+  moves.
 **Updated:** 2026-10-11 (reference study, owner grant): cloned + studied
   bbolt (MIT), redb (MIT/Apache-2.0) and SQLite (public domain) under
   `E:\repos`; `docs/REFERENCE-STUDY.md` maps their load-bearing mechanisms
@@ -357,6 +386,10 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     xvector `ede0e20`, packages `263684d9`, relays `88c2343` (all moving
     fast today; re-check at the next wrap -- release rows on the bus are the
     contract).
+  - Lane heads at the 2026-10-11 M3.1 wrap: stdlib `7e82225` (v0.64.3
+    sweep verdicts, docs-only; suite re-verified on it), xvector `200cbc7`,
+    packages `7ab0d82f`, relays `dd0d624` (this lane's C-ORBIT-09 push);
+    compiler lane `c86e2f2d` (m268/m269 on main, no archive yet).
   - stdlib: `E:\xiom-lang\stdlib` @ `7e513f9` (2026-10-10; handoff snapshot
     25) = `/mnt/e/xiom-lang/stdlib`. **stdlib-v0.64.3 RELEASED + registry
     live** (stdlib lane version, built with compiler v0.64.2; sha256
@@ -371,7 +404,7 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     sets `XIOM_COMPILER`/`XIOM_STDLIB` explicitly.
 - **Green evidence (exact commands; all GREEN x2 Windows + WSL unless noted):**
   - Suite: `scripts/run.ps1 tests/test_conformance.xi -TimeoutSec 300` ->
-    **152/152, exit 0** (x2 Win + WSL; v0.64.3 with **all C-ORBIT workarounds
+    **159/159, exit 0** (x2 Win + WSL; v0.64.3 with **all C-ORBIT workarounds
     reverted**). Composition: 93 base + 2 churn +
     CRC32C KAT + 3 tuple-codec + 2 FSM + 2 page-file + 1 page-log + 15 db-file
     (roundtrip, checkpoint, churn, query/range, incremental, uncommitted
@@ -382,8 +415,10 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     buffer-pool (clock order, pinning/reject) + 2 planner (plan kinds,
     200-case property vs brute force) + 4 tuple v2 (KAT, roundtrip incl.
     UTF-8/NaN, rejects, budget) + 4 schema_row (kinds, roundtrip, rejects,
-    bool/empty) + 5 db typed (roundtrip, v1/v2 checkpoints, budget/guards,
-    crafted txn window) + 1 tuple2_compare + 2 typed query (ops, persistence).
+     bool/empty) + 5 db typed (roundtrip, v1/v2 checkpoints, budget/guards,
+     crafted txn window) + 1 tuple2_compare + 2 typed query (ops, persistence)
+     + 7 M3 (snapshot isolation, order-3 COW churn vs models, checkpoint
+     stability, savepoint basic/guards/crash windows, typed pins).
   - Crash/recovery harnesses: `scripts/crash_test.ps1 -Events 20` (WAL; 200
     soak), `scripts/page_crash_test.ps1 -Pages 20`, `scripts/db_crash_test.ps1
     -Keys 20 -Tail 3 -Tx 5` (five scenarios: WAL-only, snapshot-only,
@@ -395,7 +430,8 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     killing (x2 Win + WSL).
   - Fuzz/property: `scripts/fuzz.ps1` / `fuzz.sh` (deterministic LCG seeds) ->
     `fuzz: OK seeds=4 ops/seed=4000 n=512`, x2 Win + WSL; sections cover the
-    tuple codec, WAL parser, page log and B-tree vs model.
+    tuple codec, WAL parser, page log, B-tree vs model, typed rows/queries
+    and snapshot pins/savepoints (l).
   - Benchmarks: `scripts/bench.ps1 -N 20000` (v0.64.2): btree insert 1.25M/s,
     search 3.3M/s, delete 1.67M/s, tuple 1.11M/s, WAL append 3.5k/s, WAL
     replay 2.0k/s -- **20k-record replay now ~9.9 s (was 61.6 s on v0.64.1;
@@ -417,6 +453,14 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     WSL. Consumer helpers must avoid same-named functions in imported
     modules (C-ORBIT-07: `arm` -> `probe_arm`; bundle
     `docs/repro/consumer-fn-hijack/`, bus `REL-20261011-1124-orbitdb`).
+  - Snapshot pins + savepoints (new, M3.1): `tests/probes/probe_mvcc.xi` --
+    36 checks (three interleaved pins over 600 churn ops + two checkpoints
+    vs per-pin models; forced compaction deferral with 81 checkpoints and a
+    post-release log shrink; savepoint matrix C1-C5 across reopen crashes;
+    typed payload pins); GREEN x2 Win + WSL. Found **C-ORBIT-09** en route
+    (copied Vec handles alias on element assignment; `node_deep_copy` fix;
+    bundle `docs/repro/vec-copy-alias/`, bus `REL-20261011-1659-orbitdb`;
+    the design + landed results live in `docs/MVCC.md`).
   - Hybrid (new): `scripts/hybrid_crash_test.{ps1,sh}` -- one writer drives
     BOTH stores (ORBITDB rows + XVECTOR vectors), hard kill, torn row tail,
     reopen -> repair -> 100% join integrity; second verify idempotent
@@ -545,7 +589,14 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     put/get/del/range/count/ckpt/bench/info/recover/kill; `kill` -> restart
     WAL-replay recovery demo verified on both platforms; README "Try it" +
     RUNBOOK row. Typed-row commands ride M5.3.
-  - Index-of-record: `docs/PRODUCTION-READINESS.md` **73.5/100 (~74%)**,
+  - Snapshot pins + savepoints (new, M3.1): `DBSnapshot` pins over the node
+    arena + copy-on-write writes while pinned (`cow_shadow` with
+    `node_deep_copy` -- C-ORBIT-09), snapshot reads
+    (`db_file_snapshot_get/_typed/_range/_count`), compaction deferral
+    (`db_file_compaction_deferrals`), `db_file_min_pinned_lsn` deferred-free
+    hook, txn savepoints (buffer trim + WAL window splice); design + limits
+    in `docs/MVCC.md`.
+  - Index-of-record: `docs/PRODUCTION-READINESS.md` **75.5/100 (~76%)**,
     per-area table + changelog + 100% checklist (v0.3-beta gate needs fsync +
     torn-page matrix + benchmarks at scale).
 - **Known limitations / risks (read before touching storage):**
@@ -599,7 +650,9 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     sibling is mid-refactor.
   - Multi-handle safety is optimistic: the `wal_bytes` stale-write guard
     refuses lagging writers but is not a lock (external appends are detected
-    only on the next write); no MVCC -- see `docs/ISOLATION.md`.
+    only on the next write). The M3 minimal subset landed (in-process
+    snapshot pins + savepoints, `docs/MVCC.md`); cross-process MVCC, lazy
+    pager reads and version GC remain -- see `docs/ISOLATION.md`.
   - B-tree nodes are append-only (no free list); `btree_to_vec` is
     value-only.
 - **Relay status:** cross-lane coordination runs on the **xiom-relays bus**
@@ -622,22 +675,33 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   probe + crash harness stand and are green (our section 7 answers their
   cross-asks); finding **XV-ORBITDB-01** relayed back to them (chained
   persist/load goes empty; the probe carries a documented re-LSN
-  workaround). New compiler finding **C-ORBIT-06** filed (phantom imports
-  silently accepted; C-ORBIT-01..05 stay RESOLVED).
+  workaround). Compiler findings on v0.64.3, all OPEN: **C-ORBIT-06**
+  (phantom imports; packages' cross-file item), **C-ORBIT-07** (consumer fn
+  hijacks a module-private same-named call; bus `REL-20261011-1124-orbitdb`),
+  **C-ORBIT-08** (enum-in-tuple miscompile + `[N]UInt8` cast sign-extension;
+  bus `REL-20261011-1219-orbitdb`), **C-ORBIT-09** (element assignment
+  through a copied Vec handle aliases the source; bus
+  `REL-20261011-1659-orbitdb`); C-ORBIT-01..05 stay RESOLVED on v0.64.2.
 - **Next action (priority order, per `docs/PRODUCTION-PLAN.md` section 13):**
-  1. **M5.1 typed values v2** (type-tagged tuples; text at least).
-  2. **M1.2 byte-page v2 -- design + S1 + S2 + S3 integration DONE**; next
+  1. **M5 typed values END-TO-END COMPLETE 2026-10-11** (codec -> schema ->
+     engine persistence -> typed predicates; suite 152 -> 159 x2 both; CLI
+     putrow/getrow/qrow). Optional follow-on: typed secondary indexes.
+  2. **M3 minimal subset DONE 2026-10-11** (snapshot pins + savepoints; suite
+     159 x2 both + `probe_mvcc` 36 checks x2 both + fuzz (l) x2 both;
+     `docs/MVCC.md`). Remaining M3: multi-process locks (stdlib `file_lock`),
+     pager-backed lazy reads (M1.1b), version GC.
+  3. **M1.2 byte-page v2 -- design + S1 + S2 + S3 integration DONE**; next
      S4 (stdlib fixed-size IO + fsync swap, default flip + fresh bench,
      FORMATS "3v2" tables; **M2.1 second half rides here**), then M1.1b lazy
      load.
-  3. Order-3 B-tree fix landed (upstream of `xiom.btree` SPEC 2.3) -- next
+  4. Order-3 B-tree fix landed (upstream of `xiom.btree` SPEC 2.3) -- next
      `xiom.btree` release re-extracts; run the consumer pass then.
-  4. **M2.1 first half DONE** (durability API + fault injector; suite 136 x2
-     both + `probe_fault_sync` 49 checks x2 both); fsync wiring when the
-     stdlib rows land; **M1.1b** lazy load once random-access page reads
-     exist; MVCC per M3; keep readiness + keeper docs current; commit signed
-     at every step.
-  5. **Hybrid regression guard:** re-run `scripts/hybrid_crash_test.*` +
+  5. **M2.1 first half DONE** (durability API + fault injector; suite x2 both
+     + `probe_fault_sync` 56 checks x2 both); fsync wiring when the stdlib
+     rows land; **M1.1b** lazy load once random-access page reads exist (the
+     M3 pins already feed its `db_file_min_pinned_lsn` deferred-free hook);
+     keep readiness + keeper docs current; commit signed at every step.
+  6. **Hybrid regression guard:** re-run `scripts/hybrid_crash_test.*` +
      probe `full` x2 both platforms at every wrap, and whenever the XVECTOR
      pin moves; drop the `persist_recovered` workaround once XV-ORBITDB-01
      is fixed upstream.
@@ -815,7 +879,8 @@ Release signal: when the production plan's gates pass (P-rc), tell the owner
 explicitly "ORBITDB is ready for public release" -- the owner then sets up
 the public repo/CI/registry and adds ORBITDB to the benchmark suite.
 WATCH each session: any newer COMPILER archive (re-test the repro
-bundles -- now incl. `docs/repro/consumer-fn-hijack/` for C-ORBIT-07 --
+bundles -- now incl. `docs/repro/consumer-fn-hijack/` for C-ORBIT-07 and
+`docs/repro/vec-copy-alias/` for C-ORBIT-09 --
 plus the suite first; re-verify the phantom bundle on the first archive
 containing m255 -- REL-20261010-1802-orbitdb). **Compiler batch plan
 `REL-20261011-1342-compiler` (2026-10-11, to: all) names OUR witnesses:**
@@ -836,8 +901,9 @@ rows, docs+commit).**
 CURRENT STATE: v0.64.3 pin (Windows shadow `xiom.new.0643` via dev-env;
 WSL canonical `~/.local/bin/xiom`; the Windows canonical `xiom.new` stays
 v0.64.2 for the fleet -- swap is owner/ops-coordinated); all C-ORBIT compiler
-workarounds REVERTED and the suite is green on the native forms --
-conformance 152/152 x2 Win + WSL (see
+workarounds REVERTED except C-ORBIT-07/08/09 until their batches land, and
+the suite is green on the native forms --
+conformance 159/159 x2 Win + WSL (see
 the findings file for the one consumer-qualification caveat); db_crash five
 scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn discarded,
 committed txn recovered) x2 Win + WSL, each recovery followed by qverify
@@ -857,15 +923,27 @@ C-ORBIT-08 filed 2026-10-11 (enum-in-tuple miscompiles -- crash or skipped
 match arms; fixed-size `[N]UInt8` element `as Int` sign-extends;
 workarounds in `tuple.xi`; bundle `docs/repro/enum-tuple-codegen/`, bus
 `REL-20261011-1219-orbitdb`);
+C-ORBIT-09 filed 2026-10-11 (element assignment through a copied Vec handle
+writes through to the SOURCE buffer while push/pop copy-on-write; the M3
+COW needed `node_deep_copy`; bundle `docs/repro/vec-copy-alias/`, bus
+`REL-20261011-1659-orbitdb`);
+**M3.1 LANDED 2026-10-11: snapshot pins + savepoints** (`docs/MVCC.md`;
+`db_file_snapshot_begin/end/get/get_typed/range/count` over a pinned arena
+root; COW writes while pinned via birth epochs + `cow_shadow`; compaction
+deferred while pinned + `db_file_compaction_deferrals`;
+`db_file_min_pinned_lsn` deferred-free hook; txn savepoints via buffer trim
++ WAL window splice; suite 159 x2 both, `probe_mvcc` 36 checks x2 both, fuzz
+(l) x2 both); C-ORBIT-07 workaround `probe_arm` STAYS until batch 1 lands;
 XV-ORBITDB-01 FIXED (xvector `3c36f34`), verified against their
 source and CLOSED -- the `persist_recovered` workaround is REMOVED; fuzz/property harness
 `scripts/fuzz.{ps1,sh}` (seeds=4 ops/seed=4000) x2 Win + WSL; policy soak
 2000 keys / 9 checkpoints x2 Win + WSL; 20k-record WAL replay ~9.9 s (linear
 stdlib); bench harness live; app build `scripts/build.ps1` embeds
 assets/orbitdb.ico (--icon verified); readiness
-73.5/100 (docs/PRODUCTION-READINESS.md -- recompute + changelog every wrap);
+75.5/100 (docs/PRODUCTION-READINESS.md -- recompute + changelog every wrap);
 reference docs docs/API.md + docs/RUNBOOK.md + docs/FORMATS.md +
-docs/ISOLATION.md + docs/REFERENCE-STUDY.md + docs/TYPED-VALUES-STORAGE.md;
+docs/ISOLATION.md + docs/MVCC.md + docs/REFERENCE-STUDY.md +
+docs/TYPED-VALUES-STORAGE.md;
 production plan
 docs/PRODUCTION-PLAN.md +
 docs/checklists/production-release.md (M1-M8, gates P-alpha -> 1.0, release
@@ -907,21 +985,22 @@ limits: no fsync
 + env fault injector are pinned so the swap is behavior-only); replay is linear now but file IO is O(n) per read
 (no random access); checkpoint encodes only dirty nodes (M1.1) but the tree
 stays fully resident (lazy load/bounded cache need random-access page reads);
-transactions single-active, no MVCC (single-writer model in
-docs/ISOLATION.md); buffer pool in-memory only (pager seam C3 pending);
+transactions single-active; M3 minimal subset landed (in-process snapshot
+pins + savepoints -- cross-process MVCC, lazy pager reads and version GC
+remain; see docs/MVCC.md + docs/ISOLATION.md); buffer pool in-memory only
+(pager seam C3 pending);
 fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
 1. M5 typed values END-TO-END COMPLETE 2026-10-11 (codec -> schema ->
-   engine persistence -> typed predicates; suite 152 x2 both + fuzz
-   (h)/(i)/(j)/(k) + fault E; `docs/TYPED-VALUES-STORAGE.md` landed;
-   readiness 73.5; CLI putrow/getrow/qrow). Optional follow-on only:
-   typed secondary indexes.
-2. **M3 MVCC minimal subset** (snapshot pinning + savepoint slice per
-   docs/REFERENCE-STUDY.md) -- the next actionable slice: read the plan's
-   M3 rows + the reference study's snapshot/savepoint notes, write the
-   design note, then implement; the single-writer model is documented in
-   docs/ISOLATION.md and stays the base.
+   engine persistence -> typed predicates; suite + probe + fuzz evidence;
+   `docs/TYPED-VALUES-STORAGE.md`; CLI putrow/getrow/qrow). Optional
+   follow-on only: typed secondary indexes.
+2. **M3 minimal subset COMPLETE 2026-10-11** (snapshot pins + savepoints;
+   `docs/MVCC.md`; suite 159 x2 both + `probe_mvcc` 36 checks x2 both + fuzz
+   (l) x2 both). Remaining M3 (when unblocked): multi-process advisory locks
+   (stdlib `file_lock` row), pager-backed lazy reads (M1.1b; the pins feed
+   its deferred-free hook), version GC tied to checkpoint compaction.
 3. M1.2 S4 when the stdlib rows land (byte-IO/fsync swap -- bus -3..-8
    acked; v2 default flip + fresh bench + FORMATS 3v2 tables; M2.1 second
    half rides here), then M1.1b (pager: deterministic deferred-free
@@ -932,7 +1011,8 @@ TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
    moves); keep SESSION.md STATE, the bus items and PRODUCTION-READINESS
    updated at every wrap; commit signed per step.
 
-DISCIPLINE (v0.64.3; C-ORBIT workarounds DROPPED -- see COMPILER-FINDINGS):
+DISCIPLINE (v0.64.3; C-ORBIT-01..05/06 workarounds dropped -- C-ORBIT-07/08/
+09 workarounds stay until their batches/fixes land; see COMPILER-FINDINGS):
 - Never keep an unresolvable `use` or an undeclared type (C-ORBIT-06): it
   type-checks standalone with bogus W004s, then hard-fails once any module in
   the program declares a same-named type.
@@ -948,6 +1028,11 @@ DISCIPLINE (v0.64.3; C-ORBIT workarounds DROPPED -- see COMPILER-FINDINGS):
   and pass positions separately). Mask fixed-size array byte reads
   (C-ORBIT-08B: `[N]UInt8` element `as Int` sign-extends; use
   `(b[i] as Int) & 0xFF`; `Vec[UInt8]` casts are correct).
+- Copied Vec/struct handles SHARE storage: element assignment (`v[i] = x`)
+  through a copy writes through to the source, while push/pop copy-on-write
+  (C-ORBIT-09; bundle `docs/repro/vec-copy-alias/`). Clone-then-mutate code
+  must build owned copies explicitly (`node_deep_copy` in `src/engine.xi` is
+  the reference); never rely on assignment for a deep copy.
 - Typed rows (M5): payload bytes are 0..255 and must fit
   `db_file_typed_payload_max(order)` (1978/1308/973 at orders 3/4/5) --
   both enforced by `db_file_put_typed`; typed writes are
@@ -955,6 +1040,11 @@ DISCIPLINE (v0.64.3; C-ORBIT workarounds DROPPED -- see COMPILER-FINDINGS):
   bytes; node pages v2 carry payloads (v1 pages decode with empty
   payloads); typed predicates use `tuple2_compare`'s total order
   (Null < numeric < text < blob), never SQL 3-valued logic.
+- Snapshot pins (M3): handle-local and in-memory (ids die on reopen); while
+  any pin is live, writes copy-on-write the touched node paths (the arena
+  grows -- no GC until M1.1b) and checkpoint compaction defers
+  (`db_file_compaction_deferrals`); savepoints require an active transaction
+  and stay active after `restore` (SQL semantics).
 - Never pass an empty value to `env.set_var` (the stdlib cstr contract
   rejects it); the hybrid probe `full` mode needs FRESH paths (no cleanup);
   WSL: at most ONE heavy harness per command.
