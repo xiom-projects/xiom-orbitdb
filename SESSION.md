@@ -64,6 +64,25 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   header slot) -- **suite 127/127 x2 Win + WSL**; API.md storage section
   documents the module. Next S1 item: fuzz extension; then S2 block store
   over the byte-IO shim.
+**Updated:** 2026-10-11 (M2.1 first half -- COMPUTE CHECKPOINT, handoff): the
+  durability API + fault injector are IN CODE and smoke-green (suite 134/134
+  x1 Win, v0.64.3): `src/storage/fault.xi` (env-armed Nth-op injector:
+  kill/partial/skip/syncfail; `fault_reset`; wired into `byte_io`),
+  `src/storage/byte_io.xi` gates, and the engine's `durability` (0 normal /
+  1 immediate default), `two_phase`, `failed` latch with
+  `db_file_set_durability`/`_set_two_phase`/`_failed`,
+  `db_file_commit_sync` on put/delete/txn-commit, 2PC WAL-flush before a
+  checkpoint publishes, post-checkpoint WAL+snapshot flush, and latch checks
+  on every writer. API.md rows added.
+  **REMAINING (FIRST TASK NEXT SESSION):** (1) suite tests: durability API
+  defaults/setters + a syncfail latch test using `env.set_var` +
+  `fault_reset` (put -> false + `db_file_failed`; writers refuse; reopen
+  recovers the record); (2) `tests/probes/probe_fault_sync.xi` scenarios:
+  put-latch, checkpoint-2PC pre-sync failure (snapshot file size unchanged),
+  partial-write page recovery on the block store; (3) suite/fuzz x2 + probe
+  x2 Win + WSL; (4) RUNBOOK row + REFERENCE-STUDY action-1 status +
+  readiness changelog; commit. Companion design: the reference study below
+  (`docs/REFERENCE-STUDY.md`) is the rationale.
 **Updated:** 2026-10-11 (reference study, owner grant): cloned + studied
   bbolt (MIT), redb (MIT/Apache-2.0) and SQLite (public domain) under
   `E:\repos`; `docs/REFERENCE-STUDY.md` maps their load-bearing mechanisms
@@ -588,10 +607,16 @@ bundles + suite first; re-verify the phantom bundle on the first archive
 containing m255 -- REL-20261010-1802-orbitdb), PULSE's `probe_pkg_orbitdb`
 results, and the stdlib rows on the bus (-3..-8 acked). (XVECTOR's
 XV-ORBITDB-01 fix was verified and closed 2026-10-10; re-run the hybrid
-probe when their pin moves.)
+probe when their pin moves.) **Doorbell: scheduled cron tasks are
+SESSION-scoped -- a fresh session MUST re-create the 3h `cron_create`
+xiom-relays doorbell (pull, `view --lane orbitdb`, process, verify release
+rows, docs+commit).**
 
-CURRENT STATE: v0.64.2 pin; all C-ORBIT compiler workarounds REVERTED and the
-suite is green on the native forms -- conformance 134/134 x2 Win + WSL (see
+CURRENT STATE: v0.64.3 pin (Windows shadow `xiom.new.0643` via dev-env;
+WSL canonical `~/.local/bin/xiom`; the Windows canonical `xiom.new` stays
+v0.64.2 for the fleet -- swap is owner/ops-coordinated); all C-ORBIT compiler
+workarounds REVERTED and the suite is green on the native forms --
+conformance 134/134 x2 Win + WSL (see
 the findings file for the one consumer-qualification caveat); db_crash five
 scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn discarded,
 committed txn recovered) x2 Win + WSL, each recovery followed by qverify
@@ -599,17 +624,21 @@ committed txn recovered) x2 Win + WSL, each recovery followed by qverify
 `tests/hybrid/probe_hybrid.xi` (36 checks: join integrity, brute-force
 top-k, delete pipeline, reopen bit-equality, prefix/torn tail) +
 `scripts/hybrid_crash_test.{ps1,sh}` (hard-kill both stores -> repair ->
-100% join integrity, idempotent) x2 Win + WSL; C-ORBIT-06 OPEN (phantom
-imports -- never keep an unresolvable `use`); XV-ORBITDB-01 OPEN on the
-XVECTOR side (chained persist/load goes empty; the probe works around it in
-`persist_recovered`); fuzz/property harness
+100% join integrity, idempotent) x2 Win + WSL; C-ORBIT-06: twin half still
+red on v0.64.3 via the documented invocation (invocation-dependent --
+bare-filename checker bug fixed on compiler main by m255, unpushed;
+re-verify the phantom bundle on the next archive), phantom acceptance
+queued for v0.64.4; standalone `--check` quirk = bus row -2 (acked, still
+open); XV-ORBITDB-01 FIXED (xvector `3c36f34`), verified against their
+source and CLOSED -- the `persist_recovered` workaround is REMOVED; fuzz/property harness
 `scripts/fuzz.{ps1,sh}` (seeds=4 ops/seed=4000) x2 Win + WSL; policy soak
 2000 keys / 9 checkpoints x2 Win + WSL; 20k-record WAL replay ~9.9 s (linear
 stdlib); bench harness live; app build `scripts/build.ps1` embeds
 assets/orbitdb.ico (--icon verified); readiness
-69.5/100 (docs/PRODUCTION-READINESS.md -- recompute + changelog every wrap);
+71.5/100 (docs/PRODUCTION-READINESS.md -- recompute + changelog every wrap);
 reference docs docs/API.md + docs/RUNBOOK.md + docs/FORMATS.md +
-docs/ISOLATION.md; production plan docs/PRODUCTION-PLAN.md +
+docs/ISOLATION.md + docs/REFERENCE-STUDY.md; production plan
+docs/PRODUCTION-PLAN.md +
 docs/checklists/production-release.md (M1-M8, gates P-alpha -> 1.0, release
 signal). Durable pieces: src/wal_file.xi (segment +
 Begin/Commit/Abort txn records, LSN resume, heal-state, truncate seam keeping
@@ -631,8 +660,10 @@ migration, db_crash v2 x2 both; design `docs/BYTE-PAGE-FORMAT-V2.md`);
 secondary value index + ORDER/LIMIT (M4.2: `src/secondary_index.xi` +
 `IndexValue` plan; suite 134 x2 both); B-tree order-3
 empty-chain fix (predecessor/successor, fill_child, min/max; suite
-regression + fuzz orders 3/4/5)). Known limits: no fsync
-(process-crash safe only); replay is linear now but file IO is O(n) per read
+regression + fuzz orders 3/4/5); durability API + fault injector (M2.1
+first half -- IN CODE, tests/probe/evidence pending; see the top Updated
+entry)). Known limits: no fsync (process-crash safe only; the durability API
++ env fault injector are pinned so the swap is behavior-only); replay is linear now but file IO is O(n) per read
 (no random access); checkpoint encodes only dirty nodes (M1.1) but the tree
 stays fully resident (lazy load/bounded cache need random-access page reads);
 transactions single-active, no MVCC (single-writer model in
@@ -640,22 +671,26 @@ docs/ISOLATION.md); buffer pool in-memory only (pager seam C3 pending);
 fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-1. M1.2 byte-page v2: design + S1 + S2 + S3 integration DONE (v2 snapshot
-   container behind `page_format` 2; db_crash v2 x2 both; suite 130 x2
-   both); next S4 (stdlib byte IO + fsync swap, default flip + bench,
-   FORMATS 3v2 tables), then M1.1b lazy load.
-2. Order-3 B-tree fix is upstream; when the fixed `xiom.btree` package
-   releases, re-extract is theirs -- run our two-way consumer pass then.
-3. M4.2 DONE (secondary value index + IndexValue plan + ORDER/LIMIT; suite
-   134 x2 both + fuzz (g) vs brute-force model); next M5.1 typed values v2.
-4. M5.1 typed values v2 (type-tagged tuples; text at least).
-5. M2.1 fsync wiring when stdlib lands; M1.1b lazy load once random-access
-   page reads exist; MVCC per M3; keep the hybrid harness green at every
-   wrap (and when the XVECTOR pin moves); keep SESSION.md STATE, the bus
-   items and PRODUCTION-READINESS updated at every wrap; commit signed per
-   step.
+1. **FINISH M2.1 first half** (in code, needs tests + evidence): 2 suite
+   tests (durability API; syncfail latch via `env.set_var` +
+   `fault_reset`) + `tests/probes/probe_fault_sync.xi` (put-latch;
+   checkpoint-2PC pre-sync failure with the snapshot size unchanged;
+   partial-write page recovery) + suite/fuzz x2 and probe x2 on Win + WSL +
+   RUNBOOK/REFERENCE-STUDY/readiness + commit. Details in the top Updated
+   entry.
+2. M5.1 typed values v2 (type-tagged tuples; text at least).
+3. M1.2 S4 when the stdlib rows land (byte-IO/fsync swap -- bus -3..-8
+   acked; v2 default flip + fresh bench + FORMATS 3v2 tables; M2.1 second
+   half rides here), then M1.1b (pager: deterministic deferred-free
+   allocator per docs/REFERENCE-STUDY.md).
+4. When the fixed `xiom.btree` is re-extracted (order-3; bus -9 acked), run
+   our two-way consumer pass.
+5. M3 MVCC minimal subset (snapshot pinning + savepoint slice) per the
+   reference study; keep the hybrid harness green at every wrap (and when
+   the XVECTOR pin moves); keep SESSION.md STATE, the bus items and
+   PRODUCTION-READINESS updated at every wrap; commit signed per step.
 
-DISCIPLINE (v0.64.2; C-ORBIT workarounds DROPPED -- see COMPILER-FINDINGS):
+DISCIPLINE (v0.64.3; C-ORBIT workarounds DROPPED -- see COMPILER-FINDINGS):
 - Never keep an unresolvable `use` or an undeclared type (C-ORBIT-06): it
   type-checks standalone with bogus W004s, then hard-fails once any module in
   the program declares a same-named type.

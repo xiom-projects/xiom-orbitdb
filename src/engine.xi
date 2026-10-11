@@ -1429,6 +1429,15 @@ pub type DBFile = {
   // Secondary indexes over VALUES (M4.2); handle-scoped, rebuilt on open via
   // `db_file_create_index`. Maintained by put/delete/txn-commit.
   indexes: Vec[SecondaryIndex];
+  // Durability (M2.1 first half): 0 = normal (ack without a flush; sync at
+  // checkpoint only), 1 = immediate (flush at every commit ack). With the
+  // stdlib fsync stub both are no-ops today; the API is pinned now so the
+  // swap is behavior-only. `two_phase` (immediate only) flushes the WAL
+  // before a checkpoint publishes its snapshot. A failed flush latches
+  // `failed`: writers refuse until the handle is reopened.
+  durability: Int;
+  two_phase: Bool;
+  failed: Bool;
 }
 
 // Apply one replayed record. Maps by op code so cross-module enum patterns
@@ -1535,7 +1544,8 @@ pub fn db_file_open_cfg(path: Str, order: Int, page_format: Int) -> DBFile {
   return DBFile{ path: path, order: tree.order, tree: tree, wal: wal,
                  records_since_ckpt: 0, txn_active: false, txn_ops: ops,
                  wal_bytes: wal_bytes, page_format: page_format,
-                 indexes: indexes };
+                 indexes: indexes, durability: 1, two_phase: false,
+                 failed: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -1609,6 +1619,8 @@ pub fn db_file_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
   if db.txn_active { return false; }
   // Stale handle: another writer appended since our last write.
   if !db_file_guard(db) { return false; }
+  // Latched after a failed flush/commit: refuse until reopen.
+  if db.failed { return false; }
   // Qualified: this module imports wal_file but a program may also contain
   // txn's same-named WALOp variants; m225 scopes UNQUALIFIED resolution to the
   // declaring module, not to the importing consumer (see COMPILER-FINDINGS).
@@ -1629,7 +1641,8 @@ pub fn db_file_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
   if is_update { let _ = btree_delete(&mut db.tree, key); }
   let inserted = btree_insert(&mut db.tree, key, value);
   if inserted { db_file_note_value_change(db, key, existing, value, true); }
-  return inserted;
+  if !inserted { return false; }
+  return db_file_commit_sync(db);
 }
 
 pub fn db_file_delete(db: &mut DBFile, key: Int) -> Bool {
@@ -1637,6 +1650,7 @@ pub fn db_file_delete(db: &mut DBFile, key: Int) -> Bool {
   if db.txn_active { return false; }
   // Stale handle: another writer appended since our last write.
   if !db_file_guard(db) { return false; }
+  if db.failed { return false; }
   let existing = btree_search(&db.tree, key);
   match existing {
     None => { return false; }
@@ -1648,7 +1662,8 @@ pub fn db_file_delete(db: &mut DBFile, key: Int) -> Bool {
   db.records_since_ckpt = db.records_since_ckpt + 1;
   let removed = btree_delete(&mut db.tree, key);
   if removed { db_file_note_value_change(db, key, existing, 0, false); }
-  return removed;
+  if !removed { return false; }
+  return db_file_commit_sync(db);
 }
 
 pub fn db_file_get(db: &DBFile, key: Int) -> Option[Int] {
@@ -1802,7 +1817,46 @@ pub fn db_file_last_lsn(db: &DBFile) -> Int {
 }
 
 pub fn db_file_flush(db: &mut DBFile) -> Bool {
-  return wal_file_flush(&mut db.wal);
+  if db.failed { return false; }
+  let ok = byteio_sync(db.path);
+  if !ok { db.failed = true; }
+  return ok;
+}
+
+// --- durability API (M2.1 first half) --------------------------------------
+
+// 0 = normal (ack without a flush), 1 = immediate (flush at every commit
+// ack); invalid modes are rejected.
+pub fn db_file_set_durability(db: &mut DBFile, mode: Int) -> Bool {
+  if mode != 0 && mode != 1 { return false; }
+  db.durability = mode;
+  return true;
+}
+
+// Two-phase checkpoints flush the WAL before the snapshot publishes its
+// header; only meaningful in immediate mode.
+pub fn db_file_set_two_phase(db: &mut DBFile, enabled: Bool) -> Bool {
+  if enabled && db.durability != 1 { return false; }
+  db.two_phase = enabled;
+  return true;
+}
+
+pub fn db_file_durability(db: &DBFile) -> Int { return db.durability; }
+
+pub fn db_file_two_phase(db: &DBFile) -> Bool { return db.two_phase; }
+
+pub fn db_file_failed(db: &DBFile) -> Bool { return db.failed; }
+
+// Ack-time flush for commit paths (immediate mode only); a failed flush
+// latches the handle -- writers refuse until reopen (redb's latch model,
+// docs/REFERENCE-STUDY.md). Fast-tracks when normal.
+fn db_file_commit_sync(db: &mut DBFile) -> Bool {
+  if db.durability != 1 { return true; }
+  if !byteio_sync(db.path) {
+    db.failed = true;
+    return false;
+  }
+  return true;
 }
 
 // ===========================================================================
@@ -2385,8 +2439,18 @@ pub fn db_file_checkpoint(db: &mut DBFile) -> Int {
   if db.txn_active { return -1; }
   // A stale handle must not snapshot its older tree over a newer WAL.
   if !db_file_guard(db) { return -1; }
+  if db.failed { return -1; }
   let snap_path = db.path + ".snap";
   let snap_lsn = wal_file_next_lsn(&db.wal) - 1;
+  // Two-phase (immediate mode): the WAL must be durable BEFORE the snapshot
+  // publishes its header, so a crash can never leave a snapshot that runs
+  // ahead of the log (docs/REFERENCE-STUDY.md; redb 2PC).
+  if db.durability == 1 && db.two_phase {
+    if !byteio_sync(db.path) {
+      db.failed = true;
+      return -1;
+    }
+  }
   var gen = -1;
   if db.page_format == 2 {
     gen = snap_flush_v2(snap_path, &mut db.tree, snap_lsn);
@@ -2419,6 +2483,19 @@ pub fn db_file_checkpoint(db: &mut DBFile) -> Int {
   let _ = wal_file_truncate(db.path, anchor);
   db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = 0;
+  // Post-commit flush (immediate mode): a failure latches the handle; the
+  // checkpoint itself may still have committed (the caller can inspect
+  // db_file_failed). WAL first, then the snapshot.
+  if db.durability == 1 {
+    if !byteio_sync(db.path) {
+      db.failed = true;
+      return -1;
+    }
+    if !byteio_sync(snap_path) {
+      db.failed = true;
+      return -1;
+    }
+  }
   return anchor;
 }
 
@@ -2447,6 +2524,7 @@ pub fn db_file_txn_active(db: &DBFile) -> Bool {
 pub fn db_file_txn_begin(db: &mut DBFile) -> Bool {
   if db.txn_active { return false; }
   if !db_file_guard(db) { return false; }
+  if db.failed { return false; }
   let lsn = wal_file_append(&mut db.wal, WALOpKind.BeginTxn, 0, 0);
   if lsn < 0 { return false; }
   db.wal_bytes = db_wal_size(db.path);
@@ -2460,6 +2538,7 @@ pub fn db_file_txn_begin(db: &mut DBFile) -> Bool {
 pub fn db_file_txn_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
   if !db.txn_active { return false; }
   if !db_file_guard(db) { return false; }
+  if db.failed { return false; }
   let lsn = wal_file_append(&mut db.wal, WALOpKind.Update, key, value);
   if lsn < 0 { return false; }
   db.wal_bytes = db_wal_size(db.path);
@@ -2472,6 +2551,7 @@ pub fn db_file_txn_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
 pub fn db_file_txn_delete(db: &mut DBFile, key: Int) -> Bool {
   if !db.txn_active { return false; }
   if !db_file_guard(db) { return false; }
+  if db.failed { return false; }
   let lsn = wal_file_append(&mut db.wal, WALOpKind.Delete, key, 0);
   if lsn < 0 { return false; }
   db.wal_bytes = db_wal_size(db.path);
@@ -2485,6 +2565,7 @@ pub fn db_file_txn_delete(db: &mut DBFile, key: Int) -> Bool {
 pub fn db_file_txn_commit(db: &mut DBFile) -> Bool {
   if !db.txn_active { return false; }
   if !db_file_guard(db) { return false; }
+  if db.failed { return false; }
   let lsn = wal_file_append(&mut db.wal, WALOpKind.CommitTxn, 0, 0);
   if lsn < 0 { return false; }
   db.wal_bytes = db_wal_size(db.path);
@@ -2503,13 +2584,14 @@ pub fn db_file_txn_commit(db: &mut DBFile) -> Bool {
   }
   db.txn_active = false;
   db.txn_ops = Vec[TxOp].new();
-  return true;
+  return db_file_commit_sync(db);
 }
 
 // Abort: append the AbortTxn marker (audit trail) and discard the buffer.
 pub fn db_file_txn_abort(db: &mut DBFile) -> Bool {
   if !db.txn_active { return false; }
   if !db_file_guard(db) { return false; }
+  if db.failed { return false; }
   let lsn = wal_file_append(&mut db.wal, WALOpKind.AbortTxn, 0, 0);
   if lsn < 0 { return false; }
   db.wal_bytes = db_wal_size(db.path);
