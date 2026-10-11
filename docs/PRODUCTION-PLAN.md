@@ -208,6 +208,14 @@ suite.
 
 ## 13. Execution order (next slices)
 
+> **Reference-informed hardness pass (2026-10-11):** an owner-granted study
+> of bbolt / redb / SQLite distilled in `docs/REFERENCE-STUDY.md` reorders
+> the front of the queue: **M2.1's first half (durability API + the
+> `byte_io` fault injector) runs before other slices** -- it is testable
+> with the current sync stub; WAL v2 commit records (checksum chain + row
+> count + epoch) ride with S4; checkpoint attempted/backfilled accounting
+> and the deterministic deferred-free allocator feed M1.1b/C3.
+
 1. **M1.1 -- paged node store (A5 groundwork).** NodeStore behind the B-tree:
    get/put with page identity, dirty tracking, lazy load; first unbounded
    cache, then a bounded clock cache with write-back (reuse C4 semantics).

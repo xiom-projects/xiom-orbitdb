@@ -64,6 +64,15 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   header slot) -- **suite 127/127 x2 Win + WSL**; API.md storage section
   documents the module. Next S1 item: fuzz extension; then S2 block store
   over the byte-IO shim.
+**Updated:** 2026-10-11 (reference study, owner grant): cloned + studied
+  bbolt (MIT), redb (MIT/Apache-2.0) and SQLite (public domain) under
+  `E:\repos`; `docs/REFERENCE-STUDY.md` maps their load-bearing mechanisms
+  (single-commit-marker discipline + checksum chains, two-slot headers,
+  pending-frees by generation, snapshot/savepoint minimal subset, PASSIVE
+  checkpoint backfill accounting, durability modes incl. 2PC, buffered-write
+  fault injection) to our slices with adopt/adapt/avoid decisions and an
+  ordered next-action list -- **M2.1 first half (durability API + `byte_io`
+  fault injector, testable with the sync stub) leads**.
 **Updated:** 2026-10-10 (doorbell 21:00Z): queue clear (packages-8 awaits
   their verification); compiler root-caused `REL-20261010-1802-orbitdb`
   (C-ORBIT-06 with-twin): the packages pass reproduces only in the
@@ -537,6 +546,9 @@ Ops rules:
 - `docs/PULSE-INTEGRATION.md` (PULSE contract) and
   `docs/PRODUCTION-READINESS.md` (scoreboard -- recompute + changelog line
   every wrap).
+- `docs/REFERENCE-STUDY.md` -- owner-granted reference sandbox (`E:\repos`:
+  bbolt MIT / redb MIT-Apache / sqlite public domain); production-pattern ->
+  adopt/adapt/avoid map per slice + ordered next actions.
 - `docs/relay-archive/` -- pre-bus relay messages (historical only; live
   coordination is the bus).
 

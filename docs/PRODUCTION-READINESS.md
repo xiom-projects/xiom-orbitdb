@@ -227,6 +227,16 @@ Scoreboard changelog:
   WSL** (4 new tests), fuzz section (g) vs brute-force model x2 both.
   **E3 0 -> 1** (functional index + catalog tie-in + fuzz; durable
   page-backed storage still gated on A5): 70.5 -> **71.5**.
+- 2026-10-11 (reference study): owner-granted reference sandbox (`E:\repos`)
+  -- cloned and studied bbolt (MIT), redb (MIT/Apache-2.0) and SQLite
+  (public domain, read-only); `docs/REFERENCE-STUDY.md` distills their
+  load-bearing mechanisms (commit-marker discipline, checksum chains,
+  two-slot headers, pending-frees by generation, snapshot/savepoint subset,
+  PASSIVE checkpoint backfill accounting, durability modes, buffered-write
+  fault injection) into adopt/adapt/avoid decisions per slice with an
+  ordered next-action list (M2.1 durability API + `byte_io` fault injector
+  first). No score change (practice/evidence, not shipped capability):
+  71.5.
 
 ## A. Correctness & data structures (20)
 
