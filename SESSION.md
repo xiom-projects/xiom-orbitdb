@@ -911,7 +911,22 @@ XV-ORBITDB-01 fix was verified and closed 2026-10-10; re-run the hybrid
 probe when their pin moves.) **Doorbell: scheduled cron tasks are
 SESSION-scoped -- a fresh session MUST re-create the 3h `cron_create`
 xiom-relays doorbell (pull, `view --lane orbitdb`, process, verify release
-rows, docs+commit).**
+rows, docs+commit).** (Note: the relays clone fetches a wildcard refspec,
+so `git pull --ff-only` can print "Cannot fast-forward to multiple
+branches" even when main matches origin -- verify with
+`git rev-parse main origin/main` and use `git merge --ff-only origin/main`.)
+**v0.64.4 status (doorbell 18:00Z): compiler batches 1-6 are COMPLETE and
+the stack is staged (m261..m271, archive not yet pushed) --
+`REL-20261011-1731-compiler`. Batch 1 (m261/m262) explicitly CLOSES our
+C-ORBIT-07 (`REL-20261011-1124-orbitdb`); batch 3 (m266/m267) hard-errors
+unresolved imports + fixes the bare-pattern variant side (our C-ORBIT-06 /
+phantom gate). ASK from compiler: when the archive lands, re-run our
+witnesses (from the bundle READMEs), set `verified` or bounce back with
+evidence; workarounds stay until re-verified. C-ORBIT-07 witness check:
+`docs/repro/consumer-fn-hijack/` must print `svc: private arm() ran` on
+BOTH import orders (add a second-order probe variant if the archive
+changes nothing there); fix refs live in
+`release-checks/compiler-compiler-v0.64.3.md` NEXT-BATCH.**
 
 CURRENT STATE: v0.64.3 pin (Windows shadow `xiom.new.0643` via dev-env;
 WSL canonical `~/.local/bin/xiom`; the Windows canonical `xiom.new` stays
