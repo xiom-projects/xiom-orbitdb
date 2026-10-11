@@ -147,6 +147,14 @@ scripts\run.ps1 tests\probes\probe_db_file.xi -TimeoutSec 180
   `REL-20261011-1124-orbitdb`). Symptom shape: bogus contract panic in a
   stdlib module reached through the hijacked call, no file name in the
   message.
+- Hybrid probe `full` mode assumes FRESH paths (it does not clean up):
+  reusing a previous run's WAL/vector pair can trip a contract on WSL
+  (observed `ensures at 51:12` while Windows tolerated the same reuse). Use
+  per-run file names or delete the pair first; the crash harness manages its
+  own paths. Cross-platform batteries that suddenly show unresolved-package
+  T001s: check the shared package homes first (the 2026-10-10 wipe; ours was
+  missing `xiom-vectors`/`xiom-wal` on WSL only -- see
+  `REL-20261011-1229-orbitdb`).
 - WSL memory/contention: other lanes (PULSE/XVECTOR) share the WSL VM. Before
   chained WSL harness runs check `ps aux --sort=-rss | head` and `free -m`,
   run at most ONE heavy harness per command, and pause/retry if the VM is

@@ -183,12 +183,28 @@ Fix (this repo): mirror their `[dependencies]` block exactly --
 `xiom.wal`, `xiom.metrics`, `xiom.rate`, `xiom.http`, `xiom.vectors` --
 in `tests/hybrid/xiom.toml`, and keep it in lockstep with their manifest
 when either side moves. `probe_hybrid.xi` `full` mode is GREEN again
-(36 checks) immediately after. Wrap guard lifted; re-run as usual at every
-wrap (and whenever the xvector pin moves).
+(36 checks) immediately after on Windows.
+
+**WSL follow-up (same hour):** the WSL shared home
+(`~/.local/share/xiom/packages`, mirrored at `~/xiom/packages`) was still
+missing `xiom-vectors-0.1.0` and `xiom-wal-0.1.0` from the wipe (Windows
+had them -- that is why only WSL showed the T001s). Plain additive
+reinstall (`xiom pkg install xiom.vectors@0.1.0` + `xiom.wal@0.1.0`);
+WSL probe + crash harness GREEN after. Ops FYI:
+`REL-20261011-1229-orbitdb` (check both homes when a battery suddenly
+shows unresolved-package T001s).
+
+**Wrap evidence 2026-10-11 (final tree):** probe `full` x2 Win + x2 WSL
+(fresh paths per run -- `full` does not clean up; a reuse of the same
+WAL/vector pair on WSL tripped a contract, so keep runs on fresh names),
+crash harness x2 Win + x2 WSL (5/5 each, idempotent).
+
+Wrap guard lifted; re-run as usual at every wrap (and whenever the xvector
+pin moves).
 
 Ops note (same day): the shared toolchain-home wipe
 (`REL-20261010-1835-xvector`) had removed installed packages from the shared
-home. At re-run time the needed packages were present again; the missing
-piece was only the manifest declaration -- no install was performed by this
-lane. Lane rules: `REL-20261011-1134-ops` / `TOOLCHAIN_HYGIENE.md` -- never
+homes. Windows still had them (only the manifest declaration was missing
+there); WSL required the plain additive reinstall described above. Lane
+rules: `REL-20261011-1134-ops` / `TOOLCHAIN_HYGIENE.md` -- never
 delete/downgrade shared homes; isolate destructive tests.

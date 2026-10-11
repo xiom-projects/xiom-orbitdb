@@ -106,7 +106,14 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `REL-20261011-1146` acked (reporter closes). Also adopted the ops hygiene
   rule `REL-20261011-1134-ops`: never delete/downgrade shared toolchain
   homes (this lane pins its own shadow install via dev-env); destructive
-  tests need an isolated XIOM_HOME + a `to: all` announcement. Next per task
+  tests need an isolated XIOM_HOME + a `to: all` announcement. WSL
+  follow-up: the WSL shared home was still missing `xiom-vectors`/`xiom-wal`
+  from the wipe (Windows had them -- the platform split); plain additive
+  reinstall (`xiom pkg install ...@0.1.0`), then WSL probe + crash GREEN;
+  ops FYI `REL-20261011-1229-orbitdb`. **Final hybrid evidence on the wrap
+  tree: probe `full` x2 Win + x2 WSL (fresh paths -- `full` does not clean
+  up; a same-path reuse on WSL tripped a contract), crash harness x2 Win +
+  x2 WSL (5/5, idempotent); RUNBOOK gotcha added.** Next per task
   order: M5.1 typed values v2 (codec landed this session, evidence in
   progress).
 **Updated:** 2026-10-11 (M5.1 codec, same session): typed values v2 at the
