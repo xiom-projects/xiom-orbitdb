@@ -27,13 +27,33 @@ use xiom.db.catalog.schema;
 // B-TREE INDEX (from xiom.db.index.btree)
 // ============================================================================
 
+// Snapshot pin (M3 minimal subset, docs/MVCC.md): a stable read view over
+// the node arena. `root` indexes this handle's arena; `lsn` is the highest
+// WAL LSN at capture; `generation` is the last committed snapshot generation
+// (0 = none). Handle-local; live until `db_file_snapshot_end` or reopen.
+pub type DBSnapshot = {
+  id: Int;
+  root: Int;
+  lsn: Int;
+  generation: Int;
+}
+
 // NodeStore: the node arena behind a B-tree. `dirty[i]` marks node i as
 // changed since the last successful snapshot flush; checkpoints encode only
-// dirty nodes (M1.1). The store is fully resident for now -- lazy load and a
-// bounded cache arrive in the next slice of the storage spine.
+// dirty nodes (M1.1). M3 adds version bookkeeping: `births[i]` is the write
+// epoch node i was created in and `pin_clock` counts pin creations; while
+// pins exist, a node with `birth <= pin_clock` may be reachable from a pinned
+// root and must be shadow-copied before any mutation (see `cow_shadow`).
+// `compaction_deferred` counts checkpoint compactions skipped because a pin
+// was live (docs/MVCC.md sec. 2.3). The store is fully resident for now --
+// lazy load and a bounded cache arrive with the storage spine.
 pub type NodeStore = {
   nodes: Vec[BTreeNode];
   dirty: Vec[Bool];
+  births: Vec[Int];
+  pins: Vec[DBSnapshot];
+  pin_clock: Int;
+  compaction_deferred: Int;
 }
 
 pub fn ns_len(store: &NodeStore) -> Int {
@@ -45,17 +65,73 @@ pub fn ns_get(store: &NodeStore, idx: Int) -> BTreeNode {
   return store.nodes[idx];
 }
 
-// Overwrite a node in place and mark it dirty.
+// Overwrite a node in place and mark it dirty. M3 discipline: the target MUST
+// be writable for the current pin state -- i.e. it was produced by `ns_push`
+// (which stamps `pin_clock + 1`) or by `cow_shadow` in the same operation.
 pub fn ns_set(store: &mut NodeStore, idx: Int, node: BTreeNode) {
   store.nodes[idx] = node;
   store.dirty[idx] = true;
 }
 
-// Append a node (new nodes start dirty); returns its index.
+// Append a node (new nodes start dirty); returns its index. The birth epoch
+// `pin_clock + 1` marks it mutable until a newer pin exists (M3).
 pub fn ns_push(store: &mut NodeStore, node: BTreeNode) -> Int {
   store.nodes.push(node);
   store.dirty.push(true);
+  store.births.push(store.pin_clock + 1);
   return store.nodes.len() - 1;
+}
+
+// Deep copy of a node that OWNS its storage. Struct/Vec assignment shares
+// nested Vec buffers and element assignment through a copied handle writes
+// through to the source buffer (C-ORBIT-09, docs/repro/vec-copy-alias/), so a
+// shadow must rebuild every vector -- keys/values/children and each payload.
+fn node_deep_copy(node: &BTreeNode) -> BTreeNode {
+  var keys = Vec[Int].new();
+  var values = Vec[Int].new();
+  var children = Vec[Int].new();
+  var payloads = Vec[Vec[Int]].new();
+  var i = 0;
+  while i < node.keys.len() {
+    keys.push(node.keys[i]);
+    values.push(node.values[i]);
+    i = i + 1;
+  }
+  i = 0;
+  while i < node.children.len() {
+    children.push(node.children[i]);
+    i = i + 1;
+  }
+  i = 0;
+  while i < node.keys.len() {
+    let src = node_payload(node, i);
+    var p = Vec[Int].new();
+    var k = 0;
+    while k < src.len() {
+      p.push(src[k]);
+      k = k + 1;
+    }
+    payloads.push(p);
+    i = i + 1;
+  }
+  return BTreeNode{ keys: keys, values: values, payloads: payloads,
+                    children: children, is_leaf: node.is_leaf };
+}
+
+// M3 copy-on-write: return an index safe to MUTATE for `idx`. Identity while
+// no snapshot is pinned (fast path) or when the node was born after the
+// newest pin (`birth > pin_clock` -- it cannot be in any pinned view).
+// Otherwise the node may be reachable from a pinned root: deep-copy it to a
+// fresh slot and return the copy. The caller MUST store the result in the
+// (already writable) parent's child pointer or in `tree.root`.
+// docs/MVCC.md sec. 2.2.
+fn cow_shadow(tree: &mut BTree, idx: Int) -> Int {
+  if tree.store.pins.len() == 0 { return idx; }
+  if idx < 0 { return idx; }
+  if idx >= tree.store.nodes.len() { return idx; }
+  if tree.store.births[idx] > tree.store.pin_clock { return idx; }
+  let copy = node_deep_copy(&tree.store.nodes[idx]);
+  return ns_push(&mut tree.store, copy);
 }
 
 // Mark every node clean after a successful snapshot commit (or after a load).
@@ -114,7 +190,10 @@ pub fn btree_new(order: Int) -> BTree
 {
   var nodes = Vec[BTreeNode].new();
   var dirty = Vec[Bool].new();
-  var store = NodeStore{ nodes: nodes, dirty: dirty };
+  var births = Vec[Int].new();
+  var pins = Vec[DBSnapshot].new();
+  var store = NodeStore{ nodes: nodes, dirty: dirty, births: births, pins: pins,
+                         pin_clock: 0, compaction_deferred: 0 };
   let leaf = new_leaf_node();
   // The initial leaf must be persisted by the first checkpoint.
   let _ = ns_push(&mut store, leaf);
@@ -198,7 +277,12 @@ pub fn btree_insert_payload(tree: &mut BTree, key: Int, value: Int,
   }
   var max_keys = tree.order - 1;
   if tree.store.nodes[tree.root].keys.len() >= max_keys {
+    // split_root only READS the old root and pushes fresh halves, so a pinned
+    // root can be split safely without a shadow copy.
     split_root(tree);
+  } else {
+    // M3: the root about to be mutated must be writable (may be pinned).
+    tree.root = cow_shadow(tree, tree.root);
   }
   return insert_nonfull(tree, tree.root, key, value, payload);
 }
@@ -283,6 +367,15 @@ fn insert_nonfull(tree: &mut BTree, node_idx: Int, key: Int, value: Int,
       }
     }
     var new_child_idx = tree.store.nodes[node_idx].children[pos];
+    // M3: the descended child will be mutated; make it writable first and
+    // persist the shadowed index into this (already writable) parent.
+    var shadowed_child = cow_shadow(tree, new_child_idx);
+    if shadowed_child != new_child_idx {
+      var parent = tree.store.nodes[node_idx];
+      parent.children[pos] = shadowed_child;
+      ns_set(&mut tree.store, node_idx, parent);
+      new_child_idx = shadowed_child;
+    }
     return insert_nonfull(tree, new_child_idx, key, value, payload);
   }
   return false;
@@ -290,6 +383,15 @@ fn insert_nonfull(tree: &mut BTree, node_idx: Int, key: Int, value: Int,
 
 fn split_child(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
   var child_idx = tree.store.nodes[parent_idx].children[child_pos];
+  // M3: the child is truncated and re-written below; shadow it first and fix
+  // the (already writable) parent so both halves are fresh.
+  var shadowed_child = cow_shadow(tree, child_idx);
+  if shadowed_child != child_idx {
+    var p = tree.store.nodes[parent_idx];
+    p.children[child_pos] = shadowed_child;
+    ns_set(&mut tree.store, parent_idx, p);
+    child_idx = shadowed_child;
+  }
   var child = tree.store.nodes[child_idx];
   var mid = child.keys.len() / 2;
 
@@ -373,6 +475,9 @@ pub fn btree_delete(tree: &mut BTree, key: Int) -> Bool {
     None => return false,
     Some(_) => {}
   }
+  // M3: only a found key mutates the tree, so the root is shadowed here (a
+  // no-op delete must not copy anything).
+  tree.root = cow_shadow(tree, tree.root);
   return delete_from_node(tree, tree.root, key);
 }
 
@@ -407,7 +512,18 @@ fn delete_from_node(tree: &mut BTree, node_idx: Int, key: Int) -> Bool {
     // fill_child returns the NODE INDEX of the (possibly relocated) target
     // child: a merge at child_pos-1 shifts it left. Recursing with the old
     // position instead descended an unrelated node (churn repro op=148).
+    // M3: fill_child shadows the child (and any sibling it touches) itself.
     child_idx = fill_child(tree, node_idx, idx, min_keys);
+  } else {
+    // M3: the descent will mutate this child; shadow it and fix this
+    // (already writable) parent.
+    var shadowed_child = cow_shadow(tree, child_idx);
+    if shadowed_child != child_idx {
+      var parent = tree.store.nodes[node_idx];
+      parent.children[idx] = shadowed_child;
+      ns_set(&mut tree.store, node_idx, parent);
+      child_idx = shadowed_child;
+    }
   }
 
   return delete_from_node(tree, child_idx, key);
@@ -437,13 +553,21 @@ fn remove_from_internal(tree: &mut BTree, node_idx: Int, pos: Int, min_keys: Int
   // Predecessor/successor substitution only when the donor subtree can spare
   // a key (the old guard); the Option covers degenerate empty chains inside
   // the donor (order 3), falling through to the merge when neither side can
-  // donate. The donor entry's payload moves up with its key/value.
+  // donate. The donor entry's payload moves up with its key/value. M3: the
+  // donor read above sees identical content in the shadow copy, so the
+  // predecessor is computed BEFORE the donor is shadowed for the delete
+  // descent.
   if tree.store.nodes[left_child_idx].keys.len() > min_keys {
     match get_predecessor(tree, left_child_idx) {
       Some(pred) => {
         node.keys[pos] = pred.key;
         node.values[pos] = pred.value;
         node.payloads[pos] = pred.payload;
+        var shadowed_left = cow_shadow(tree, left_child_idx);
+        if shadowed_left != left_child_idx {
+          node.children[pos] = shadowed_left;
+          left_child_idx = shadowed_left;
+        }
         ns_set(&mut tree.store, node_idx, node);
         delete_from_node(tree, left_child_idx, pred.key);
         return;
@@ -458,6 +582,11 @@ fn remove_from_internal(tree: &mut BTree, node_idx: Int, pos: Int, min_keys: Int
         node.keys[pos] = succ.key;
         node.values[pos] = succ.value;
         node.payloads[pos] = succ.payload;
+        var shadowed_right = cow_shadow(tree, right_child_idx);
+        if shadowed_right != right_child_idx {
+          node.children[pos + 1] = shadowed_right;
+          right_child_idx = shadowed_right;
+        }
         ns_set(&mut tree.store, node_idx, node);
         delete_from_node(tree, right_child_idx, succ.key);
         return;
@@ -468,9 +597,10 @@ fn remove_from_internal(tree: &mut BTree, node_idx: Int, pos: Int, min_keys: Int
 
   // Both donors are at the floor: merge the two children around the
   // separator. Safe here because this node holds at least the separator key
-  // (the caller only reaches this with a key at `pos`).
-  merge_children(tree, node_idx, pos);
-  delete_from_node(tree, left_child_idx, key);
+  // (the caller only reaches this with a key at `pos`). M3: merge_children
+  // shadows the surviving (left) child and returns its fresh index.
+  let merged_idx = merge_children(tree, node_idx, pos);
+  delete_from_node(tree, merged_idx, key);
 }
 
 // True when the subtree rooted at node_idx holds at least one key. Keyless
@@ -549,9 +679,18 @@ fn get_successor(tree: &BTree, node_idx: Int) -> Option[NodeEntry] {
   return None;
 }
 
-fn merge_children(tree: &mut BTree, parent_idx: Int, pos: Int) {
+// Merge children[pos] + separator + children[pos+1] into the left child.
+// M3: the left child is shadowed first (the right child is absorbed verbatim
+// and stays untouched for pinned views; it becomes live-garbage). Returns the
+// fresh index of the merged child so callers can descend into it.
+fn merge_children(tree: &mut BTree, parent_idx: Int, pos: Int) -> Int {
   var parent = tree.store.nodes[parent_idx];
   var left_idx = parent.children[pos];
+  var shadowed_left = cow_shadow(tree, left_idx);
+  if shadowed_left != left_idx {
+    parent.children[pos] = shadowed_left;
+    left_idx = shadowed_left;
+  }
   var right_idx = parent.children[pos + 1];
 
   var left = tree.store.nodes[left_idx];
@@ -600,6 +739,7 @@ fn merge_children(tree: &mut BTree, parent_idx: Int, pos: Int) {
   if parent.keys.len() == 0 && parent_idx == tree.root {
     tree.root = left_idx;
   }
+  return left_idx;
 }
 
 fn fill_child(tree: &mut BTree, parent_idx: Int, child_pos: Int, min_keys: Int) -> Int {
@@ -609,8 +749,17 @@ fn fill_child(tree: &mut BTree, parent_idx: Int, child_pos: Int, min_keys: Int) 
   // 0, i.e. order 3): there is no sibling arrangement to borrow from and no
   // key to merge down; merging would read `children[pos + 1]` past the end.
   // Descending straight through is correct -- the child keeps its own count.
+  // M3: the pass-through child is descended into, so it must be writable.
   if parent.keys.len() == 0 {
-    return parent.children[child_pos];
+    var through_idx = parent.children[child_pos];
+    var shadowed_through = cow_shadow(tree, through_idx);
+    if shadowed_through != through_idx {
+      var pp = tree.store.nodes[parent_idx];
+      pp.children[child_pos] = shadowed_through;
+      ns_set(&mut tree.store, parent_idx, pp);
+      through_idx = shadowed_through;
+    }
+    return through_idx;
   }
 
   if child_pos > 0 {
@@ -630,10 +779,10 @@ fn fill_child(tree: &mut BTree, parent_idx: Int, child_pos: Int, min_keys: Int) 
   }
 
   if child_pos > 0 {
-    merge_children(tree, parent_idx, child_pos - 1);
+    let _ = merge_children(tree, parent_idx, child_pos - 1);
     return tree.store.nodes[parent_idx].children[child_pos - 1];
   }
-  merge_children(tree, parent_idx, child_pos);
+  let _ = merge_children(tree, parent_idx, child_pos);
   return tree.store.nodes[parent_idx].children[child_pos];
 }
 
@@ -641,6 +790,18 @@ fn borrow_from_left(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
   var parent = tree.store.nodes[parent_idx];
   var child_idx = parent.children[child_pos];
   var left_idx = parent.children[child_pos - 1];
+  // M3: both participants are re-written below; shadow them and fix the
+  // (already writable) parent local, which is ns_set at the end.
+  var shadowed_child = cow_shadow(tree, child_idx);
+  if shadowed_child != child_idx {
+    parent.children[child_pos] = shadowed_child;
+    child_idx = shadowed_child;
+  }
+  var shadowed_left = cow_shadow(tree, left_idx);
+  if shadowed_left != left_idx {
+    parent.children[child_pos - 1] = shadowed_left;
+    left_idx = shadowed_left;
+  }
   var child = tree.store.nodes[child_idx];
   var left = tree.store.nodes[left_idx];
   var left_last = left.keys.len() - 1;
@@ -690,6 +851,18 @@ fn borrow_from_right(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
   var parent = tree.store.nodes[parent_idx];
   var child_idx = parent.children[child_pos];
   var right_idx = parent.children[child_pos + 1];
+  // M3: both participants are re-written below; shadow them and fix the
+  // (already writable) parent local, which is ns_set at the end.
+  var shadowed_child = cow_shadow(tree, child_idx);
+  if shadowed_child != child_idx {
+    parent.children[child_pos] = shadowed_child;
+    child_idx = shadowed_child;
+  }
+  var shadowed_right = cow_shadow(tree, right_idx);
+  if shadowed_right != right_idx {
+    parent.children[child_pos + 1] = shadowed_right;
+    right_idx = shadowed_right;
+  }
   var child = tree.store.nodes[child_idx];
   var right = tree.store.nodes[right_idx];
 
@@ -1678,6 +1851,11 @@ pub type DBFile = {
   durability: Int;
   two_phase: Bool;
   failed: Bool;
+  // Last committed snapshot generation (0 = none), for `DBSnapshot`.
+  snap_generation: Int;
+  // M3 savepoint (single level): active marker + buffer length at capture.
+  sp_active: Bool;
+  sp_marker: Int;
 }
 
 // Apply one replayed record. Maps by op code so cross-module enum patterns
@@ -1748,6 +1926,7 @@ pub fn db_file_open(path: Str, order: Int) -> DBFile {
 pub fn db_file_open_cfg(path: Str, order: Int, page_format: Int) -> DBFile {
   var tree = btree_new(order);
   var snap_lsn = 0;
+  var snap_gen = 0;
   let snap_path = path + ".snap";
   // Snapshot reads auto-detect the on-disk format: 'O' (0x4F) first byte =
   // v2 block store; anything else = v1 text page log (healed on open).
@@ -1758,6 +1937,7 @@ pub fn db_file_open_cfg(path: Str, order: Int, page_format: Int) -> DBFile {
       let snap: Snapshot = s;
       tree = snap.tree;
       snap_lsn = snap.checkpoint_lsn;
+      snap_gen = snap.generation;
     }
   }
 
@@ -1815,7 +1995,8 @@ pub fn db_file_open_cfg(path: Str, order: Int, page_format: Int) -> DBFile {
                  records_since_ckpt: 0, txn_active: false, txn_ops: ops,
                  wal_bytes: wal_bytes, page_format: page_format,
                  indexes: indexes, durability: 1, two_phase: false,
-                 failed: false };
+                 failed: false, snap_generation: snap_gen, sp_active: false,
+                 sp_marker: 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -2514,8 +2695,10 @@ fn snap_compact(path: Str, tree: &mut BTree, checkpoint_lsn: Int, gen: Int) -> B
 // there is no valid prior snapshot or when pages of an uncommitted crashed
 // generation linger (they must never become the only version of a node).
 // Returns the committed generation, or -1 when nothing was committed; the
-// previous snapshot stays valid in every failure mode.
-fn snap_flush(path: Str, tree: &mut BTree, checkpoint_lsn: Int) -> Int {
+// previous snapshot stays valid in every failure mode. `allow_compact` is
+// false while a snapshot pin is live (M3): the compaction branch is deferred
+// (counted) and the incremental append continues.
+fn snap_flush(path: Str, tree: &mut BTree, checkpoint_lsn: Int, allow_compact: Bool) -> Int {
   let pf = page_file_open(path);
   let pages = page_log_read_all(&pf);
   let meta_found = snap_read_meta(&pages);
@@ -2546,8 +2729,15 @@ fn snap_flush(path: Str, tree: &mut BTree, checkpoint_lsn: Int) -> Int {
   let gen = prior_gen + 1;
   let entries = page_log_len(&pf);
   if entries > tree.store.nodes.len() + SNAP_COMPACT_SLACK {
-    if snap_compact(path, tree, checkpoint_lsn, gen) { return gen; }
-    return -1;
+    if !allow_compact {
+      // M3: compaction would rewrite one version per node, dropping the older
+      // generations a live pin may still need. Defer; the next checkpoint
+      // after the pin is released compacts.
+      tree.store.compaction_deferred = tree.store.compaction_deferred + 1;
+    } else {
+      if snap_compact(path, tree, checkpoint_lsn, gen) { return gen; }
+      return -1;
+    }
   }
 
   var i = 0;
@@ -2637,12 +2827,16 @@ fn snap_load(path: Str) -> Option[Snapshot] {
 
   // Loaded nodes are clean: their pages are already committed.
   var dirty = Vec[Bool].new();
+  var births = Vec[Int].new();
   var di = 0;
   while di < nodes.len() {
     dirty.push(false);
+    births.push(0);
     di = di + 1;
   }
-  var store = NodeStore{ nodes: nodes, dirty: dirty };
+  var pins = Vec[DBSnapshot].new();
+  var store = NodeStore{ nodes: nodes, dirty: dirty, births: births, pins: pins,
+                         pin_clock: 0, compaction_deferred: 0 };
   var tree = BTree{ root: meta.root, order: meta.order, store: store };
   return Some(Snapshot{ tree: tree, checkpoint_lsn: meta.checkpoint_lsn, generation: meta.generation });
 }
@@ -2713,12 +2907,16 @@ fn snap_load_v2(path: Str) -> Option[Snapshot] {
   }
 
   var dirty = Vec[Bool].new();
+  var births = Vec[Int].new();
   var di = 0;
   while di < nodes.len() {
     dirty.push(false);
+    births.push(0);
     di = di + 1;
   }
-  var store = NodeStore{ nodes: nodes, dirty: dirty };
+  var pins = Vec[DBSnapshot].new();
+  var store = NodeStore{ nodes: nodes, dirty: dirty, births: births, pins: pins,
+                         pin_clock: 0, compaction_deferred: 0 };
   var tree = BTree{ root: root, order: order, store: store };
   return Some(Snapshot{ tree: tree, checkpoint_lsn: bs.header.checkpoint_lsn,
                         generation: bs.header.committed_generation });
@@ -2759,10 +2957,12 @@ fn v2_rewrite_all(path: Str, tree: &mut BTree, gen: Int, checkpoint_lsn: Int) ->
 // gen = committed + 1, then commit the header slot. A v1 (or absent) file is
 // rewritten whole (migration-on-write). Crashed partial generations are
 // overwritten by the same-gen rewrites on the next attempt, so they can
-// never become the only version of a node. Returns the committed
+// never become the only version of a node. `allow_compact` is false while a
+// snapshot pin is live (M3): the block-count rewrite (compaction) is deferred
+// (counted) and the incremental append continues. Returns the committed
 // generation, or -1 (the previous snapshot stays valid in every failure
 // mode).
-fn snap_flush_v2(path: Str, tree: &mut BTree, checkpoint_lsn: Int) -> Int {
+fn snap_flush_v2(path: Str, tree: &mut BTree, checkpoint_lsn: Int, allow_compact: Bool) -> Int {
   let is_v2 = snap_format_v2(path);
   if !is_v2 {
     let gen = 1;
@@ -2783,11 +2983,17 @@ fn snap_flush_v2(path: Str, tree: &mut BTree, checkpoint_lsn: Int) -> Int {
   let gen = prior_gen + 1;
 
   if !have_prior || bs.block_count > tree.store.nodes.len() + SNAP_COMPACT_SLACK {
-    if v2_rewrite_all(path, tree, gen, checkpoint_lsn) {
-      ns_mark_clean(&mut tree.store);
-      return gen;
+    if have_prior && !allow_compact {
+      // M3: the whole-file rewrite drops older block generations a live pin
+      // may still need. Defer; append incrementally instead.
+      tree.store.compaction_deferred = tree.store.compaction_deferred + 1;
+    } else {
+      if v2_rewrite_all(path, tree, gen, checkpoint_lsn) {
+        ns_mark_clean(&mut tree.store);
+        return gen;
+      }
+      return -1;
     }
-    return -1;
   }
 
   var i = 0;
@@ -2855,11 +3061,19 @@ pub fn db_file_checkpoint(db: &mut DBFile) -> Int {
     }
   }
   var gen = -1;
+  // M3: while a snapshot pin is live the compaction branch defers (counted);
+  // incremental appends, the anchor and the WAL truncate are unaffected.
+  let allow_compact = db.tree.store.pins.len() == 0;
   if db.page_format == 2 {
-    gen = snap_flush_v2(snap_path, &mut db.tree, snap_lsn);
+    gen = snap_flush_v2(snap_path, &mut db.tree, snap_lsn, allow_compact);
   } else if snap_format_v2(snap_path) {
     // Handle writes v1 while the file is v2: rewrite whole via the batch
-    // path (single rename), keeping the format on-disk authoritative.
+    // path (single rename), keeping the format on-disk authoritative. That
+    // rewrite is compaction-class: defer the checkpoint while pinned.
+    if !allow_compact {
+      db.tree.store.compaction_deferred = db.tree.store.compaction_deferred + 1;
+      return -1;
+    }
     var pgen = 0;
     let bs = block_store_open(snap_path);
     if bs.committed { pgen = bs.header.committed_generation; }
@@ -2868,9 +3082,10 @@ pub fn db_file_checkpoint(db: &mut DBFile) -> Int {
     let pf = page_file_open(snap_path);
     // A torn trailing append must not merge with this checkpoint's entries.
     let _ = page_log_heal_tail(&pf);
-    gen = snap_flush(snap_path, &mut db.tree, snap_lsn);
+    gen = snap_flush(snap_path, &mut db.tree, snap_lsn, allow_compact);
   }
   if gen < 0 { return -1; }
+  db.snap_generation = gen;
 
   var payload = Vec[Int].new();
   payload.push(gen);
@@ -2934,6 +3149,8 @@ pub fn db_file_txn_begin(db: &mut DBFile) -> Bool {
   db.records_since_ckpt = db.records_since_ckpt + 1;
   db.txn_active = true;
   db.txn_ops = Vec[TxOp].new();
+  db.sp_active = false;
+  db.sp_marker = 0;
   return true;
 }
 
@@ -2989,6 +3206,8 @@ pub fn db_file_txn_commit(db: &mut DBFile) -> Bool {
   }
   db.txn_active = false;
   db.txn_ops = Vec[TxOp].new();
+  db.sp_active = false;
+  db.sp_marker = 0;
   return db_file_commit_sync(db);
 }
 
@@ -3003,5 +3222,175 @@ pub fn db_file_txn_abort(db: &mut DBFile) -> Bool {
   db.records_since_ckpt = db.records_since_ckpt + 1;
   db.txn_active = false;
   db.txn_ops = Vec[TxOp].new();
+  db.sp_active = false;
+  db.sp_marker = 0;
+  return true;
+}
+
+// ===========================================================================
+// M3 MINIMAL SUBSET: SNAPSHOT PINS + SAVEPOINTS (docs/MVCC.md)
+// ===========================================================================
+// A snapshot pin captures {root, lsn, generation} and makes it stable: while
+// pins exist, every write path copy-on-writes the nodes it touches
+// (`cow_shadow`), so a pinned root keeps reading the exact state at capture.
+// No per-page version chains: old versions stay in the arena reachable only
+// from pins. Pins are handle-local; a reopen starts with none.
+// Savepoints are txn-scoped rollback markers: restore trims the buffered ops
+// and splices the WAL window (Abort + Begin + re-log of the kept ops) so
+// replay reconstructs exactly the surviving set after any crash.
+
+fn db_file_pin_index(db: &DBFile, id: Int) -> Int {
+  var i = 0;
+  while i < db.tree.store.pins.len() {
+    if db.tree.store.pins[i].id == id { return i; }
+    i = i + 1;
+  }
+  return -1;
+}
+
+// Capture the current committed state as a stable read view (id 0 would mean
+// failure; ids are monotone and never reused). Buffered transaction ops are
+// NOT visible in the pinned view (read-committed).
+pub fn db_file_snapshot_begin(db: &mut DBFile) -> DBSnapshot {
+  db.tree.store.pin_clock = db.tree.store.pin_clock + 1;
+  var pin = DBSnapshot{ id: db.tree.store.pin_clock, root: db.tree.root,
+                        lsn: wal_file_next_lsn(&db.wal) - 1,
+                        generation: db.snap_generation };
+  db.tree.store.pins.push(pin);
+  return pin;
+}
+
+// Release a pin (false for an unknown id). Writes may then mutate its
+// versions in place again; the arena keeps the old nodes as garbage until the
+// M1.1b free list exists.
+pub fn db_file_snapshot_end(db: &mut DBFile, id: Int) -> Bool {
+  let at = db_file_pin_index(db, id);
+  if at < 0 { return false; }
+  var i = at;
+  while i < db.tree.store.pins.len() - 1 {
+    db.tree.store.pins[i] = db.tree.store.pins[i + 1];
+    i = i + 1;
+  }
+  db.tree.store.pins.pop();
+  return true;
+}
+
+pub fn db_file_snapshot_pins(db: &DBFile) -> Int {
+  return db.tree.store.pins.len();
+}
+
+// Oldest pinned WAL LSN, or -1 when none. Deferred-free hook for the M1.1b
+// pager: once a free list exists, pages are allocatable only below this LSN.
+pub fn db_file_min_pinned_lsn(db: &DBFile) -> Int {
+  if db.tree.store.pins.len() == 0 { return -1; }
+  var best = db.tree.store.pins[0].lsn;
+  var i = 1;
+  while i < db.tree.store.pins.len() {
+    if db.tree.store.pins[i].lsn < best { best = db.tree.store.pins[i].lsn; }
+    i = i + 1;
+  }
+  return best;
+}
+
+// Snapshot reads: exactly the state at `db_file_snapshot_begin`. None /
+// empty / -1 for an id that is not a live pin.
+pub fn db_file_snapshot_get(db: &DBFile, id: Int, key: Int) -> Option[Int] {
+  let at = db_file_pin_index(db, id);
+  if at < 0 { return None; }
+  return search_node(&db.tree, db.tree.store.pins[at].root, key);
+}
+
+pub fn db_file_snapshot_get_typed(db: &DBFile, id: Int, key: Int) -> Option[Vec[Int]] {
+  let at = db_file_pin_index(db, id);
+  if at < 0 { return None; }
+  return search_payload_node(&db.tree, db.tree.store.pins[at].root, key);
+}
+
+pub fn db_file_snapshot_range(db: &DBFile, id: Int, low: Int, high: Int) -> Vec[Int] {
+  var results = Vec[Int].new();
+  let at = db_file_pin_index(db, id);
+  if at < 0 { return results; }
+  if low > high { return results; }
+  collect_range(&db.tree, db.tree.store.pins[at].root, low, high, &mut results);
+  return results;
+}
+
+pub fn db_file_snapshot_count(db: &DBFile, id: Int) -> Int {
+  let at = db_file_pin_index(db, id);
+  if at < 0 { return -1; }
+  return count_keys(&db.tree, db.tree.store.pins[at].root);
+}
+
+// Last committed snapshot generation for this handle (0 = none), set on open
+// and after every committed checkpoint.
+pub fn db_file_snap_generation(db: &DBFile) -> Int {
+  return db.snap_generation;
+}
+
+// Checkpoints that would have compacted but were deferred because a snapshot
+// pin was live.
+pub fn db_file_compaction_deferrals(db: &DBFile) -> Int {
+  return db.tree.store.compaction_deferred;
+}
+
+// --- savepoints (txn-scoped) ----------------------------------------------
+
+pub fn db_file_txn_savepoint_active(db: &DBFile) -> Bool {
+  return db.sp_active;
+}
+
+// Record a rollback marker at the current buffer length (single level; false
+// without an active transaction or when a savepoint is already active).
+pub fn db_file_txn_savepoint(db: &mut DBFile) -> Bool {
+  if !db.txn_active { return false; }
+  if db.sp_active { return false; }
+  if !db_file_guard(db) { return false; }
+  if db.failed { return false; }
+  db.sp_marker = db.txn_ops.len();
+  db.sp_active = true;
+  return true;
+}
+
+// Restore to the savepoint: trim the buffered ops, then splice the WAL window
+// so recovery agrees with the buffer -- AbortTxn closes the current window
+// (replay discards it), BeginTxn opens a fresh one, and the kept ops are
+// re-logged verbatim. The savepoint stays active (SQL ROLLBACK TO SAVEPOINT
+// semantics); commit/abort release it.
+pub fn db_file_txn_savepoint_restore(db: &mut DBFile) -> Bool {
+  if !db.txn_active { return false; }
+  if !db.sp_active { return false; }
+  if !db_file_guard(db) { return false; }
+  if db.failed { return false; }
+  while db.txn_ops.len() > db.sp_marker {
+    db.txn_ops.pop();
+  }
+  var lsn = wal_file_append(&mut db.wal, WALOpKind.AbortTxn, 0, 0);
+  if lsn < 0 { return false; }
+  lsn = wal_file_append(&mut db.wal, WALOpKind.BeginTxn, 0, 0);
+  if lsn < 0 { return false; }
+  var appended = 2;
+  var i = 0;
+  while i < db.txn_ops.len() {
+    let op = db.txn_ops[i];
+    if op.code == 3 {
+      lsn = wal_file_append(&mut db.wal, WALOpKind.Delete, op.key, 0);
+    } else {
+      lsn = wal_file_append(&mut db.wal, WALOpKind.Update, op.key, op.value);
+    }
+    if lsn < 0 { return false; }
+    appended = appended + 1;
+    i = i + 1;
+  }
+  db.wal_bytes = db_wal_size(db.path);
+  db.records_since_ckpt = db.records_since_ckpt + appended;
+  return true;
+}
+
+// Drop the savepoint marker (false without an active transaction/marker).
+pub fn db_file_txn_savepoint_release(db: &mut DBFile) -> Bool {
+  if !db.txn_active { return false; }
+  if !db.sp_active { return false; }
+  db.sp_active = false;
+  db.sp_marker = 0;
   return true;
 }

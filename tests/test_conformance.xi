@@ -3470,6 +3470,396 @@ fn test_typed_query_persistence() -> TestResult {
 }
 
 // ===========================================================================
+// M3 minimal subset: snapshot pins + savepoints (docs/MVCC.md)
+// ===========================================================================
+
+fn mvcc_copy(v: &Vec[Int]) -> Vec[Int] {
+  var out = Vec[Int].new();
+  var i = 0;
+  while i < v.len() {
+    out.push(v[i]);
+    i = i + 1;
+  }
+  return out;
+}
+
+// Model lookup table: slot k holds key k's value, or -1 when absent.
+fn mvcc_model_new(n: Int) -> Vec[Int] {
+  var m = Vec[Int].new();
+  var i = 0;
+  while i <= n {
+    m.push(-1);
+    i = i + 1;
+  }
+  return m;
+}
+
+// Expected VALUES for keys [1, n] in key order, from a model table.
+fn mvcc_expected(m: &Vec[Int]) -> Vec[Int] {
+  var out = Vec[Int].new();
+  var i = 1;
+  while i < m.len() {
+    if m[i] >= 0 { out.push(m[i]); }
+    i = i + 1;
+  }
+  return out;
+}
+
+fn mvcc_vec_eq(a: &Vec[Int], b: &Vec[Int]) -> Bool {
+  if a.len() != b.len() { return false; }
+  var i = 0;
+  while i < a.len() {
+    if a[i] != b[i] { return false; }
+    i = i + 1;
+  }
+  return true;
+}
+
+fn run_db_snapshot_isolation() -> Int {
+  let path = "orbitdb-suite-mvcc1.wal";
+  tdb_cleanup(path);
+  var db = db_file_open(path, 4);
+  if !db_file_put(&mut db, 1, 100) { return 1; }
+  if !db_file_put(&mut db, 2, 200) { return 2; }
+  let s1 = db_file_snapshot_begin(&mut db);
+  if s1.id <= 0 { return 3; }
+  if db_file_snapshot_pins(&db) != 1 { return 4; }
+  // Mutate: update 1, delete 2, add 3.
+  if !db_file_put(&mut db, 1, 111) { return 5; }
+  if !db_file_delete(&mut db, 2) { return 6; }
+  if !db_file_put(&mut db, 3, 300) { return 7; }
+  // The live view moves on.
+  match db_file_get(&db, 1) { None => { return 8; } Some(v) => { if v != 111 { return 9; } } }
+  // The pinned view is frozen at capture.
+  match db_file_snapshot_get(&db, s1.id, 1) { None => { return 10; } Some(v) => { if v != 100 { return 11; } } }
+  match db_file_snapshot_get(&db, s1.id, 2) { None => { return 12; } Some(v) => { if v != 200 { return 13; } } }
+  match db_file_snapshot_get(&db, s1.id, 3) { None => {} Some(_) => { return 14; } }
+  if db_file_snapshot_count(&db, s1.id) != 2 { return 15; }
+  let r1 = db_file_snapshot_range(&db, s1.id, 1, 3);
+  if r1.len() != 2 { return 16; }
+  if r1[0] != 100 { return 17; }
+  if r1[1] != 200 { return 18; }
+  // A second pin at the newer version.
+  let s2 = db_file_snapshot_begin(&mut db);
+  if db_file_snapshot_pins(&db) != 2 { return 19; }
+  if db_file_snapshot_count(&db, s2.id) != 2 { return 20; }
+  match db_file_snapshot_get(&db, s2.id, 2) { None => {} Some(_) => { return 21; } }
+  // Release s1: its reads refuse; s2 is unaffected.
+  if !db_file_snapshot_end(&mut db, s1.id) { return 23; }
+  match db_file_snapshot_get(&db, s1.id, 1) { None => {} Some(_) => { return 24; } }
+  if db_file_snapshot_count(&db, s1.id) != -1 { return 25; }
+  let r2 = db_file_snapshot_range(&db, s1.id, 1, 3);
+  if r2.len() != 0 { return 26; }
+  if db_file_snapshot_end(&mut db, s1.id) { return 27; }
+  match db_file_snapshot_get(&db, s2.id, 3) { None => { return 28; } Some(v) => { if v != 300 { return 29; } } }
+  if !db_file_snapshot_end(&mut db, s2.id) { return 30; }
+  if db_file_snapshot_pins(&db) != 0 { return 31; }
+  if db_file_min_pinned_lsn(&db) != -1 { return 32; }
+  if s1.lsn < 0 { return 33; }
+  tdb_cleanup(path);
+  return 0;
+}
+
+fn test_db_snapshot_isolation() -> TestResult {
+  let rc = run_db_snapshot_isolation();
+  if rc == 0 { return assert(true, "db_file snapshot: frozen pin views, live moves on, id guards"); }
+  return assert(false, "db_file snapshot: isolation failed rc=" + int_to_str(rc));
+}
+
+// COW correctness under the heaviest rebalancing (order 3): two interleaved
+// pins vs models captured at their begin, plus live-tree and reopen checks.
+fn run_db_snapshot_cow_churn() -> Int {
+  let path = "orbitdb-suite-mvcc2.wal";
+  tdb_cleanup(path);
+  var db = db_file_open(path, 3);
+  var model = mvcc_model_new(60);
+  var i = 1;
+  while i <= 40 {
+    if !db_file_put(&mut db, i, i * 10) { return 1; }
+    model[i] = i * 10;
+    i = i + 1;
+  }
+  let s1 = db_file_snapshot_begin(&mut db);
+  var model1 = mvcc_copy(&model);
+  let want1 = mvcc_expected(&model1);
+  let got1 = db_file_snapshot_range(&db, s1.id, 1, 60);
+  if !mvcc_vec_eq(&got1, &want1) { return 2; }
+  var s2_id = 0;
+  var model2 = mvcc_model_new(60);
+  var have2 = false;
+  var r = 777;
+  var op = 0;
+  while op < 400 {
+    r = (r * 1103515245 + 12345) % 2147483648;
+    let key = (r % 60) + 1;
+    let roll = (r / 60) % 4;
+    if roll == 0 {
+      let _ = db_file_delete(&mut db, key);
+      model[key] = -1;
+    } else {
+      let v = r % 1000;
+      if !db_file_put(&mut db, key, v) { return 3; }
+      model[key] = v;
+    }
+    if op == 200 {
+      let s2 = db_file_snapshot_begin(&mut db);
+      s2_id = s2.id;
+      model2 = mvcc_copy(&model);
+      have2 = true;
+    }
+    op = op + 1;
+  }
+  // Both pinned views are exact after 400 mutations.
+  let want1b = mvcc_expected(&model1);
+  let got1b = db_file_snapshot_range(&db, s1.id, 1, 60);
+  if !mvcc_vec_eq(&got1b, &want1b) { return 4; }
+  if db_file_snapshot_count(&db, s1.id) != want1b.len() { return 5; }
+  if !have2 { return 6; }
+  let want2 = mvcc_expected(&model2);
+  let got2 = db_file_snapshot_range(&db, s2_id, 1, 60);
+  if !mvcc_vec_eq(&got2, &want2) { return 7; }
+  if db_file_snapshot_count(&db, s2_id) != want2.len() { return 8; }
+  if !db_file_snapshot_end(&mut db, s2_id) { return 9; }
+  // Live tree matches the live model; s1 still exact after releasing s2.
+  let live_want = mvcc_expected(&model);
+  let live_got = db_file_range(&db, 1, 60);
+  if !mvcc_vec_eq(&live_got, &live_want) { return 10; }
+  let got1c = db_file_snapshot_range(&db, s1.id, 1, 60);
+  if !mvcc_vec_eq(&got1c, &want1b) { return 11; }
+  if !db_file_snapshot_end(&mut db, s1.id) { return 12; }
+  // Persist and reopen: same committed state; pins vanish with the handle.
+  if db_file_checkpoint(&mut db) < 0 { return 13; }
+  var db2 = db_file_open(path, 3);
+  let got_after = db_file_range(&db2, 1, 60);
+  if !mvcc_vec_eq(&got_after, &live_want) { return 14; }
+  if db_file_snapshot_pins(&db2) != 0 { return 15; }
+  tdb_cleanup(path);
+  return 0;
+}
+
+fn test_db_snapshot_cow_churn() -> TestResult {
+  let rc = run_db_snapshot_cow_churn();
+  if rc == 0 { return assert(true, "db_file snapshot: COW under order-3 churn, two pins exact, reopen clean"); }
+  return assert(false, "db_file snapshot: COW churn failed rc=" + int_to_str(rc));
+}
+
+fn run_db_snapshot_checkpoint() -> Int {
+  let path = "orbitdb-suite-mvcc3.wal";
+  tdb_cleanup(path);
+  var db = db_file_open(path, 4);
+  var i = 1;
+  while i <= 20 {
+    if !db_file_put(&mut db, i, i * 10) { return 1; }
+    i = i + 1;
+  }
+  if db_file_snap_generation(&db) != 0 { return 2; }
+  if db_file_checkpoint(&mut db) < 0 { return 3; }
+  if db_file_snap_generation(&db) != 1 { return 4; }
+  let s1 = db_file_snapshot_begin(&mut db);
+  if s1.generation != 1 { return 5; }
+  if db_file_compaction_deferrals(&db) != 0 { return 6; }
+  i = 21;
+  while i <= 30 {
+    if !db_file_put(&mut db, i, i * 10) { return 7; }
+    i = i + 1;
+  }
+  if !db_file_put(&mut db, 1, 999) { return 8; }
+  if db_file_checkpoint(&mut db) < 0 { return 9; }
+  if db_file_snap_generation(&db) != 2 { return 10; }
+  // The pinned view is still the generation-1 content.
+  match db_file_snapshot_get(&db, s1.id, 1) { None => { return 11; } Some(v) => { if v != 10 { return 12; } } }
+  match db_file_snapshot_get(&db, s1.id, 25) { None => {} Some(_) => { return 13; } }
+  if db_file_snapshot_count(&db, s1.id) != 20 { return 14; }
+  // The live view has everything.
+  if db_file_size(&db) != 30 { return 15; }
+  match db_file_get(&db, 1) { None => { return 16; } Some(v) => { if v != 999 { return 17; } } }
+  if db_file_min_pinned_lsn(&db) < 0 { return 18; }
+  if !db_file_snapshot_end(&mut db, s1.id) { return 19; }
+  if db_file_min_pinned_lsn(&db) != -1 { return 20; }
+  // Reopen: pins are handle-local; the committed state is intact.
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 30 { return 21; }
+  if db_file_snap_generation(&db2) != 2 { return 22; }
+  match db_file_get(&db2, 25) { None => { return 23; } Some(v) => { if v != 250 { return 24; } } }
+  tdb_cleanup(path);
+  return 0;
+}
+
+fn test_db_snapshot_checkpoint() -> TestResult {
+  let rc = run_db_snapshot_checkpoint();
+  if rc == 0 { return assert(true, "db_file snapshot: stable across checkpoints; generation tracked"); }
+  return assert(false, "db_file snapshot: checkpoint failed rc=" + int_to_str(rc));
+}
+
+fn run_db_savepoint_basic() -> Int {
+  let path = "orbitdb-suite-mvcc4.wal";
+  tdb_cleanup(path);
+  var db = db_file_open(path, 4);
+  if !db_file_put(&mut db, 1, 10) { return 1; }
+  if !db_file_txn_begin(&mut db) { return 2; }
+  if !db_file_txn_put(&mut db, 2, 20) { return 3; }
+  if !db_file_txn_put(&mut db, 3, 30) { return 4; }
+  if !db_file_txn_savepoint(&mut db) { return 5; }
+  if !db_file_txn_savepoint_active(&db) { return 6; }
+  if !db_file_txn_put(&mut db, 4, 40) { return 7; }
+  if !db_file_txn_delete(&mut db, 2) { return 8; }
+  if !db_file_txn_savepoint_restore(&mut db) { return 9; }
+  if !db_file_txn_savepoint_active(&db) { return 10; }
+  if !db_file_txn_put(&mut db, 5, 50) { return 11; }
+  if !db_file_txn_commit(&mut db) { return 12; }
+  if db_file_txn_savepoint_active(&db) { return 13; }
+  if db_file_size(&db) != 4 { return 14; }
+  match db_file_get(&db, 2) { None => { return 15; } Some(v) => { if v != 20 { return 16; } } }
+  match db_file_get(&db, 3) { None => { return 17; } Some(v) => { if v != 30 { return 18; } } }
+  match db_file_get(&db, 4) { None => {} Some(_) => { return 19; } }
+  match db_file_get(&db, 5) { None => { return 20; } Some(v) => { if v != 50 { return 21; } } }
+  // Reopen == replay of the spliced window must agree with the buffer.
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 4 { return 22; }
+  match db_file_get(&db2, 4) { None => {} Some(_) => { return 23; } }
+  // Release path: ops after release survive.
+  if !db_file_txn_begin(&mut db2) { return 24; }
+  if !db_file_txn_put(&mut db2, 6, 60) { return 25; }
+  if !db_file_txn_savepoint(&mut db2) { return 26; }
+  if !db_file_txn_put(&mut db2, 7, 70) { return 27; }
+  if !db_file_txn_savepoint_release(&mut db2) { return 28; }
+  if db_file_txn_savepoint_active(&db2) { return 29; }
+  if !db_file_txn_put(&mut db2, 8, 80) { return 30; }
+  if !db_file_txn_commit(&mut db2) { return 31; }
+  if db_file_size(&db2) != 7 { return 32; }
+  match db_file_get(&db2, 7) { None => { return 33; } Some(v) => { if v != 70 { return 34; } } }
+  tdb_cleanup(path);
+  return 0;
+}
+
+fn test_db_savepoint_basic() -> TestResult {
+  let rc = run_db_savepoint_basic();
+  if rc == 0 { return assert(true, "db_file savepoint: restore trims post-marker ops; commit/reopen exact"); }
+  return assert(false, "db_file savepoint: basic failed rc=" + int_to_str(rc));
+}
+
+fn run_db_savepoint_guards() -> Int {
+  let path = "orbitdb-suite-mvcc5.wal";
+  tdb_cleanup(path);
+  var db = db_file_open(path, 4);
+  if db_file_txn_savepoint(&mut db) { return 1; }
+  if db_file_txn_savepoint_restore(&mut db) { return 2; }
+  if db_file_txn_savepoint_release(&mut db) { return 3; }
+  if db_file_txn_savepoint_active(&db) { return 4; }
+  if !db_file_txn_begin(&mut db) { return 5; }
+  if db_file_txn_savepoint_restore(&mut db) { return 6; }
+  if !db_file_txn_savepoint(&mut db) { return 7; }
+  if db_file_txn_savepoint(&mut db) { return 8; }
+  if !db_file_txn_savepoint_restore(&mut db) { return 9; }
+  if !db_file_txn_savepoint_active(&db) { return 10; }
+  if !db_file_txn_savepoint_release(&mut db) { return 11; }
+  if db_file_txn_savepoint_release(&mut db) { return 12; }
+  if db_file_txn_savepoint_restore(&mut db) { return 13; }
+  if !db_file_txn_commit(&mut db) { return 14; }
+  if db_file_txn_savepoint_active(&db) { return 15; }
+  if db_file_txn_savepoint_restore(&mut db) { return 16; }
+  tdb_cleanup(path);
+  return 0;
+}
+
+fn test_db_savepoint_guards() -> TestResult {
+  let rc = run_db_savepoint_guards();
+  if rc == 0 { return assert(true, "db_file savepoint: guard matrix (no txn, double begin, release, post-commit)"); }
+  return assert(false, "db_file savepoint: guards failed rc=" + int_to_str(rc));
+}
+
+fn run_db_savepoint_crash_windows() -> Int {
+  let path = "orbitdb-suite-mvcc6.wal";
+  tdb_cleanup(path);
+  var db = db_file_open(path, 4);
+  if !db_file_put(&mut db, 1, 10) { return 1; }
+  if !db_file_txn_begin(&mut db) { return 2; }
+  if !db_file_txn_put(&mut db, 2, 20) { return 3; }
+  if !db_file_txn_savepoint(&mut db) { return 4; }
+  if !db_file_txn_put(&mut db, 3, 30) { return 5; }
+  if !db_file_txn_delete(&mut db, 1) { return 6; }
+  if !db_file_txn_savepoint_restore(&mut db) { return 7; }
+  // Crash before commit: the abandoned handle's window is uncommitted, so a
+  // fresh open recovers exactly key 1 (restore or not makes no difference).
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 1 { return 8; }
+  match db_file_get(&db2, 1) { None => { return 9; } Some(v) => { if v != 10 { return 10; } } }
+  match db_file_get(&db2, 2) { None => {} Some(_) => { return 11; } }
+  // Commit after a restore applies exactly the kept ops.
+  if !db_file_txn_begin(&mut db2) { return 12; }
+  if !db_file_txn_put(&mut db2, 2, 20) { return 13; }
+  if !db_file_txn_savepoint(&mut db2) { return 14; }
+  if !db_file_txn_put(&mut db2, 3, 30) { return 15; }
+  if !db_file_txn_savepoint_restore(&mut db2) { return 16; }
+  if !db_file_txn_commit(&mut db2) { return 17; }
+  var db3 = db_file_open(path, 4);
+  if db_file_size(&db3) != 2 { return 18; }
+  match db_file_get(&db3, 2) { None => { return 19; } Some(v) => { if v != 20 { return 20; } } }
+  match db_file_get(&db3, 3) { None => {} Some(_) => { return 21; } }
+  // Two restores then more ops: the final marker set is what commits.
+  if !db_file_txn_begin(&mut db3) { return 22; }
+  if !db_file_txn_put(&mut db3, 5, 50) { return 23; }
+  if !db_file_txn_savepoint(&mut db3) { return 24; }
+  if !db_file_txn_put(&mut db3, 6, 60) { return 25; }
+  if !db_file_txn_savepoint_restore(&mut db3) { return 26; }
+  if !db_file_txn_put(&mut db3, 7, 70) { return 27; }
+  if !db_file_txn_savepoint_restore(&mut db3) { return 28; }
+  if !db_file_txn_put(&mut db3, 8, 80) { return 29; }
+  if !db_file_txn_commit(&mut db3) { return 30; }
+  var db4 = db_file_open(path, 4);
+  if db_file_size(&db4) != 4 { return 31; }
+  match db_file_get(&db4, 5) { None => { return 32; } Some(v) => { if v != 50 { return 33; } } }
+  match db_file_get(&db4, 6) { None => {} Some(_) => { return 34; } }
+  match db_file_get(&db4, 7) { None => {} Some(_) => { return 35; } }
+  match db_file_get(&db4, 8) { None => { return 36; } Some(v) => { if v != 80 { return 37; } } }
+  tdb_cleanup(path);
+  return 0;
+}
+
+fn test_db_savepoint_crash_windows() -> TestResult {
+  let rc = run_db_savepoint_crash_windows();
+  if rc == 0 { return assert(true, "db_file savepoint: crash windows (uncommitted discarded; restored commit exact)"); }
+  return assert(false, "db_file savepoint: crash windows failed rc=" + int_to_str(rc));
+}
+
+fn run_db_snapshot_typed() -> Int {
+  let path = "orbitdb-suite-mvcc7.wal";
+  tdb_cleanup(path);
+  var db = db_file_open(path, 4);
+  if !db_file_put_typed(&mut db, 7, tdb_row3(1, 2, 3)) { return 1; }
+  let s1 = db_file_snapshot_begin(&mut db);
+  if !db_file_put_typed(&mut db, 7, tdb_row3(9, 9, 9)) { return 2; }
+  if !db_file_put_typed(&mut db, 8, tdb_row3(4, 5, 6)) { return 3; }
+  match db_file_snapshot_get_typed(&db, s1.id, 7) {
+    None => { return 4; }
+    Some(p) => { if p.len() != 3 { return 5; } if p[0] != 1 { return 6; } if p[2] != 3 { return 7; } }
+  }
+  match db_file_get_typed(&db, 7) {
+    None => { return 8; }
+    Some(p) => { if p.len() != 3 { return 9; } if p[0] != 9 { return 10; } }
+  }
+  match db_file_snapshot_get_typed(&db, s1.id, 8) { None => {} Some(_) => { return 11; } }
+  if db_file_snapshot_count(&db, s1.id) != 1 { return 12; }
+  if db_file_size(&db) != 2 { return 13; }
+  if !db_file_snapshot_end(&mut db, s1.id) { return 14; }
+  // A pinned payload view also survives a checkpoint while pinned.
+  let s2 = db_file_snapshot_begin(&mut db);
+  if db_file_checkpoint(&mut db) < 0 { return 15; }
+  match db_file_snapshot_get_typed(&db, s2.id, 8) {
+    None => { return 16; }
+    Some(p) => { if p.len() != 3 { return 17; } if p[0] != 4 { return 18; } }
+  }
+  tdb_cleanup(path);
+  return 0;
+}
+
+fn test_db_snapshot_typed() -> TestResult {
+  let rc = run_db_snapshot_typed();
+  if rc == 0 { return assert(true, "db_file snapshot: typed payloads pinned; survive checkpoint while pinned"); }
+  return assert(false, "db_file snapshot: typed failed rc=" + int_to_str(rc));
+}
+
+// ===========================================================================
 // Durable page file (text v1, CRC32C verified, atomic rewrite)
 // ===========================================================================
 
@@ -5487,6 +5877,22 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r125.passed, r125.name);
   let r126 = test_typed_query_persistence();
   total = total + 1; failed = failed + report(r126.passed, r126.name);
+
+  // M3 minimal subset: snapshot pins + savepoints
+  let r127 = test_db_snapshot_isolation();
+  total = total + 1; failed = failed + report(r127.passed, r127.name);
+  let r128 = test_db_snapshot_cow_churn();
+  total = total + 1; failed = failed + report(r128.passed, r128.name);
+  let r129 = test_db_snapshot_checkpoint();
+  total = total + 1; failed = failed + report(r129.passed, r129.name);
+  let r130 = test_db_savepoint_basic();
+  total = total + 1; failed = failed + report(r130.passed, r130.name);
+  let r131 = test_db_savepoint_guards();
+  total = total + 1; failed = failed + report(r131.passed, r131.name);
+  let r132 = test_db_savepoint_crash_windows();
+  total = total + 1; failed = failed + report(r132.passed, r132.name);
+  let r133 = test_db_snapshot_typed();
+  total = total + 1; failed = failed + report(r133.passed, r133.name);
 
   let passed = total - failed;
   io.println("");

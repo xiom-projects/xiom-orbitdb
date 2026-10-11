@@ -64,11 +64,32 @@ layout: `<path>` = WAL segment, `<path>.snap` = snapshot page log.
 | `db_file_txn_delete(db, key)` | `Bool` | Buffered (idempotent) delete inside the transaction. |
 | `db_file_txn_commit(db)` | `Bool` | Append `CommitTxn`, then apply the buffered ops to the tree. |
 | `db_file_txn_abort(db)` | `Bool` | Append `AbortTxn`; discard the buffer. |
+| `db_file_txn_savepoint(db)` | `Bool` | M3: record a rollback marker at the current buffer length (single level; requires an active transaction). |
+| `db_file_txn_savepoint_restore(db)` | `Bool` | Roll back to the savepoint: trim the buffer and splice the WAL window (Abort + Begin + re-log of the kept ops). The savepoint stays active (SQL `ROLLBACK TO SAVEPOINT`). |
+| `db_file_txn_savepoint_release(db)` | `Bool` | Drop the marker (commit/abort release it implicitly too). |
+| `db_file_txn_savepoint_active(db)` | `Bool` | Marker present? |
+| `db_file_snapshot_begin(db)` | `DBSnapshot` | M3: pin the current committed state as a stable read view `{id, root, lsn, generation}`. While pins exist, writes copy-on-write the nodes they touch, so the pinned view never changes. Handle-local; read-committed (buffered txn ops invisible). |
+| `db_file_snapshot_end(db, id)` | `Bool` | Release a pin (`false` for an unknown id). |
+| `db_file_snapshot_get(db, id, key)` / `db_file_snapshot_get_typed(db, id, key)` | `Option[...]` | Point read on the pinned view (`None` outside a live pin). |
+| `db_file_snapshot_range(db, id, low, high)` | `Vec[Int]` | Range read on the pinned view, key order (empty for an unknown pin or `low > high`). |
+| `db_file_snapshot_count(db, id)` | `Int` | Key count on the pinned view (`-1` outside a live pin). |
+| `db_file_snapshot_pins(db)` | `Int` | Live pin count. |
+| `db_file_min_pinned_lsn(db)` | `Int` | Oldest pinned WAL LSN (`-1` = none); the deferred-free hook for the M1.1b pager. |
+| `db_file_snap_generation(db)` | `Int` | Last committed snapshot generation (0 = none, set on open and after every checkpoint). |
+| `db_file_compaction_deferrals(db)` | `Int` | Checkpoints that would have compacted but deferred because a pin was live (incremental appends continue; docs/MVCC.md). |
 
 Transaction limits: single active transaction per handle, no isolation/MVCC
 (readers see committed state), no auto-retry. Checkpoint and auto-commit
 writes are rejected mid-transaction. See `wal-and-recovery.md` for the crash
 ordering and `FORMATS.md` for the record layout.
+
+Snapshot pins (M3 minimal subset): `db_file_snapshot_begin` freezes the
+current committed state; writes continue (copy-on-write of the touched node
+paths) and the pinned view stays exact until `db_file_snapshot_end`. Pins are
+handle-local and in-memory (a reopen starts with none), there is no version
+GC yet (old versions accumulate until the pin releases), and checkpoint
+compaction defers while any pin is live. Savepoints are transaction-scoped.
+Full model + limits: `docs/MVCC.md`.
 
 Multi-handle safety: every write path (`db_file_put`/`delete`, all
 `db_file_txn_*`, `db_file_checkpoint`) is refused when the WAL segment changed
