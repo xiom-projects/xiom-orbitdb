@@ -167,21 +167,28 @@ and the hybrid probe now persists with a plain `wal_persist` -- the
 harnesses are GREEN x2 Windows + WSL. Bus item
 `REL-20261010-1550-orbitdb-11` verified and closed by the reporter.
 
-## 8. Hybrid re-run status (2026-10-11)
+## 8. Hybrid re-run status (2026-10-11) -- resolved
 
-Wrap-time re-run against the sibling's WORKING TREE (HEAD `f3aacdf` at
-~11:30Z; the xvector lane was mid-refactor, 63rd/64th passes) does not
-compile under our v0.64.3 pin: 113x T001, all in `xiom.vector.*`
-"catalog body" entries (`metric_code`, `metric_from_code`, `DistanceMetric`,
-`vector_encode`/`decode`, `Neighbor`, `Vector`, `cosine_distance`; e.g.
-`xiom.vector.engine.core`, `xiom.vector.index.hnsw`,
-`xiom.vector.query.pagination`, `xiom.vector.segment.segment_file`).
-ORBITDB's `xiom.db.*` side is clean in the same composition, and the
-standalone suite is 136/136 x2 Win + WSL on v0.64.3. Two hypotheses on the
-sibling side: mid-slice tree state, or their tree now expects a
-post-v0.64.3 compiler (their lane runs a separate `~/.xvector-toolchain`
-install). INFO filed: `REL-20261011-1127-orbitdb`. The wrap guard re-runs
-the probe + crash harness when the sibling pin settles or on the next
-compiler archive; previous green: 2026-10-10 against the `e04c723`-era
-tree. This is inherent to source-level composition (`tests/hybrid/xiom.toml`
-points at the sibling's live `src/`).
+The wrap-time re-run initially failed to compile (113x T001, all in
+`xiom.vector.*` "catalog body" entries: `metric_code`,
+`metric_from_code`, `DistanceMetric`, `vector_encode`/`decode`,
+`Neighbor`, `Vector`, `cosine_distance`). xvector diagnosed it within the
+hour (`REL-20261011-1146`): all of those symbols are **`xiom.vectors`
+PACKAGE exports** (their 2026-10-10 adoption; every consumer module
+resolves them through `use xiom.vectors;`), and our composed project
+manifest (`tests/hybrid/xiom.toml`) declared only `xiom-wal`/`xiom-metrics`.
+Not a toolchain-axis issue -- their tree is green on v0.64.3 lane-local.
+
+Fix (this repo): mirror their `[dependencies]` block exactly --
+`xiom.wal`, `xiom.metrics`, `xiom.rate`, `xiom.http`, `xiom.vectors` --
+in `tests/hybrid/xiom.toml`, and keep it in lockstep with their manifest
+when either side moves. `probe_hybrid.xi` `full` mode is GREEN again
+(36 checks) immediately after. Wrap guard lifted; re-run as usual at every
+wrap (and whenever the xvector pin moves).
+
+Ops note (same day): the shared toolchain-home wipe
+(`REL-20261010-1835-xvector`) had removed installed packages from the shared
+home. At re-run time the needed packages were present again; the missing
+piece was only the manifest declaration -- no install was performed by this
+lane. Lane rules: `REL-20261011-1134-ops` / `TOOLCHAIN_HYGIENE.md` -- never
+delete/downgrade shared homes; isolate destructive tests.

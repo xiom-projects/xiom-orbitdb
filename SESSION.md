@@ -95,14 +95,20 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `arm()`; renamed to `probe_arm`; bundle `docs/repro/consumer-fn-hijack/`,
   bus `REL-20261011-1124-orbitdb`). Docs: RUNBOOK probe/env rows + gotcha,
   REFERENCE-STUDY action-1 DONE, readiness changelog (71.5, no score change),
-  API.md flush-row dedup. **Hybrid wrap guard DEFERRED-RED:** the sibling
-  tree moved mid-slice during the day (HEAD `f3aacdf` at ~11:30Z) and the
-  composition no longer type-checks under v0.64.3 -- 113 T001 catalog-body
-  errors, ALL in `xiom.vector.*` (`metric_code`, `DistanceMetric`,
-  `vector_encode`, `Neighbor`, `Vector`, ...); ORBITDB side clean; INFO filed
-  `REL-20261011-1127-orbitdb`; re-run when their pin settles or on the next
-  compiler archive (previous green 2026-10-10 against the `e04c723`-era
-  tree). Next per task order: M5.1 typed values v2.
+  API.md flush-row dedup. **Hybrid wrap guard RESOLVED (doorbell):** the 113
+  T001s were OUR composition manifest missing xvector's package deps --
+  `xiom.vectors` (their 2026-10-10 adoption; every consumer module imports
+  it) plus rate/http; xvector diagnosed it precisely (their tree is green on
+  v0.64.3; not a toolchain-axis issue); mirrored their `[dependencies]`
+  block into `tests/hybrid/xiom.toml` (wal/metrics/rate/http/vectors) and
+  probe_hybrid `full` is GREEN (36 checks) again. My INFO
+  `REL-20261011-1127-orbitdb` verified+closed; xvector's reply
+  `REL-20261011-1146` acked (reporter closes). Also adopted the ops hygiene
+  rule `REL-20261011-1134-ops`: never delete/downgrade shared toolchain
+  homes (this lane pins its own shadow install via dev-env); destructive
+  tests need an isolated XIOM_HOME + a `to: all` announcement. Next per task
+  order: M5.1 typed values v2 (codec landed this session, evidence in
+  progress).
 **Updated:** 2026-10-11 (reference study, owner grant): cloned + studied
   bbolt (MIT), redb (MIT/Apache-2.0) and SQLite (public domain) under
   `E:\repos`; `docs/REFERENCE-STUDY.md` maps their load-bearing mechanisms
@@ -440,11 +446,11 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   - XV-ORBITDB-01 (XVECTOR side): **RESOLVED** -- fixed at xvector `3c36f34`;
     verified against their source and CLOSED 2026-10-10; the probe's
     `persist_recovered` workaround is REMOVED (plain `wal_persist`, full +
-    crash GREEN x2 both). **Hybrid re-run 2026-10-11 DEFERRED-RED:** the
-    sibling tree was mid-slice (HEAD `f3aacdf`) and the composition fails to
-    type-check under v0.64.3 (113 T001 catalog-body errors, all in
-    `xiom.vector.*`; ORBITDB side clean); INFO `REL-20261011-1127-orbitdb`;
-    re-run when their pin settles (or on the next compiler archive).
+    crash GREEN x2 both). **Hybrid re-run 2026-10-11: GREEN again (36
+    checks)** -- the earlier 113 T001s were our `tests/hybrid/xiom.toml`
+    missing xvector's registry deps (`xiom.vectors` + rate/http; their
+    tree is green on v0.64.3); deps mirrored from their manifest; keep that
+    block in lockstep with theirs when either side moves.
   - Hybrid composition needs the sibling `xiom-xvector` checkout at
     `E:\xiom-projects\xiom-xvector` (relative paths in `tests/hybrid/xiom.toml`);
     the probe is source-level until both packages publish (M6/F4), so the
@@ -521,6 +527,15 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
 - Report upstream through the xiom-relays bus (section 1) + SESSION rows;
   the owner handles human gates. Read other lanes' bus items before filing
   (reference their ids).
+- **Toolchain hygiene (ops rule `REL-20261011-1134-ops`, 2026-10-11; full
+  text `TOOLCHAIN_HYGIENE.md` in the bus repo):** never delete or downgrade
+  the shared homes (`%LOCALAPPDATA%\xiom*`, WSL `~/.local/share/xiom`,
+  `~/xiom`); treat dirs without this lane's name as read-only. This lane
+  pins its own shadow compiler via `scripts/dev-env.ps1`; install/uninstall
+  experiments must use an isolated `XIOM_HOME` + lane-local extraction and
+  be announced with a `to: all` item. If a green battery suddenly shows
+  unresolved-package T001s, stop, rerun once, and file to ops with
+  timestamps if it recovers.
 - Packages only from the registry; never vendor. Extraction candidates go to
   `docs/PACKAGE-WISHLIST-ORBITDB.md`.
 
