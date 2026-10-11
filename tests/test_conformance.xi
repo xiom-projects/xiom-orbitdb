@@ -10,6 +10,7 @@
 module xiom_db_conformance
 use xiom.io;
 use xiom.convert;
+use xiom.os.env;
 use xiom.test;
 use xiom.db.engine;
 use xiom.db.wal_file;
@@ -20,6 +21,7 @@ use xiom.db.contracts;
 use xiom.db.storage.page;
 use xiom.db.storage.page_file;
 use xiom.db.storage.block;
+use xiom.db.storage.fault;
 use xiom.db.storage.tuple;
 use xiom.db.storage.free_space_map;
 use xiom.db.catalog.schema;
@@ -3337,6 +3339,118 @@ fn test_db_file_dirty_flush() -> TestResult {
   return assert(false, "db_file: dirty-flush failed");
 }
 
+// ===========================================================================
+// Durability API + fault injector (M2.1 first half). The env-armed injector
+// is test-only (src/storage/fault.xi); `syncfail` makes the next sync report
+// failure, which must latch the handle and refuse writers until reopen.
+// ===========================================================================
+
+fn run_db_file_durability_api() -> Int {
+  let path = "orbitdb-suite-db-dura.wal";
+  let snap = "orbitdb-suite-db-dura.wal.snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+
+  var db = db_file_open(path, 4);
+  if db_file_durability(&db) != 1 { return 1; }  // immediate is the default
+  if db_file_two_phase(&db) { return 2; }
+  if db_file_failed(&db) { return 3; }
+
+  // Invalid modes are rejected; a valid set sticks to the handle.
+  if db_file_set_durability(&mut db, 2) { return 4; }
+  if db_file_set_durability(&mut db, -1) { return 5; }
+  if !db_file_set_durability(&mut db, 0) { return 6; }
+  if db_file_durability(&db) != 0 { return 7; }
+
+  // Two-phase is immediate-only.
+  if db_file_set_two_phase(&mut db, true) { return 8; }
+  if !db_file_set_durability(&mut db, 1) { return 9; }
+  if !db_file_set_two_phase(&mut db, true) { return 10; }
+  if !db_file_two_phase(&db) { return 11; }
+  if !db_file_set_two_phase(&mut db, false) { return 12; }
+  if db_file_two_phase(&db) { return 13; }
+
+  // Writes work in both modes; flush is the seam call and reports success.
+  if !db_file_put(&mut db, 1, 100) { return 14; }
+  if !db_file_set_durability(&mut db, 0) { return 15; }
+  if !db_file_put(&mut db, 2, 200) { return 16; }
+  if !db_file_flush(&mut db) { return 17; }
+  if db_file_failed(&db) { return 18; }
+
+  // Reopen resets to defaults; data survives.
+  var db2 = db_file_open(path, 4);
+  if db_file_durability(&db2) != 1 { return 19; }
+  if db_file_two_phase(&db2) { return 20; }
+  if db_file_size(&db2) != 2 { return 21; }
+  match db_file_get(&db2, 1) {
+    None => { return 22; }
+    Some(v) => { if v != 100 { return 23; } }
+  }
+  match db_file_get(&db2, 2) {
+    None => { return 24; }
+    Some(v) => { if v != 200 { return 25; } }
+  }
+
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  return 0;
+}
+
+fn test_db_file_durability_api() -> TestResult {
+  let rc = run_db_file_durability_api();
+  if rc == 0 { return assert(true, "db_file: durability API defaults/setters + reopen reset"); }
+  return assert(false, "db_file: durability API failed rc=" + int_to_str(rc));
+}
+
+fn run_db_file_syncfail_latch() -> Int {
+  let path = "orbitdb-suite-db-syncfail.wal";
+  let snap = "orbitdb-suite-db-syncfail.wal.snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+
+  var db = db_file_open(path, 4);
+  if !db_file_put(&mut db, 1, 10) { return 1; }
+
+  // The next sync fails: the put's WAL record lands but the ack flush does
+  // not, so the commit reports false and the handle latches.
+  env.set_var("ORBITDB_FAULT_AT", "1");
+  env.set_var("ORBITDB_FAULT_MODE", "syncfail");
+  fault_reset();
+  if db_file_put(&mut db, 2, 20) { return 2; }
+  if !db_file_failed(&db) { return 3; }
+
+  // Latched writers refuse until reopen.
+  if db_file_put(&mut db, 3, 30) { return 4; }
+  if db_file_delete(&mut db, 1) { return 5; }
+  if db_file_txn_begin(&mut db) { return 6; }
+  if db_file_checkpoint(&mut db) >= 0 { return 7; }
+  if db_file_flush(&mut db) { return 8; }
+
+  // Disarm, reopen: the WAL record for key 2 was written before the failed
+  // sync (WAL-before-ack), so recovery must produce it.
+  env.remove_var("ORBITDB_FAULT_AT");
+  env.remove_var("ORBITDB_FAULT_MODE");
+  fault_reset();
+
+  var db2 = db_file_open(path, 4);
+  if db_file_failed(&db2) { return 9; }
+  if db_file_size(&db2) != 2 { return 10; }
+  match db_file_get(&db2, 2) {
+    None => { return 11; }
+    Some(v) => { if v != 20 { return 12; } }
+  }
+
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  return 0;
+}
+
+fn test_db_file_syncfail_latch() -> TestResult {
+  let rc = run_db_file_syncfail_latch();
+  if rc == 0 { return assert(true, "db_file: syncfail latches the handle; reopen recovers the record"); }
+  return assert(false, "db_file: syncfail latch failed rc=" + int_to_str(rc));
+}
+
 fn run_result_set_ops() -> Int {
   var cols = Vec[Str].new();
   cols.push("id");
@@ -4125,6 +4239,11 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r99c.passed, r99c.name);
   let r100 = test_db_file_dirty_flush();
   total = total + 1; failed = failed + report(r100.passed, r100.name);
+  // Durability API + fault injector (M2.1 first half)
+  let r100a = test_db_file_durability_api();
+  total = total + 1; failed = failed + report(r100a.passed, r100a.name);
+  let r100b = test_db_file_syncfail_latch();
+  total = total + 1; failed = failed + report(r100b.passed, r100b.name);
   let r93 = test_result_set_ops();
   total = total + 1; failed = failed + report(r93.passed, r93.name);
 
