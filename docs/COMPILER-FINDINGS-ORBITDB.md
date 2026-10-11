@@ -54,6 +54,16 @@ original; pinned reads returned post-write values). Bundle
 `docs/repro/vec-copy-alias/`; workaround applied (`node_deep_copy` in
 `src/engine.xi` rebuilds every vector). Bus item `REL-20261011-1659-orbitdb`.
 
+**Status 2026-10-11 (doorbell): v0.64.4 stack STAGED** -- compiler batches
+1-6 complete (m261-m271, `REL-20261011-1731-compiler`); the fixes targeting
+our open findings are committed on compiler main: **C-ORBIT-07 -> m261/m262
+(`677d65a7`; bus item `REL-20261011-1124-orbitdb` moved to `fixed`)** and
+**the C-ORBIT-06 phantom/core-ask gate -> m266/m267 (`0b1c6374`; rows
+1802 + packages-4)**. No archive yet: **workarounds stay**. When v0.64.4
+ships, re-run `docs/repro/consumer-fn-hijack/` (expect `svc: private arm()
+ran` on BOTH import orders) and `docs/repro/phantom-core-import/` before
+moving anything to verified/closed.
+
 **Relay:** hand this file to the compiler-lane session together with the
 matching `docs/repro/<bundle>/` directories from the ORBITDB repo
 (`E:\xiom-projects\xiom-orbitdb`). ORBITDB is a consumer lane; it does not

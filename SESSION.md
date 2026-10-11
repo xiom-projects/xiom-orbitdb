@@ -235,6 +235,17 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   GREEN x2 both, fuzz section (l) x2 both, db_crash 25/25 x2 both; readiness
   **D3 2/4 -> 75.5**. Docs: MVCC.md + ISOLATION rewrite + API/RUNBOOK/README/
   plan/checklist coupled.
+**Updated:** 2026-10-11 (doorbell 18:00Z): compiler posted
+  `REL-20261011-1731-compiler` -- the six-batch v0.64.4 program is COMPLETE
+  (m261-m271) and the stack is staged for the archive push. Fixes target our
+  **C-ORBIT-07** (m261/m262 `677d65a7`; bus item `REL-20261011-1124-orbitdb`
+  now `fixed`) and the **C-ORBIT-06 phantom gate** (m266/m267 `0b1c6374`;
+  rows 1802 + packages-4). No archive yet: **workarounds stay** (`probe_arm`,
+  phantom type declarations); on landing re-run the two bundles (hijack:
+  BOTH import orders; expect `svc: private arm() ran`) and only then file
+  verified/closed. Queue otherwise clear (packages-8 still awaiting their
+  verify); findings ledger + paste-prompt WATCH updated; nothing pushed to
+  the bus by us this cycle.
 **Updated:** 2026-10-11 (M3.1 wrap -- CLEAN HANDOFF, next session): tree
   clean at the M3.1 wrap commit; lane heads at this wrap: stdlib `7e82225`
   (v0.64.3 sweep verdicts -- docs-only move; suite re-verified on it) /
@@ -905,7 +916,10 @@ expects `docs/repro/consumer-fn-hijack/` to print `svc: private arm() ran`
 on BOTH import orders; batch 3 phantom imports (1802+2124) expects the
 `docs/repro/phantom-core-import/` symptom to vanish. Keep the workarounds
 (`probe_arm`, type declarations) until each batch lands, then re-verify
-from the bundle READMEs and report on the bus. PULSE's `probe_pkg_orbitdb`
+from the bundle READMEs and report on the bus. STATUS 2026-10-11: the six
+batches are COMPLETE (m261-m271; `REL-20261011-1731-compiler`) -- C-ORBIT-07
+fix = m261/m262 `677d65a7`, phantom gate = m266/m267 `0b1c6374` -- and the
+stack is staged for the v0.64.4 archive; verify on the next archive. PULSE's `probe_pkg_orbitdb`
 results, and the stdlib rows on the bus (-3..-8 acked). (XVECTOR's
 XV-ORBITDB-01 fix was verified and closed 2026-10-10; re-run the hybrid
 probe when their pin moves.) **Doorbell: scheduled cron tasks are
