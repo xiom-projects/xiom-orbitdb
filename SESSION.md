@@ -319,8 +319,8 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     with-twin still red on v0.64.3 (correction
     `REL-20261010-1802-orbitdb`), release-check row `-2` still open.
     Rollback option: v0.64.2 (`xiom.new`; findings file keeps the notes).
-  - Lane heads at the 2026-10-11 M2.1 wrap: stdlib `a1c56fe`,
-    xvector `6a25c1d`, packages `511dd0f5`, relays `2e48a87` (all moved
+  - Lane heads at the 2026-10-11 M5.3 wrap: stdlib `4fbc226`,
+    xvector `03a90bc`, packages `68569e9c`, relays `428a47f` (all moved
     during the day; re-check at the next wrap -- release rows on the bus are
     the contract).
   - stdlib: `E:\xiom-lang\stdlib` @ `7e513f9` (2026-10-10; handoff snapshot
