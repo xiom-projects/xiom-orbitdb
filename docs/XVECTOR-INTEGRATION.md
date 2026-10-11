@@ -166,3 +166,22 @@ and the hybrid probe now persists with a plain `wal_persist` -- the
 `persist_recovered` re-LSN workaround is REMOVED and the full + crash
 harnesses are GREEN x2 Windows + WSL. Bus item
 `REL-20261010-1550-orbitdb-11` verified and closed by the reporter.
+
+## 8. Hybrid re-run status (2026-10-11)
+
+Wrap-time re-run against the sibling's WORKING TREE (HEAD `f3aacdf` at
+~11:30Z; the xvector lane was mid-refactor, 63rd/64th passes) does not
+compile under our v0.64.3 pin: 113x T001, all in `xiom.vector.*`
+"catalog body" entries (`metric_code`, `metric_from_code`, `DistanceMetric`,
+`vector_encode`/`decode`, `Neighbor`, `Vector`, `cosine_distance`; e.g.
+`xiom.vector.engine.core`, `xiom.vector.index.hnsw`,
+`xiom.vector.query.pagination`, `xiom.vector.segment.segment_file`).
+ORBITDB's `xiom.db.*` side is clean in the same composition, and the
+standalone suite is 136/136 x2 Win + WSL on v0.64.3. Two hypotheses on the
+sibling side: mid-slice tree state, or their tree now expects a
+post-v0.64.3 compiler (their lane runs a separate `~/.xvector-toolchain`
+install). INFO filed: `REL-20261011-1127-orbitdb`. The wrap guard re-runs
+the probe + crash harness when the sibling pin settles or on the next
+compiler archive; previous green: 2026-10-10 against the `e04c723`-era
+tree. This is inherent to source-level composition (`tests/hybrid/xiom.toml`
+points at the sibling's live `src/`).

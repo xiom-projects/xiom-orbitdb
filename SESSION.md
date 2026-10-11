@@ -95,7 +95,14 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `arm()`; renamed to `probe_arm`; bundle `docs/repro/consumer-fn-hijack/`,
   bus `REL-20261011-1124-orbitdb`). Docs: RUNBOOK probe/env rows + gotcha,
   REFERENCE-STUDY action-1 DONE, readiness changelog (71.5, no score change),
-  API.md flush-row dedup. Next per task order: M5.1 typed values v2.
+  API.md flush-row dedup. **Hybrid wrap guard DEFERRED-RED:** the sibling
+  tree moved mid-slice during the day (HEAD `f3aacdf` at ~11:30Z) and the
+  composition no longer type-checks under v0.64.3 -- 113 T001 catalog-body
+  errors, ALL in `xiom.vector.*` (`metric_code`, `DistanceMetric`,
+  `vector_encode`, `Neighbor`, `Vector`, ...); ORBITDB side clean; INFO filed
+  `REL-20261011-1127-orbitdb`; re-run when their pin settles or on the next
+  compiler archive (previous green 2026-10-10 against the `e04c723`-era
+  tree). Next per task order: M5.1 typed values v2.
 **Updated:** 2026-10-11 (reference study, owner grant): cloned + studied
   bbolt (MIT), redb (MIT/Apache-2.0) and SQLite (public domain) under
   `E:\repos`; `docs/REFERENCE-STUDY.md` maps their load-bearing mechanisms
@@ -430,15 +437,19 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   - Fuzz/property runs per wrap; continuous CI cadence is gated on F3 (CI
     matrix). Probe env parsing falls back to defaults on malformed values
     (only the required DB path errors out).
-  - XV-ORBITDB-01 (XVECTOR side): chained persist/load is LOSSY -- a
-    recovered engine's compacted WAL resumes LSNs while `wal_load` requires
-    the first LSN to be 1, so re-persisting reloads EMPTY (vectors vanish
-    while row-side version slots stay advanced). The hybrid probe works
-    around it in `persist_recovered` (re-LSN through a fresh writer); drop
-    the workaround once XVECTOR relaxes the loader (relay sent).
+  - XV-ORBITDB-01 (XVECTOR side): **RESOLVED** -- fixed at xvector `3c36f34`;
+    verified against their source and CLOSED 2026-10-10; the probe's
+    `persist_recovered` workaround is REMOVED (plain `wal_persist`, full +
+    crash GREEN x2 both). **Hybrid re-run 2026-10-11 DEFERRED-RED:** the
+    sibling tree was mid-slice (HEAD `f3aacdf`) and the composition fails to
+    type-check under v0.64.3 (113 T001 catalog-body errors, all in
+    `xiom.vector.*`; ORBITDB side clean); INFO `REL-20261011-1127-orbitdb`;
+    re-run when their pin settles (or on the next compiler archive).
   - Hybrid composition needs the sibling `xiom-xvector` checkout at
     `E:\xiom-projects\xiom-xvector` (relative paths in `tests/hybrid/xiom.toml`);
-    the probe is source-level until both packages publish (M6/F4).
+    the probe is source-level until both packages publish (M6/F4), so the
+    composition tracks the sibling's WORKING TREE -- expect red while the
+    sibling is mid-refactor.
   - Multi-handle safety is optimistic: the `wal_bytes` stale-write guard
     refuses lagging writers but is not a lock (external appends are detected
     only on the next write); no MVCC -- see `docs/ISOLATION.md`.
