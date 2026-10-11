@@ -1,7 +1,9 @@
 # Typed values in storage -- the container decision (M5.2 -> M5.3)
 
-Status: decision + S1/S2 landed 2026-10-11 (M5.1 codec, M5.2 schema layer).
-S3 (engine persistence) is the next slice; this document is its contract.
+Status: **S3 LANDED 2026-10-11** (M5.1 codec, M5.2 schema layer, M5.3 engine
+persistence). Remaining works that build on it: typed-column query/index
+predicates (compares decoded values; S4). This document is the contract that
+was implemented; see "Landed details" for the as-built specifics.
 Copyright (c) 2026 Eleftherios Notas and The XIOM Authors.
 SPDX-License-Identifier: MIT OR Apache-2.0
 
@@ -63,27 +65,50 @@ Example record (typed put):
  ^lsn ^op ^key ^value ^ts ^subtype=1 ^tuple v2 row bytes
 ```
 
-**Snapshot (S3):** node page version 3 -- the existing sections (FORMATS
-section 4) plus a payload section: `u32 payload_count` then per entry
-`u32 length` + bytes. Version 2 pages decode with empty payloads (no
-rewrite, `page_format` 2 auto-detect already handles the container level).
+**Snapshot (S3):** node page version 2 -- the existing sections (FORMATS
+section 4) plus a payload section: `u64 LE payload_count` (= `key_count`)
+then per entry `u64 LE length` + bytes (the node-page family's integer
+width). Version 1 pages decode with empty payloads (no rewrite, both
+containers auto-detect as before). Payload budget:
+`db_file_typed_payload_max(order)` keeps the largest node page inside the
+smaller container budget (v2 block payload capacity); `db_file_put_typed`
+refuses larger payloads up front.
 
-**API (S3):** `db_file_put_typed(db, key, payload)`,
+**API (S3):** `db_file_put_typed(db, key, payload)` (opaque bytes 0..255),
 `db_file_get_typed(db, key) -> Option[Vec[Int]]`; delete/checkpoint/replay
 unchanged in shape. `schema_row` composes: `schema_row_key` ->
 `schema_row_encode` -> `put_typed`. Query filters stay int-based; typed
 column predicates and typed secondary indexes are S4 (they compare decoded
 values, so they build on S3, not beside it).
 
-## Evidence ladder for S3 (definition of done)
+## Evidence ladder for S3 -- LANDED 2026-10-11
 
 1. Engine: payloads survive insert/update/delete/search, checkpoint
-   (v3 pages), reopen (snapshot + WAL replay), and the v1/v2 readers still
-   load old artifacts (suite tests).
-2. Crash: fault-injector scenarios (`probe_fault_sync`): typed put with a
+   (both containers), generation regen, reopen (snapshot + WAL replay);
+   legacy v1-node-page artifacts load unchanged (verified against
+   pre-change snapshots: single-node CLI store + a 2994-row multi-node
+   hybrid store, incl. write + checkpoint migration-on-write). Suite
+   tests: `db_file typed: ...` x5 (149 total).
+2. Crash: fault-injector scenario E (`probe_fault_sync`): typed put with a
    failing ack sync latches + reopens with the payload recovered; torn
-   page/header fallback keeps payloads consistent with values.
-3. Fuzz: random typed rows through `db_file_put_typed` vs a model
-   (search/range/delete/reopen), plus byte-mutation of v3 node pages.
-4. Zero regressions for int users: the existing suite (144 tests) stays
-   green; snapshot v3 auto-detect is additive.
+   page/header fallback in section D keeps payloads consistent with values.
+3. Fuzz: section (j) -- random put/put_typed/delete mixes with periodic
+   checkpoints/reopens vs a model; size/get/get_typed/range checked after
+   EVERY op (4 seeds x 200 iters).
+4. Zero regressions: the full suite (144 pre-existing) stays green; node
+   version 2 is additive and the readers keep accepting version 1.
+
+## Landed details (as-built deltas from the original contract)
+
+- **WAL example**: `7|1|42|42|0|1,219,2,6,...` -- subtype `1` then row bytes;
+  the record `value` mirrors the key.
+- **Byte discipline**: `db_file_put_typed` validates elements 0..255 and
+  refuses otherwise (the snapshot codecs are byte-oriented; accepting
+  > 255 would silently mask bits). Replay also drops crafted records with
+  non-byte payload elements.
+- **Index note**: typed writes drop any stale int-value secondary-index
+  entry for the key and add none (typed-column indexes are S4).
+- **Non-transactional**: `db_file_put_typed`/`get_typed` are refused/absent
+  inside explicit transactions in S3; the replay path still buffers tagged
+  payloads in TxOp, so a crafted committed window replays correctly and an
+  unterminated one discards (test-pinned).

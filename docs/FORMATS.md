@@ -52,6 +52,14 @@ Op codes: `1` Insert, `2` Update, `3` Delete, `4` SegmentSeal,
 `9` CommitTxn, `10` AbortTxn. Decode maps unknown codes to `Insert`;
 `wal_op_is_write` is true only for 1/2/3.
 
+Tagged payloads (M5.3): write records (1/2) may carry a payload whose first
+element is a SUBTYPE. Subtype `1` = typed row: the remaining elements are the
+tuple-v2 row bytes (FORMATS 5A), each 0..255; the record `value` mirrors the
+`key` (the pk). Replay applies the payload as the entry payload; an unknown
+subtype on a write record is SKIPPED (fail closed -- never apply an int value
+without its data). Plain int writes carry no payload. Checkpoint records keep
+their own payload (generation, node_count, order).
+
 Reader rules: a line with fewer than 5 fields or with any non-integer field is
 skipped (no diagnostics); a torn final line is skipped and healed by appending
 a newline before the next write. `wal_file_open` resumes `next_lsn` from the
@@ -117,20 +125,32 @@ page g*2^32 + i + 1     node i as of generation g
 | Offset | Size | Field |
 |--------|------|-------|
 | 0 | 1 | magic `'O'` = `0x4F` |
-| 1 | 1 | version = `1` |
+| 1 | 1 | node version: `1` (legacy, no payload section) or `2` (M5.3) |
 | 2 | 1 | kind `'N'` = `0x4E` |
 | 3 | 1 | `is_leaf` (0/1) |
 | 4 | 8 | `key_count` (LE) |
 | 12 | 8 | `child_count` (LE) |
 | 20 | 8 | reserved (`0`) |
 | 28 | 8*`key_count` | keys (LE) |
-| ... | 8*`key_count` | values (LE) |
+| ... | 8*`key_count` | values (LE; typed rows mirror the key) |
 | ... | 8*`child_count` | child node indexes (LE) |
+| ... | 8 | `payload_count` (LE, version 2 only; equals `key_count`) |
+| ... | per entry | `payload_len` (LE) + `payload_len` bytes (bare/row bytes, 0..255) |
 
-Decode is strict: magic/version/kind, exact length
-(`28 + 16*key_count + 8*child_count`), sane counts, `is_leaf` implies
-`child_count == 0`, internal nodes have children; every child index must
-address a loaded node.
+Decode is strict: magic/version/kind, exact length (`28 + 16*key_count +
+8*child_count` for version 1; `+ 8 + sum(8 + payload_len)` for version 2), sane
+counts, `is_leaf` implies `child_count == 0`, internal nodes have children,
+every payload length lies inside the buffer, no trailing bytes; every child
+index must address a loaded node. Version 1 pages decode with empty payloads
+(no rewrite needed).
+
+Payload budget: a typed row's payload must keep its largest node page inside
+the smaller container budget (v2 block payload capacity, 4056 bytes):
+`db_file_typed_payload_max(order) = (4056 - (28 + 24*(order-1) + 8*order)) /
+(order-1)` -- e.g. 1978 bytes at order 3, 1308 at order 4, 973 at order 5.
+`db_file_put_typed` refuses larger payloads up front, and payload elements
+must be bytes (0..255) -- both are hard write rules, not checkpoint-time
+surprises.
 
 ### Generation commit rule
 

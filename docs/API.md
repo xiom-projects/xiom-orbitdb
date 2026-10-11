@@ -45,6 +45,9 @@ layout: `<path>` = WAL segment, `<path>.snap` = snapshot page log.
 | `db_file_put(db, key, value)` | `Bool` | Upsert; appends WAL first, then mutates the tree. `false` on WAL failure or while a transaction is active. |
 | `db_file_delete(db, key)` | `Bool` | Delete; `false` when the key is absent, on WAL failure, or while a transaction is active. |
 | `db_file_get(db, key)` | `Option[Int]` | Point lookup. |
+| `db_file_put_typed(db, key, payload)` | `Bool` | M5.3 typed-row upsert: opaque row BYTES (0..255; e.g. a tuple-v2 row from `schema_row_encode`); WAL record carries subtype 1 + the bytes, `value` mirrors the key. Refused above `db_file_typed_payload_max(db.order)`, while a transaction is active, on a latched/stale handle, or for non-byte elements. Non-transactional in S3. |
+| `db_file_get_typed(db, key)` | `Option[Vec[Int]]` | The stored payload; `None` when the key is absent or the entry is a plain int row (read those with `db_file_get`). |
+| `db_file_typed_payload_max(order)` | `Int` | Payload budget so a full node page fits both snapshot containers (1978 bytes at order 3, 1308 at order 4, 973 at order 5). |
 | `db_file_range(db, low, high)` | `Vec[Int]` | Values for keys in `[low, high]` inclusive, in key order (`requires: low <= high`). |
 | `db_file_query(db, query)` | `Vec[Int]` | Value-filter query; same semantics as `db_query` / `query_execute` (conditions filter VALUES). |
 | `db_file_size(db)` | `Int` | Number of keys. |

@@ -2949,6 +2949,294 @@ fn test_schema_row_bool_and_empty() -> TestResult {
 }
 
 // ===========================================================================
+// Typed rows in the engine (M5.3): payload container through put/get, WAL
+// (tagged subtype 1), replay, and both snapshot containers. Contract:
+// docs/TYPED-VALUES-STORAGE.md.
+// ===========================================================================
+
+fn tdb_row3(a: Int, b: Int, c: Int) -> Vec[Int] {
+  var v = Vec[Int].new();
+  v.push(a);
+  v.push(b);
+  v.push(c);
+  return v;
+}
+
+fn tdb_row2(a: Int, b: Int) -> Vec[Int] {
+  var v = Vec[Int].new();
+  v.push(a);
+  v.push(b);
+  return v;
+}
+
+fn tdb_cleanup(path: Str) {
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(path + ".snap");
+}
+
+fn run_db_typed_roundtrip() -> Int {
+  let path = "orbitdb-suite-typed.wal";
+  tdb_cleanup(path);
+  var db = db_file_open(path, 4);
+
+  // Typed put: get_typed returns the payload; the int value mirrors the key.
+  if !db_file_put_typed(&mut db, 7, tdb_row3(1, 2, 3)) { return 1; }
+  match db_file_get_typed(&db, 7) {
+    None => { return 2; }
+    Some(p) => {
+      if p.len() != 3 { return 3; }
+      if p[0] != 1 { return 4; }
+      if p[2] != 3 { return 5; }
+    }
+  }
+  match db_file_get(&db, 7) {
+    None => { return 6; }
+    Some(v) => { if v != 7 { return 7; } }
+  }
+
+  // Int row coexists; get_typed on it is None.
+  if !db_file_put(&mut db, 8, 800) { return 8; }
+  match db_file_get_typed(&db, 8) { Some(_) => { return 9; } None => {} }
+
+  // Typed -> int overwrite drops the payload.
+  if !db_file_put(&mut db, 7, 700) { return 10; }
+  match db_file_get_typed(&db, 7) { Some(_) => { return 11; } None => {} }
+  match db_file_get(&db, 7) { Some(v) => { if v != 700 { return 12; } } None => { return 13; } }
+
+  // Int -> typed overwrite installs one.
+  if !db_file_put_typed(&mut db, 8, tdb_row2(9, 9)) { return 14; }
+  match db_file_get_typed(&db, 8) {
+    None => { return 15; }
+    Some(p) => { if p.len() != 2 { return 16; } }
+  }
+
+  // Reopen WITHOUT checkpoint: WAL replay must carry the payloads.
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 2 { return 17; }
+  match db_file_get_typed(&db2, 8) {
+    None => { return 18; }
+    Some(p) => { if p[0] != 9 { return 19; } }
+  }
+  match db_file_get_typed(&db2, 7) { Some(_) => { return 20; } None => {} }
+  match db_file_get(&db2, 7) { Some(v) => { if v != 700 { return 21; } } None => { return 22; } }
+
+  // Delete a typed row.
+  if !db_file_delete(&mut db2, 8) { return 23; }
+  var db3 = db_file_open(path, 4);
+  if db_file_size(&db3) != 1 { return 24; }
+  match db_file_get_typed(&db3, 8) { Some(_) => { return 25; } None => {} }
+
+  tdb_cleanup(path);
+  return 0;
+}
+
+fn test_db_typed_roundtrip() -> TestResult {
+  let rc = run_db_typed_roundtrip();
+  if rc == 0 { return assert(true, "db_file typed: put/get/overwrite/delete + WAL replay carries payloads"); }
+  return assert(false, "db_file typed: roundtrip failed rc=" + int_to_str(rc));
+}
+
+fn tdb_checkpoint_body(path: Str, page_format: Int) -> Int {
+  tdb_cleanup(path);
+  var db = db_file_open_cfg(path, 4, page_format);
+  var k = 1;
+  while k <= 5 {
+    if !db_file_put_typed(&mut db, k, tdb_row3(k, k * 10, 100 + k)) { return 1; }
+    k = k + 1;
+  }
+  if !db_file_put(&mut db, 6, 6000) { return 2; }
+  if db_file_checkpoint(&mut db) < 0 { return 3; }
+  // Tail after the snapshot.
+  if !db_file_put_typed(&mut db, 7, tdb_row3(7, 70, 107)) { return 4; }
+  if !db_file_put(&mut db, 8, 8000) { return 5; }
+
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 8 { return 6; }
+  k = 1;
+  while k <= 5 {
+    match db_file_get_typed(&db2, k) {
+      None => { return 10 + k; }
+      Some(p) => {
+        if p.len() != 3 { return 20 + k; }
+        if p[0] != k { return 30 + k; }
+        if p[1] != k * 10 { return 40 + k; }
+        if p[2] != 100 + k { return 50 + k; }
+      }
+    }
+    k = k + 1;
+  }
+  match db_file_get(&db2, 6) {
+    None => { return 60; }
+    Some(v) => { if v != 6000 { return 61; } }
+  }
+  match db_file_get_typed(&db2, 7) {
+    None => { return 62; }
+    Some(p) => { if p[1] != 70 { return 63; } }
+  }
+  match db_file_get(&db2, 8) {
+    None => { return 64; }
+    Some(v) => { if v != 8000 { return 65; } }
+  }
+
+  // A second checkpoint then reopen: payloads survive generations.
+  if db_file_checkpoint(&mut db2) < 0 { return 66; }
+  var db3 = db_file_open(path, 4);
+  if db_file_size(&db3) != 8 { return 67; }
+  match db_file_get_typed(&db3, 3) {
+    None => { return 68; }
+    Some(p) => { if p[2] != 103 { return 69; } }
+  }
+  tdb_cleanup(path);
+  return 0;
+}
+
+fn run_db_typed_checkpoint_v1() -> Int {
+  return tdb_checkpoint_body("orbitdb-suite-typed-ck1.wal", 1);
+}
+
+fn test_db_typed_checkpoint_v1() -> TestResult {
+  let rc = run_db_typed_checkpoint_v1();
+  if rc == 0 { return assert(true, "db_file typed: v1 checkpoint + generations keep payloads (snapshot + tail)"); }
+  return assert(false, "db_file typed: v1 checkpoint failed rc=" + int_to_str(rc));
+}
+
+fn run_db_typed_checkpoint_v2() -> Int {
+  return tdb_checkpoint_body("orbitdb-suite-typed-ck2.wal", 2);
+}
+
+fn test_db_typed_checkpoint_v2() -> TestResult {
+  let rc = run_db_typed_checkpoint_v2();
+  if rc == 0 { return assert(true, "db_file typed: v2 block snapshot keeps payloads (auto-detect + regen)"); }
+  return assert(false, "db_file typed: v2 checkpoint failed rc=" + int_to_str(rc));
+}
+
+fn run_db_typed_budget_and_guards() -> Int {
+  // Budget formula: overhead = 28 + 24*(order-1) + 8*order, room = 4056 - it.
+  if db_file_typed_payload_max(2) != 0 { return 1; }
+  if db_file_typed_payload_max(3) != 1978 { return 2; }
+  if db_file_typed_payload_max(4) != 1308 { return 3; }
+  if db_file_typed_payload_max(5) != 973 { return 4; }
+
+  let path = "orbitdb-suite-typed-budget.wal";
+  tdb_cleanup(path);
+  var db = db_file_open(path, 3);
+  let max = db_file_typed_payload_max(3);
+  var exact = Vec[Int].new();
+  var i = 0;
+  while i < max {
+    exact.push(i % 256);
+    i = i + 1;
+  }
+  if !db_file_put_typed(&mut db, 1, exact) { return 5; }
+  match db_file_get_typed(&db, 1) {
+    None => { return 6; }
+    Some(p) => { if p.len() != max { return 7; } }
+  }
+  // One byte over the budget: refused, and nothing is stored.
+  var over = Vec[Int].new();
+  i = 0;
+  while i < max + 1 {
+    over.push(1);
+    i = i + 1;
+  }
+  if db_file_put_typed(&mut db, 2, over) { return 8; }
+  match db_file_get_typed(&db, 2) { Some(_) => { return 9; } None => {} }
+  if db_file_size(&db) != 1 { return 10; }
+
+  // Typed writes are refused while a transaction is active.
+  if !db_file_txn_begin(&mut db) { return 11; }
+  if db_file_put_typed(&mut db, 3, tdb_row2(1, 2)) { return 12; }
+  if !db_file_txn_abort(&mut db) { return 13; }
+
+  // Byte-range: elements outside 0..255 are refused up front (the snapshot
+  // codecs are byte-oriented; accepting them would silently lose bits).
+  var wide = Vec[Int].new();
+  wide.push(300);
+  if db_file_put_typed(&mut db, 4, wide) { return 14; }
+  var neg = Vec[Int].new();
+  neg.push(-1);
+  if db_file_put_typed(&mut db, 4, neg) { return 15; }
+  if db_file_size(&db) != 1 { return 16; }
+
+  tdb_cleanup(path);
+  return 0;
+}
+
+fn test_db_typed_budget_and_guards() -> TestResult {
+  let rc = run_db_typed_budget_and_guards();
+  if rc == 0 { return assert(true, "db_file typed: payload budget (orders 3/4/5) + over-budget + txn guard"); }
+  return assert(false, "db_file typed: budget/guards failed rc=" + int_to_str(rc));
+}
+
+// Crafted WAL: a typed record inside a committed txn window must replay with
+// its payload (TxOp buffers it); inside an unterminated window it is
+// discarded like any uncommitted write.
+fn run_db_typed_txn_window_replay() -> Int {
+  let path = "orbitdb-suite-typed-txn2.wal";
+  tdb_cleanup(path);
+  var wal = wal_file_open(path);
+  let _ = wal_file_append(&mut wal, WALOpKind.BeginTxn, 0, 0);
+  var tagged = Vec[Int].new();
+  tagged.push(1);
+  tagged.push(5);
+  tagged.push(6);
+  tagged.push(7);
+  let _ = wal_file_append_tagged(&mut wal, WALOpKind.Update, 11, 11, tagged, 0);
+  let _ = wal_file_append(&mut wal, WALOpKind.CommitTxn, 0, 0);
+  let _ = wal_file_append(&mut wal, WALOpKind.BeginTxn, 0, 0);
+  var tagged2 = Vec[Int].new();
+  tagged2.push(1);
+  tagged2.push(8);
+  tagged2.push(9);
+  let _ = wal_file_append_tagged(&mut wal, WALOpKind.Update, 12, 12, tagged2, 0);
+
+  var db = db_file_open(path, 4);
+  if db_file_size(&db) != 1 { return 1; }
+  match db_file_get_typed(&db, 11) {
+    None => { return 2; }
+    Some(p) => {
+      if p.len() != 3 { return 3; }
+      if p[0] != 5 { return 4; }
+      if p[2] != 7 { return 5; }
+    }
+  }
+  match db_file_get_typed(&db, 12) { Some(_) => { return 6; } None => {} }
+  match db_file_get(&db, 11) {
+    None => { return 7; }
+    Some(v) => { if v != 11 { return 8; } }
+  }
+
+  // Deeper window: int ops and typed ops mixed, then commit.
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(path + ".snap");
+  var wal2 = wal_file_open(path);
+  let _ = wal_file_append(&mut wal2, WALOpKind.BeginTxn, 0, 0);
+  let _ = wal_file_append(&mut wal2, WALOpKind.Update, 1, 100);
+  var tagged3 = Vec[Int].new();
+  tagged3.push(1);
+  tagged3.push(42);
+  let _ = wal_file_append_tagged(&mut wal2, WALOpKind.Update, 2, 2, tagged3, 0);
+  let _ = wal_file_append(&mut wal2, WALOpKind.Delete, 1, 0);
+  let _ = wal_file_append(&mut wal2, WALOpKind.CommitTxn, 0, 0);
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 1 { return 9; }
+  match db_file_get(&db2, 1) { Some(_) => { return 10; } None => {} }
+  match db_file_get_typed(&db2, 2) {
+    None => { return 11; }
+    Some(p) => { if p[0] != 42 { return 12; } }
+  }
+
+  tdb_cleanup(path);
+  return 0;
+}
+
+fn test_db_typed_txn_window_replay() -> TestResult {
+  let rc = run_db_typed_txn_window_replay();
+  if rc == 0 { return assert(true, "db_file typed: committed txn window replays payloads; uncommitted discarded"); }
+  return assert(false, "db_file typed: txn window replay failed rc=" + int_to_str(rc));
+}
+
+// ===========================================================================
 // Durable page file (text v1, CRC32C verified, atomic rewrite)
 // ===========================================================================
 
@@ -4946,6 +5234,18 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r117.passed, r117.name);
   let r118 = test_schema_row_bool_and_empty();
   total = total + 1; failed = failed + report(r118.passed, r118.name);
+
+  // Typed rows in the engine (M5.3)
+  let r119 = test_db_typed_roundtrip();
+  total = total + 1; failed = failed + report(r119.passed, r119.name);
+  let r120 = test_db_typed_checkpoint_v1();
+  total = total + 1; failed = failed + report(r120.passed, r120.name);
+  let r121 = test_db_typed_checkpoint_v2();
+  total = total + 1; failed = failed + report(r121.passed, r121.name);
+  let r122 = test_db_typed_budget_and_guards();
+  total = total + 1; failed = failed + report(r122.passed, r122.name);
+  let r123 = test_db_typed_txn_window_replay();
+  total = total + 1; failed = failed + report(r123.passed, r123.name);
 
   let passed = total - failed;
   io.println("");

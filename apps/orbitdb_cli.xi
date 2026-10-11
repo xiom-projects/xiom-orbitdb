@@ -24,6 +24,7 @@ use xiom.string.split;
 use xiom.string.trim;
 use xiom.time.time;
 use xiom.db.engine;
+use xiom.db.storage.tuple;
 
 fn cli_i2s(n: Int) -> Str {
   return convert.int_to_string(n);
@@ -38,6 +39,9 @@ fn cli_usage() {
   io.println("  count           live row count");
   io.println("  ckpt            checkpoint (snapshot publish + WAL truncate)");
   io.println("  bench <n>       n puts (keys 1..n), timed");
+  io.println("  putrow <k> <spec>  typed row (M5.3): spec = comma list of");
+  io.println("                  int | s:text | f:float | n  (no commas in text)");
+  io.println("  getrow <k>      decode + print a typed row (none if int row)");
   io.println("  info            handle + file state");
   io.println("  recover         close + reopen (snapshot load / WAL replay)");
   io.println("  kill            exit WITHOUT cleanup -- restart to watch recovery");
@@ -181,6 +185,118 @@ fn cli_run_bench(db: &mut DBFile, toks: &Vec[Str]) -> Bool {
   return true;
 }
 
+// Parse a row spec into typed values: elements separated by ","; each is
+// `int`, `s:<text>` (no commas), `f:<float>`, or `n` (null).
+fn cli_build_values(spec: Str) -> Result[Vec[TValue], Str] {
+  var vals = Vec[TValue].new();
+  if spec.len() == 0 { return Ok(vals); }
+  let parts = split.str_split(spec, ",");
+  var i = 0;
+  while i < parts.len() {
+    let t = trim.str_trim(parts[i]);
+    if t.len() >= 2 && t.substr(0, 2) == "s:" {
+      vals.push(TValue.VText(t.substr(2, t.len())));
+    } elif t == "n" {
+      vals.push(TValue.VNull);
+    } elif t.len() >= 2 && t.substr(0, 2) == "f:" {
+      match parse.parse_float(t.substr(2, t.len())) {
+        Err(_) => { return Err("bad float: " + t); }
+        Ok(f) => { vals.push(TValue.VFloat(f)); }
+      }
+    } elif t.len() >= 2 && t.substr(0, 2) == "i:" {
+      match parse.parse_int(t.substr(2, t.len())) {
+        Err(_) => { return Err("bad int: " + t); }
+        Ok(x) => { vals.push(TValue.VInt(x)); }
+      }
+    } else {
+      match parse.parse_int(t) {
+        Err(_) => { return Err("bad element (use int | s:text | f:float | n): " + t); }
+        Ok(x) => { vals.push(TValue.VInt(x)); }
+      }
+    }
+    i = i + 1;
+  }
+  return Ok(vals);
+}
+
+fn cli_encode_row(k: Int, spec: Str) -> Result[Vec[Int], Str] {
+  match cli_build_values(spec) {
+    Err(e) => { return Err(e); }
+    Ok(vals) => {
+      match tuple2_encode_row_checked(k, &vals) {
+        Err(_) => { return Err("row encode failed (too many columns?)"); }
+        Ok(buf) => { return Ok(buf); }
+      }
+    }
+  }
+}
+
+fn cli_run_putrow(db: &mut DBFile, toks: &Vec[Str]) -> Bool {
+  match cli_arg_int(toks, 1) {
+    Err(_) => { io.println("usage: putrow <k> <spec>"); return true; }
+    Ok(k) => {
+      var spec = "";
+      if toks.len() >= 3 { spec = toks[2]; }
+      match cli_encode_row(k, spec) {
+        Err(e) => { io.println("row error: " + e); }
+        Ok(buf) => {
+          if db_file_put_typed(db, k, buf) {
+            io.println("ok (typed row, " + cli_i2s(buf.len()) + " bytes, lsn "
+              + cli_i2s(db_file_last_lsn(db)) + ")");
+          } else {
+            io.println("typed put failed (budget/guards?)");
+          }
+        }
+      }
+    }
+  }
+  return true;
+}
+
+fn cli_run_getrow(db: &DBFile, toks: &Vec[Str]) -> Bool {
+  match cli_arg_int(toks, 1) {
+    Err(_) => { io.println("usage: getrow <k>"); return true; }
+    Ok(k) => {
+      match db_file_get_typed(db, k) {
+        None => { io.println("(none: absent, or a plain int row)"); }
+        Some(p) => {
+          match tuple2_decode_row(&p) {
+            Err(_) => { io.println("(undecodable typed row)"); }
+            Ok(row) => {
+              io.print("id=" + cli_i2s(row.id) + " values=[");
+              var i = 0;
+              while i < row.values.len() {
+                if i > 0 { io.print(", "); }
+                let v = row.values[i];
+                if tuple2_is_null(v) {
+                  io.print("null");
+                } else {
+                  let kind = tuple2_kind(v);
+                  if kind == 0x01 {
+                    match tuple2_int_value(v) { Some(x) => { io.print(cli_i2s(x)); } None => { io.print("?"); } }
+                  }
+                  if kind == 0x02 {
+                    match tuple2_float_value(v) { Some(f) => { io.print(convert.float_to_string(f)); } None => { io.print("?"); } }
+                  }
+                  if kind == 0x03 {
+                    match tuple2_text_value(v) { Some(s) => { io.print("\"" + s + "\""); } None => { io.print("?"); } }
+                  }
+                  if kind == 0x04 {
+                    match tuple2_blob_value(v) { Some(b) => { io.print("blob(" + cli_i2s(b.len()) + "B)"); } None => { io.print("?"); } }
+                  }
+                }
+                i = i + 1;
+              }
+              io.println("]");
+            }
+          }
+        }
+      }
+    }
+  }
+  return true;
+}
+
 // Dispatch one line. Returns: 0 = quit, 1 = continue, 2 = reopen request.
 fn cli_dispatch(db: &mut DBFile, toks: &Vec[Str]) -> Int {
   if toks.len() == 0 { return 1; }
@@ -216,6 +332,14 @@ fn cli_dispatch(db: &mut DBFile, toks: &Vec[Str]) -> Int {
     let _ = cli_run_bench(db, toks);
     return 1;
   }
+  if cmd == "putrow" {
+    let _ = cli_run_putrow(db, toks);
+    return 1;
+  }
+  if cmd == "getrow" {
+    let _ = cli_run_getrow(db, toks);
+    return 1;
+  }
   if cmd == "recover" { return 2; }
   if cmd == "kill" {
     io.println("killing process WITHOUT cleanup (restart to watch recovery)");
@@ -233,7 +357,7 @@ fn main() -> Int {
       None => {}
     }
   }
-  io.println("ORBITDB shell (v0, int rows) -- db: " + path);
+  io.println("ORBITDB shell (v0, int + typed rows) -- db: " + path);
   io.println("help for commands; empty line / EOF exits; `kill` simulates a crash");
   var db = db_file_open(path, 4);
   cli_show_info(&db);
@@ -260,3 +384,4 @@ fn main() -> Int {
   io.println("bye");
   return 0;
 }
+

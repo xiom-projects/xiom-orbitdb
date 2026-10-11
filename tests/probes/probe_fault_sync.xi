@@ -11,6 +11,8 @@
 //      writer refuses; reopen recovers the record (WAL-before-ack).
 //   B. delete-latch: same shape for delete; reopen applies the recorded
 //      delete (the key is gone; the other key stays).
+//   E. typed-latch (M5.3): syncfail on a typed put ack -> the tagged WAL
+//      record stays, reopen recovers the payload + int mirror.
 //   C. checkpoint 2PC pre-sync failure: two_phase flushes the WAL BEFORE the
 //      snapshot publishes; a failing pre-sync latches the handle with the
 //      snapshot file untouched and the WAL untruncated; reopen replays the
@@ -218,6 +220,54 @@ fn run_ckpt_2pc(path_in: Str) -> Int {
 }
 
 // ===========================================================================
+// E: typed rows (M5.3) -- syncfail on a typed put's ack: the tagged WAL
+// record (subtype 1 + row bytes) landed, the ack did not; reopen must
+// recover the payload, and the latched handle refuses further typed writes.
+// ===========================================================================
+
+fn run_typed_latch(path: Str) -> Int {
+  let snap = path + ".snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  var fails: Int = 0;
+
+  var db = db_file_open(path, 4);
+  var base = Vec[Int].new();
+  base.push(1);
+  base.push(2);
+  base.push(3);
+  fails = check(db_file_put_typed(&mut db, 1, base), "E: baseline typed put acks", fails);
+
+  var row = Vec[Int].new();
+  row.push(42);
+  row.push(43);
+  probe_arm("1", "syncfail", "");
+  fails = check(!db_file_put_typed(&mut db, 2, row), "E: typed put with failing ack sync reports false", fails);
+  fails = check(db_file_failed(&db), "E: handle latched", fails);
+  fails = check(!db_file_put_typed(&mut db, 3, row), "E: latched typed put refuses", fails);
+  disarm();
+
+  var db2 = db_file_open(path, 4);
+  fails = check(!db_file_failed(&db2), "E: reopen is not latched", fails);
+  fails = check(db_file_size(&db2) == 2, "E: reopen recovered both typed records", fails);
+  match db_file_get_typed(&db2, 2) {
+    Some(p) => {
+      fails = check(p.len() == 2 && p[0] == 42 && p[1] == 43,
+        "E: recovered payload of the latched typed put", fails);
+    }
+    None => { fails = check(false, "E: recovered payload of the latched typed put", fails); }
+  }
+  match db_file_get(&db2, 2) {
+    Some(v) => { fails = check(v == 2, "E: recovered int mirror (value == pk)", fails); }
+    None => { fails = check(false, "E: recovered int mirror (value == pk)", fails); }
+  }
+
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  return fails;
+}
+
+// ===========================================================================
 // D: block store partial writes (torn page append / update / header slot)
 // ===========================================================================
 
@@ -325,9 +375,10 @@ fn main() -> Int {
   let ckpt_db = env.var_or("ORBITDB_FAULT_CKPT_DB", "probe-logs/fault-sync-ckpt.wal");
   let block = env.var_or("ORBITDB_FAULT_BLOCK", "probe-logs/fault-block.bv2");
   disarm(); // never inherit an armed injector
-  io.println("fault-sync probe: A/B engine latch, C checkpoint 2PC, D block partial");
+  io.println("fault-sync probe: A/B engine latch, E typed latch, C checkpoint 2PC, D block partial");
   var fails: Int = 0;
   fails = fails + run_engine_latch(db);
+  fails = fails + run_typed_latch(db + ".typed");
   fails = fails + run_ckpt_2pc(ckpt_db);
   fails = fails + run_block_partial(block);
   if fails == 0 { io.println("fault-sync: GREEN"); return 0; }

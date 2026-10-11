@@ -29,7 +29,10 @@
 //   (i) schema rows -- random schemas (1..6 cols, random types/nullability,
 //       int pk) + valid rows: validate/key/encode/decode must agree and
 //       roundtrip byte-identically; every single-column violation (null on
-//       non-nullable, kind mismatch, pk non-int) must be rejected.
+//       non-nullable, kind mismatch, pk non-int) must be rejected;
+//   (j) db_file typed rows -- random put/put_typed/delete mixes with
+//       periodic checkpoints/reopens vs a model (size/get/get_typed/range
+//       checked after every op, incl. after recovery).
 //
 // Env:
 //   ORBITDB_FUZZ_DIR          scratch dir                     (default probe-logs)
@@ -44,6 +47,7 @@
 //   ORBITDB_FUZZ_QUERY_ITERS    query/index iterations per seed (default 150)
 //   ORBITDB_FUZZ_TUPLE2_ITERS   tuple-v2 iterations per seed    (default 200)
 //   ORBITDB_FUZZ_SCHEMA_ITERS   schema-row iterations per seed  (default 150)
+//   ORBITDB_FUZZ_TYPED_ITERS    db typed-row iterations per seed (default 200)
 //
 // Exit: 0 = green; non-zero = failing section + first violation (printed).
 
@@ -1222,6 +1226,129 @@ fn fuzz_schema_row(seed: Int, iters: Int) -> Int {
   return 0;
 }
 
+// (j) db_file typed rows (M5.3) ----------------------------------------------
+// Random put/put_typed/delete mixes against a model, with periodic
+// checkpoints and reopens: size, get (typed rows mirror the pk as the int
+// value), get_typed, and range values must match the model after EVERY op,
+// including after recovery. Model payloads are append-only (offsets into a
+// flat byte vec) so no nested-vec element writes are involved.
+fn fuzz_db_typed(seed: Int, iters: Int, dir: Str) -> Int {
+  let path = dir + "/fuzz-typed.wal";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(path + ".snap");
+  var state = seed;
+  var db = db_file_open(path, 4);
+
+  let nkeys = 40;
+  var kind = Vec[Int].new();   // 0 absent, 1 int, 2 typed
+  var val = Vec[Int].new();
+  var payoff = Vec[Int].new();
+  var paylen = Vec[Int].new();
+  var payflat = Vec[Int].new();
+  var k0 = 0;
+  while k0 <= nkeys {
+    kind.push(0);
+    val.push(0);
+    payoff.push(0);
+    paylen.push(0);
+    k0 = k0 + 1;
+  }
+
+  var it = 0;
+  while it < iters {
+    let roll = rand_mod(&mut state, 100);
+    if roll < 45 {
+      let k = 1 + rand_mod(&mut state, nkeys);
+      let plen = rand_mod(&mut state, 21);
+      var p = Vec[Int].new();
+      var i = 0;
+      while i < plen {
+        p.push(rand_next(&mut state) % 256);
+        i = i + 1;
+      }
+      if !db_file_put_typed(&mut db, k, p) { return 1; }
+      kind[k] = 2;
+      val[k] = k;
+      payoff[k] = payflat.len();
+      paylen[k] = plen;
+      i = 0;
+      while i < plen {
+        payflat.push(p[i]);
+        i = i + 1;
+      }
+    } elif roll < 70 {
+      let k = 1 + rand_mod(&mut state, nkeys);
+      let v = rand_next(&mut state) % 2000003 - 1000000;
+      if !db_file_put(&mut db, k, v) { return 2; }
+      kind[k] = 1;
+      val[k] = v;
+      paylen[k] = 0;
+    } elif roll < 85 {
+      let k = 1 + rand_mod(&mut state, nkeys);
+      if kind[k] > 0 {
+        if !db_file_delete(&mut db, k) { return 3; }
+        kind[k] = 0;
+      }
+    } elif roll < 92 {
+      if db_file_checkpoint(&mut db) < 0 { return 4; }
+    } else {
+      db = db_file_open(path, 4);
+    }
+
+    // Full verification after every op.
+    var live = 0;
+    var k = 1;
+    while k <= nkeys {
+      if kind[k] > 0 { live = live + 1; }
+      let g = db_file_get(&db, k);
+      if kind[k] == 0 {
+        match g { Some(_) => { return 5; } None => {} }
+      } else {
+        match g {
+          None => { return 6; }
+          Some(v) => { if v != val[k] { return 7; } }
+        }
+      }
+      let gt = db_file_get_typed(&db, k);
+      if kind[k] == 2 && paylen[k] > 0 {
+        match gt {
+          None => { return 8; }
+          Some(p2) => {
+            if p2.len() != paylen[k] { return 9; }
+            var i2 = 0;
+            while i2 < p2.len() {
+              if p2[i2] != payflat[payoff[k] + i2] { return 10; }
+              i2 = i2 + 1;
+            }
+          }
+        }
+      } else {
+        match gt { Some(_) => { return 11; } None => {} }
+      }
+      k = k + 1;
+    }
+    if db_file_size(&db) != live { return 12; }
+
+    // Sampled range check (key order, values).
+    if rand_mod(&mut state, 5) == 0 {
+      let lo = 1 + rand_mod(&mut state, nkeys);
+      let hi = lo + rand_mod(&mut state, nkeys - lo + 1);
+      var expect = Vec[Int].new();
+      var k2 = lo;
+      while k2 <= hi {
+        if kind[k2] > 0 { expect.push(val[k2]); }
+        k2 = k2 + 1;
+      }
+      let got = db_file_range(&db, lo, hi);
+      if !vec_eq(&got, &expect) { return 13; }
+    }
+    it = it + 1;
+  }
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(path + ".snap");
+  return 0;
+}
+
 
 fn main() -> Int {
   let dir = env.var_or("ORBITDB_FUZZ_DIR", "probe-logs");
@@ -1236,6 +1363,7 @@ fn main() -> Int {
   let query_iters = parse_env_int("ORBITDB_FUZZ_QUERY_ITERS", 150);
   let tuple2_iters = parse_env_int("ORBITDB_FUZZ_TUPLE2_ITERS", 200);
   let schema_iters = parse_env_int("ORBITDB_FUZZ_SCHEMA_ITERS", 150);
+  let typed_iters = parse_env_int("ORBITDB_FUZZ_TYPED_ITERS", 200);
 
   var s = 0;
   while s < seeds {
@@ -1280,6 +1408,11 @@ fn main() -> Int {
     if rc_sr != 0 {
       io.println("fuzz: schema_row FAILED seed=" + convert.int_to_string(seed) + " rc=" + convert.int_to_string(rc_sr));
       return 170 + rc_sr;
+    }
+    let rc_td = fuzz_db_typed(seed, typed_iters, dir);
+    if rc_td != 0 {
+      io.println("fuzz: db_typed FAILED seed=" + convert.int_to_string(seed) + " rc=" + convert.int_to_string(rc_td));
+      return 190 + rc_td;
     }
     let order = 3 + (s % 3);
     let rc_b = fuzz_btree(seed, ops, n, order);

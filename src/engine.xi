@@ -76,6 +76,10 @@ pub type BTree = {
 pub type BTreeNode = {
   keys: Vec[Int];
   values: Vec[Int];
+  // M5.3 typed rows: payload[i] belongs to entry i (parallel to keys/values;
+  // empty = plain int entry). For typed rows `values[i]` mirrors the key (the
+  // pk), matching the WAL record. See docs/TYPED-VALUES-STORAGE.md.
+  payloads: Vec[Vec[Int]];
   children: Vec[Int];
   is_leaf: Bool;
 }
@@ -83,15 +87,26 @@ pub type BTreeNode = {
 fn new_leaf_node() -> BTreeNode {
   var keys = Vec[Int].new();
   var values = Vec[Int].new();
+  var payloads = Vec[Vec[Int]].new();
   var children = Vec[Int].new();
-  return BTreeNode{ keys: keys, values: values, children: children, is_leaf: true };
+  return BTreeNode{ keys: keys, values: values, payloads: payloads,
+                    children: children, is_leaf: true };
 }
 
 fn new_internal_node() -> BTreeNode {
   var keys = Vec[Int].new();
   var values = Vec[Int].new();
+  var payloads = Vec[Vec[Int]].new();
   var children = Vec[Int].new();
-  return BTreeNode{ keys: keys, values: values, children: children, is_leaf: false };
+  return BTreeNode{ keys: keys, values: values, payloads: payloads,
+                    children: children, is_leaf: false };
+}
+
+// Defensive parallel-read: a node built before/without payload bookkeeping
+// yields the empty payload (plain int entry).
+fn node_payload(node: &BTreeNode, i: Int) -> Vec[Int] {
+  if i < node.payloads.len() { return node.payloads[i]; }
+  return Vec[Int].new();
 }
 
 pub fn btree_new(order: Int) -> BTree
@@ -108,6 +123,40 @@ pub fn btree_new(order: Int) -> BTree
 
 pub fn btree_search(tree: &BTree, key: Int) -> Option[Int] {
   return search_node(tree, tree.root, key);
+}
+
+// M5.3: index-free walk that returns the entry's PAYLOAD (typed rows). None
+// when the key is absent or the entry carries no payload -- plain int rows
+// read through `btree_search`.
+pub fn btree_search_payload(tree: &BTree, key: Int) -> Option[Vec[Int]] {
+  return search_payload_node(tree, tree.root, key);
+}
+
+fn search_payload_node(tree: &BTree, node_idx: Int, key: Int) -> Option[Vec[Int]] {
+  var node = tree.store.nodes[node_idx];
+  var i = 0;
+  while i < node.keys.len() {
+    if key == node.keys[i] {
+      if i < node.payloads.len() {
+        let p = node.payloads[i];
+        if p.len() > 0 { return Some(p); }
+      }
+      return None;
+    }
+    if key < node.keys[i] {
+      if node.is_leaf { return None; }
+      if i < node.children.len() {
+        return search_payload_node(tree, node.children[i], key);
+      }
+      return None;
+    }
+    i = i + 1;
+  }
+  if node.is_leaf { return None; }
+  if i < node.children.len() {
+    return search_payload_node(tree, node.children[i], key);
+  }
+  return None;
 }
 
 fn search_node(tree: &BTree, node_idx: Int, key: Int) -> Option[Int] {
@@ -134,6 +183,14 @@ fn search_node(tree: &BTree, node_idx: Int, key: Int) -> Option[Int] {
 }
 
 pub fn btree_insert(tree: &mut BTree, key: Int, value: Int) -> Bool {
+  var empty = Vec[Int].new();
+  return btree_insert_payload(tree, key, value, empty);
+}
+
+// M5.3: insert with a typed-row payload; `value` mirrors the key for typed
+// rows (the WAL record does the same). Plain inserts pass an empty payload.
+pub fn btree_insert_payload(tree: &mut BTree, key: Int, value: Int,
+                            payload: Vec[Int]) -> Bool {
   var found = btree_search(tree, key);
   match found {
     Some(_) => return false,
@@ -143,7 +200,7 @@ pub fn btree_insert(tree: &mut BTree, key: Int, value: Int) -> Bool {
   if tree.store.nodes[tree.root].keys.len() >= max_keys {
     split_root(tree);
   }
-  return insert_nonfull(tree, tree.root, key, value);
+  return insert_nonfull(tree, tree.root, key, value, payload);
 }
 
 fn split_root(tree: &mut BTree) {
@@ -160,6 +217,7 @@ fn split_root(tree: &mut BTree) {
   while i < mid {
     left.keys.push(old_root.keys[i]);
     left.values.push(old_root.values[i]);
+    left.payloads.push(node_payload(&old_root, i));
     if !old_root.is_leaf && i <= mid && i < old_root.children.len() {
       left.children.push(old_root.children[i]);
     }
@@ -173,6 +231,7 @@ fn split_root(tree: &mut BTree) {
   while i < old_root.keys.len() {
     right.keys.push(old_root.keys[i]);
     right.values.push(old_root.values[i]);
+    right.payloads.push(node_payload(&old_root, i));
     if !old_root.is_leaf && i < old_root.children.len() {
       right.children.push(old_root.children[i]);
     }
@@ -187,6 +246,7 @@ fn split_root(tree: &mut BTree) {
 
   new_root.keys.push(old_root.keys[mid]);
   new_root.values.push(old_root.values[mid]);
+  new_root.payloads.push(node_payload(&old_root, mid));
   new_root.children.push(left_idx);
   new_root.children.push(right_idx);
 
@@ -194,7 +254,8 @@ fn split_root(tree: &mut BTree) {
   tree.root = root_idx;
 }
 
-fn insert_nonfull(tree: &mut BTree, node_idx: Int, key: Int, value: Int) -> Bool {
+fn insert_nonfull(tree: &mut BTree, node_idx: Int, key: Int, value: Int,
+                  payload: Vec[Int]) -> Bool {
   var node = tree.store.nodes[node_idx];
   var max_keys = tree.order - 1;
 
@@ -203,7 +264,7 @@ fn insert_nonfull(tree: &mut BTree, node_idx: Int, key: Int, value: Int) -> Bool
     while pos < node.keys.len() && node.keys[pos] < key {
       pos = pos + 1;
     }
-    insert_at_pos(tree, node_idx, pos, key, value);
+    insert_at_pos(tree, node_idx, pos, key, value, payload);
     return true;
   }
 
@@ -222,7 +283,7 @@ fn insert_nonfull(tree: &mut BTree, node_idx: Int, key: Int, value: Int) -> Bool
       }
     }
     var new_child_idx = tree.store.nodes[node_idx].children[pos];
-    return insert_nonfull(tree, new_child_idx, key, value);
+    return insert_nonfull(tree, new_child_idx, key, value, payload);
   }
   return false;
 }
@@ -239,6 +300,7 @@ fn split_child(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
   while i < child.keys.len() {
     new_child.keys.push(child.keys[i]);
     new_child.values.push(child.values[i]);
+    new_child.payloads.push(node_payload(&child, i));
     if !child.is_leaf && i < child.children.len() {
       new_child.children.push(child.children[i]);
     }
@@ -252,10 +314,12 @@ fn split_child(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
 
   var mid_key = child.keys[mid];
   var mid_val = child.values[mid];
+  var mid_payload = node_payload(&child, mid);
 
   while child.keys.len() > mid {
     child.keys.pop();
     child.values.pop();
+    child.payloads.pop();
   }
   if !child.is_leaf {
     while child.children.len() > mid + 1 {
@@ -266,7 +330,7 @@ fn split_child(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
   ns_set(&mut tree.store, child_idx, child);
   ns_set(&mut tree.store, new_child_idx, new_child);
 
-  insert_at_pos(tree, parent_idx, child_pos, mid_key, mid_val);
+  insert_at_pos(tree, parent_idx, child_pos, mid_key, mid_val, mid_payload);
 
   // Insert the new sibling pointer at child_pos+1. The parent's child list
   // must be SHIFTED right first: a plain index assignment past the end is a
@@ -284,18 +348,22 @@ fn split_child(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
   ns_set(&mut tree.store, parent_idx, parent);
 }
 
-fn insert_at_pos(tree: &mut BTree, node_idx: Int, pos: Int, key: Int, value: Int) {
+fn insert_at_pos(tree: &mut BTree, node_idx: Int, pos: Int, key: Int, value: Int,
+                 payload: Vec[Int]) {
   var node = tree.store.nodes[node_idx];
   node.keys.push(0);
   node.values.push(0);
+  node.payloads.push(Vec[Int].new());
   var i = node.keys.len() - 1;
   while i > pos {
     node.keys[i] = node.keys[i - 1];
     node.values[i] = node.values[i - 1];
+    node.payloads[i] = node.payloads[i - 1];
     i = i - 1;
   }
   node.keys[pos] = key;
   node.values[pos] = value;
+  node.payloads[pos] = payload;
   ns_set(&mut tree.store, node_idx, node);
 }
 
@@ -351,10 +419,12 @@ fn remove_from_leaf(tree: &mut BTree, node_idx: Int, pos: Int) {
   while i < node.keys.len() - 1 {
     node.keys[i] = node.keys[i + 1];
     node.values[i] = node.values[i + 1];
+    node.payloads[i] = node.payloads[i + 1];
     i = i + 1;
   }
   node.keys.pop();
   node.values.pop();
+  node.payloads.pop();
   ns_set(&mut tree.store, node_idx, node);
 }
 
@@ -367,14 +437,15 @@ fn remove_from_internal(tree: &mut BTree, node_idx: Int, pos: Int, min_keys: Int
   // Predecessor/successor substitution only when the donor subtree can spare
   // a key (the old guard); the Option covers degenerate empty chains inside
   // the donor (order 3), falling through to the merge when neither side can
-  // donate.
+  // donate. The donor entry's payload moves up with its key/value.
   if tree.store.nodes[left_child_idx].keys.len() > min_keys {
     match get_predecessor(tree, left_child_idx) {
       Some(pred) => {
-        node.keys[pos] = pred.0;
-        node.values[pos] = pred.1;
+        node.keys[pos] = pred.key;
+        node.values[pos] = pred.value;
+        node.payloads[pos] = pred.payload;
         ns_set(&mut tree.store, node_idx, node);
-        delete_from_node(tree, left_child_idx, pred.0);
+        delete_from_node(tree, left_child_idx, pred.key);
         return;
       }
       None => {}
@@ -384,10 +455,11 @@ fn remove_from_internal(tree: &mut BTree, node_idx: Int, pos: Int, min_keys: Int
   if tree.store.nodes[right_child_idx].keys.len() > min_keys {
     match get_successor(tree, right_child_idx) {
       Some(succ) => {
-        node.keys[pos] = succ.0;
-        node.values[pos] = succ.1;
+        node.keys[pos] = succ.key;
+        node.values[pos] = succ.value;
+        node.payloads[pos] = succ.payload;
         ns_set(&mut tree.store, node_idx, node);
-        delete_from_node(tree, right_child_idx, succ.0);
+        delete_from_node(tree, right_child_idx, succ.key);
         return;
       }
       None => {}
@@ -416,13 +488,20 @@ fn subtree_has_key(tree: &BTree, node_idx: Int) -> Bool {
   return false;
 }
 
+// One tree entry located by a donor walk: key/value/payload travel together.
+type NodeEntry = {
+  key: Int;
+  value: Int;
+  payload: Vec[Int];
+}
+
 // In-order predecessor (max) of the subtree at node_idx, or None when the
 // subtree is empty. The rightmost path may pass through keyless nodes: when
 // the rightmost subtree is empty the predecessor is this node's own last
 // key; an empty leaf has none. (The old rightmost-only descent read
 // `keys[-1]` on an empty leaf and materialized out-of-bounds garbage -- the
 // order-3 defect in xiom.btree SPEC 2.3.)
-fn get_predecessor(tree: &BTree, node_idx: Int) -> Option[(Int, Int)] {
+fn get_predecessor(tree: &BTree, node_idx: Int) -> Option[NodeEntry] {
   var cur = node_idx;
   var guard = 0;
   while guard < 64 {
@@ -431,7 +510,8 @@ fn get_predecessor(tree: &BTree, node_idx: Int) -> Option[(Int, Int)] {
     if node.is_leaf {
       if node.keys.len() == 0 { return None; }
       let last = node.keys.len() - 1;
-      return Some((node.keys[last], node.values[last]));
+      return Some(NodeEntry{ key: node.keys[last], value: node.values[last],
+                             payload: node_payload(&node, last) });
     }
     let last_child = node.children[node.children.len() - 1];
     if subtree_has_key(tree, last_child) {
@@ -439,13 +519,14 @@ fn get_predecessor(tree: &BTree, node_idx: Int) -> Option[(Int, Int)] {
     } else {
       if node.keys.len() == 0 { return None; }
       let last = node.keys.len() - 1;
-      return Some((node.keys[last], node.values[last]));
+      return Some(NodeEntry{ key: node.keys[last], value: node.values[last],
+                             payload: node_payload(&node, last) });
     }
   }
   return None;
 }
 
-fn get_successor(tree: &BTree, node_idx: Int) -> Option[(Int, Int)] {
+fn get_successor(tree: &BTree, node_idx: Int) -> Option[NodeEntry] {
   var cur = node_idx;
   var guard = 0;
   while guard < 64 {
@@ -453,14 +534,16 @@ fn get_successor(tree: &BTree, node_idx: Int) -> Option[(Int, Int)] {
     let node = tree.store.nodes[cur];
     if node.is_leaf {
       if node.keys.len() == 0 { return None; }
-      return Some((node.keys[0], node.values[0]));
+      return Some(NodeEntry{ key: node.keys[0], value: node.values[0],
+                             payload: node_payload(&node, 0) });
     }
     let first_child = node.children[0];
     if subtree_has_key(tree, first_child) {
       cur = first_child;
     } else {
       if node.keys.len() == 0 { return None; }
-      return Some((node.keys[0], node.values[0]));
+      return Some(NodeEntry{ key: node.keys[0], value: node.values[0],
+                             payload: node_payload(&node, 0) });
     }
   }
   return None;
@@ -476,11 +559,13 @@ fn merge_children(tree: &mut BTree, parent_idx: Int, pos: Int) {
 
   left.keys.push(parent.keys[pos]);
   left.values.push(parent.values[pos]);
+  left.payloads.push(node_payload(&parent, pos));
 
   var i = 0;
   while i < right.keys.len() {
     left.keys.push(right.keys[i]);
     left.values.push(right.values[i]);
+    left.payloads.push(node_payload(&right, i));
     i = i + 1;
   }
 
@@ -496,10 +581,12 @@ fn merge_children(tree: &mut BTree, parent_idx: Int, pos: Int) {
   while i < parent.keys.len() - 1 {
     parent.keys[i] = parent.keys[i + 1];
     parent.values[i] = parent.values[i + 1];
+    parent.payloads[i] = parent.payloads[i + 1];
     i = i + 1;
   }
   parent.keys.pop();
   parent.values.pop();
+  parent.payloads.pop();
 
   i = pos + 1;
   while i < parent.children.len() - 1 {
@@ -560,15 +647,18 @@ fn borrow_from_left(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
 
   child.keys.push(0);
   child.values.push(0);
+  child.payloads.push(Vec[Int].new());
 
   var i = child.keys.len() - 1;
   while i > 0 {
     child.keys[i] = child.keys[i - 1];
     child.values[i] = child.values[i - 1];
+    child.payloads[i] = child.payloads[i - 1];
     i = i - 1;
   }
   child.keys[0] = parent.keys[child_pos - 1];
   child.values[0] = parent.values[child_pos - 1];
+  child.payloads[0] = node_payload(&parent, child_pos - 1);
 
   if left.children.len() > 0 {
     // Internal nodes only: carry the sibling's last child pointer across.
@@ -586,8 +676,10 @@ fn borrow_from_left(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
 
   parent.keys[child_pos - 1] = left.keys[left_last];
   parent.values[child_pos - 1] = left.values[left_last];
+  parent.payloads[child_pos - 1] = node_payload(&left, left_last);
   left.keys.pop();
   left.values.pop();
+  left.payloads.pop();
 
   ns_set(&mut tree.store, parent_idx, parent);
   ns_set(&mut tree.store, child_idx, child);
@@ -603,6 +695,7 @@ fn borrow_from_right(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
 
   child.keys.push(parent.keys[child_pos]);
   child.values.push(parent.values[child_pos]);
+  child.payloads.push(node_payload(&parent, child_pos));
 
   if right.children.len() > 0 {
     child.children.push(right.children[0]);
@@ -610,15 +703,18 @@ fn borrow_from_right(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
 
   parent.keys[child_pos] = right.keys[0];
   parent.values[child_pos] = right.values[0];
+  parent.payloads[child_pos] = node_payload(&right, 0);
 
   var i = 0;
   while i < right.keys.len() - 1 {
     right.keys[i] = right.keys[i + 1];
     right.values[i] = right.values[i + 1];
+    right.payloads[i] = right.payloads[i + 1];
     i = i + 1;
   }
   right.keys.pop();
   right.values.pop();
+  right.payloads.pop();
 
   if right.children.len() > 0 {
     i = 0;
@@ -696,7 +792,7 @@ pub fn btree_min(tree: &BTree) -> Option[Int] {
   // internal node -- get_successor handles both, and the old leftmost-only
   // descent returned None whenever the terminal leaf was empty.
   match get_successor(tree, tree.root) {
-    Some(p) => { return Some(p.1); }
+    Some(p) => { return Some(p.value); }
     None => { return None; }
   }
 }
@@ -705,7 +801,7 @@ pub fn btree_max(tree: &BTree) -> Option[Int] {
   // See btree_min: the rightmost path can end in an empty node (order 3);
   // get_predecessor falls back to the owning internal node's last key.
   match get_predecessor(tree, tree.root) {
-    Some(p) => { return Some(p.1); }
+    Some(p) => { return Some(p.value); }
     None => { return None; }
   }
 }
@@ -1409,11 +1505,14 @@ const TXN_COMMIT_CODE: Int = 9;
 const TXN_ABORT_CODE: Int = 10;
 
 // One buffered transaction operation: code 2 = upsert (delete+insert, the
-// same code the WAL uses for writes), code 3 = delete.
+// same code the WAL uses for writes), code 3 = delete. `payload` carries the
+// tagged WAL payload verbatim (empty for plain int ops); M5.3 buffer them so
+// a typed record inside a txn window replays with its row bytes.
 type TxOp = {
   code: Int;
   key: Int;
   value: Int;
+  payload: Vec[Int];
 }
 
 pub type DBFile = {
@@ -1441,7 +1540,10 @@ pub type DBFile = {
 }
 
 // Apply one replayed record. Maps by op code so cross-module enum patterns
-// stay out of this module (1 Insert, 2 Update, 3 Delete).
+// stay out of this module (1 Insert, 2 Update, 3 Delete). Tagged payloads
+// with subtype 1 are typed rows (tuple codec v2 bytes); any other non-empty
+// subtype is an unknown future format and the record is SKIPPED (fail closed
+// -- applying the int value alone would resurrect wrong data).
 fn db_file_apply_record(tree: &mut BTree, rec: WALRecord) {
   let code = wal_op_code(rec.op);
   if code == 2 { let _ = btree_delete(tree, rec.key); }
@@ -1450,6 +1552,19 @@ fn db_file_apply_record(tree: &mut BTree, rec: WALRecord) {
     return;
   }
   if code == 1 || code == 2 {
+    if rec.payload.len() > 0 {
+      if rec.payload[0] != 1 { return; }
+      var row = Vec[Int].new();
+      var i = 1;
+      while i < rec.payload.len() {
+        if rec.payload[i] < 0 { return; }   // byte convention: fail closed
+        if rec.payload[i] > 255 { return; }
+        row.push(rec.payload[i]);
+        i = i + 1;
+      }
+      let _ = btree_insert_payload(tree, rec.key, rec.value, row);
+      return;
+    }
     let _ = btree_insert(tree, rec.key, rec.value);
   }
 }
@@ -1461,6 +1576,19 @@ fn db_file_apply_txop(tree: &mut BTree, op: TxOp) {
     return;
   }
   let _ = btree_delete(tree, op.key);
+  if op.payload.len() > 0 {
+    if op.payload[0] != 1 { return; }
+    var row = Vec[Int].new();
+    var i = 1;
+    while i < op.payload.len() {
+      if op.payload[i] < 0 { return; }
+      if op.payload[i] > 255 { return; }
+      row.push(op.payload[i]);
+      i = i + 1;
+    }
+    let _ = btree_insert_payload(tree, op.key, op.value, row);
+    return;
+  }
   let _ = btree_insert(tree, op.key, op.value);
 }
 
@@ -1523,7 +1651,8 @@ pub fn db_file_open_cfg(path: Str, order: Int, page_format: Int) -> DBFile {
         pending = Vec[TxOp].new();
       } else if code == 1 || code == 2 || code == 3 {
         if in_txn {
-          pending.push(TxOp{ code: code, key: rec.key, value: rec.value });
+          pending.push(TxOp{ code: code, key: rec.key, value: rec.value,
+                             payload: rec.payload });
         } else {
           db_file_apply_record(&mut tree, rec);
         }
@@ -1645,6 +1774,70 @@ pub fn db_file_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
   return db_file_commit_sync(db);
 }
 
+// Max typed-row payload bytes for a btree order: the largest node page
+// (order-1 entries, order children; 28-byte node header + 16 bytes per
+// key/value + 8 bytes payload framing + the payload itself) must fit the
+// smaller snapshot container budget (v2 block payload capacity). A
+// `db_file_put_typed` above this is refused up front -- a checkpoint could
+// otherwise fail only at snapshot time.
+pub fn db_file_typed_payload_max(order: Int) -> Int {
+  if order < 3 { return 0; }
+  let keys = order - 1;
+  let overhead = SNAP_NODE_HEADER_BYTES + 24 * keys + 8 * order;
+  let room = block.block_payload_capacity() - overhead;
+  if room <= 0 { return 0; }
+  let per = room / keys;
+  if per <= 0 { return 0; }
+  return per;
+}
+
+// Typed-row upsert (M5.3): the payload is opaque row bytes (tuple codec v2
+// rows or any caller encoding); the WAL record carries subtype 1 + the row
+// bytes and its `value` mirrors the key (the pk). Same guards as
+// `db_file_put`; typed writes are non-transactional in S3 (txn paths refuse
+// while a transaction is active). Indexes hold int values only: any stale
+// entry for the key is dropped, none is added (typed-column indexes = S4).
+pub fn db_file_put_typed(db: &mut DBFile, key: Int, payload: Vec[Int]) -> Bool {
+  if db.txn_active { return false; }
+  if !db_file_guard(db) { return false; }
+  if db.failed { return false; }
+  if payload.len() > db_file_typed_payload_max(db.order) { return false; }
+  // Payload bytes are 0..255 (the storage byte convention; the snapshot
+  // codecs mask to a byte). Refuse anything else instead of losing bits.
+  var v = 0;
+  while v < payload.len() {
+    if payload[v] < 0 { return false; }
+    if payload[v] > 255 { return false; }
+    v = v + 1;
+  }
+  var op = WALOpKind.Insert;
+  var is_update = false;
+  let existing = btree_search(&db.tree, key);
+  match existing {
+    None => {}
+    Some(_) => {
+      op = WALOpKind.Update;
+      is_update = true;
+    }
+  }
+  var tagged = Vec[Int].new();
+  tagged.push(1); // subtype: typed row (tuple v2 bytes)
+  var i = 0;
+  while i < payload.len() {
+    tagged.push(payload[i]);
+    i = i + 1;
+  }
+  let lsn = wal_file_append_tagged(&mut db.wal, op, key, key, tagged, 0);
+  if lsn < 0 { return false; }
+  db.wal_bytes = db_wal_size(db.path);
+  db.records_since_ckpt = db.records_since_ckpt + 1;
+  if is_update { let _ = btree_delete(&mut db.tree, key); }
+  let inserted = btree_insert_payload(&mut db.tree, key, key, payload);
+  if inserted { db_file_note_value_change(db, key, existing, 0, false); }
+  if !inserted { return false; }
+  return db_file_commit_sync(db);
+}
+
 pub fn db_file_delete(db: &mut DBFile, key: Int) -> Bool {
   // Auto-commit writes are rejected while a transaction is open.
   if db.txn_active { return false; }
@@ -1668,6 +1861,12 @@ pub fn db_file_delete(db: &mut DBFile, key: Int) -> Bool {
 
 pub fn db_file_get(db: &DBFile, key: Int) -> Option[Int] {
   return btree_search(&db.tree, key);
+}
+
+// M5.3: read a typed row's payload (None when the key is absent or the entry
+// is a plain int row). Int rows keep reading through `db_file_get`.
+pub fn db_file_get_typed(db: &DBFile, key: Int) -> Option[Vec[Int]] {
+  return btree_search_payload(&db.tree, key);
 }
 
 // Key-range access on the live/recovered tree: values for keys in [low, high]
@@ -1884,7 +2083,8 @@ fn db_file_commit_sync(db: &mut DBFile) -> Bool {
 // stdlib fsync wrapper lands) -- process-crash safe, not power-loss safe.
 
 const SNAP_MAGIC: Int = 0x4F;       // 'O' -- snapshot page codec
-const SNAP_VERSION: Int = 1;
+const SNAP_VERSION: Int = 1;        // header page version (unchanged)
+const SNAP_NODE_VERSION: Int = 2;   // node pages: + payload section (M5.3)
 const SNAP_KIND_HEADER: Int = 0x48; // 'H'
 const SNAP_KIND_NODE: Int = 0x4E;   // 'N'
 const SNAP_HEADER_BYTES: Int = 44;
@@ -1933,7 +2133,7 @@ fn snap_header_page_bytes(root: Int, order: Int, node_count: Int,
 fn snap_node_page_bytes(node: &BTreeNode) -> Vec[Int] {
   var out = Vec[Int].new();
   out.push(SNAP_MAGIC);
-  out.push(SNAP_VERSION);
+  out.push(SNAP_NODE_VERSION);
   out.push(SNAP_KIND_NODE);
   var leaf = 0;
   if node.is_leaf { leaf = 1; }
@@ -1956,22 +2156,58 @@ fn snap_node_page_bytes(node: &BTreeNode) -> Vec[Int] {
     tuple_push_int_le(&mut out, node.children[i]);
     i = i + 1;
   }
+  // Payload section (node version 2): u64 LE count + per entry u64 LE length
+  // + bytes (the node-page family's integer width). Parallel to keys; empty
+  // = plain int entry.
+  tuple_push_int_le(&mut out, node.keys.len());
+  i = 0;
+  while i < node.keys.len() {
+    let p = node_payload(node, i);
+    tuple_push_int_le(&mut out, p.len());
+    var k = 0;
+    while k < p.len() {
+      out.push(p[k] & 0xFF);
+      k = k + 1;
+    }
+    i = i + 1;
+  }
   return out;
 }
 
 // Strict decode: magic/version/kind, exact length, sane flags and counts.
-// Returns None on any violation -- a snapshot either restores whole or not.
+// Accepts node version 1 (legacy: no payload section -> empty payloads) and
+// version 2 (payload section). Returns None on any violation -- a snapshot
+// either restores whole or not.
 fn snap_decode_node(data: &Vec[Int]) -> Option[BTreeNode] {
   if data.len() < SNAP_NODE_HEADER_BYTES { return None; }
   if data[0] != SNAP_MAGIC { return None; }
-  if data[1] != SNAP_VERSION { return None; }
+  let version = data[1];
+  if version != SNAP_VERSION && version != SNAP_NODE_VERSION { return None; }
   if data[2] != SNAP_KIND_NODE { return None; }
   let key_count = tuple_read_int_le(data, 4);
   let child_count = tuple_read_int_le(data, 12);
   if key_count < 0 { return None; }
   if child_count < 0 { return None; }
-  let expected = SNAP_NODE_HEADER_BYTES + 16 * key_count + 8 * child_count;
-  if data.len() != expected { return None; }
+
+  let base = SNAP_NODE_HEADER_BYTES + 16 * key_count + 8 * child_count;
+  if version == SNAP_NODE_VERSION {
+    if data.len() < base + 8 { return None; }
+    let pcount = tuple_read_int_le(data, base);
+    if pcount != key_count { return None; }
+    var at = base + 8;
+    var j = 0;
+    while j < pcount {
+      if at + 8 > data.len() { return None; }
+      let plen = tuple_read_int_le(data, at);
+      if plen < 0 { return None; }
+      at = at + 8 + plen;
+      if at > data.len() { return None; }
+      j = j + 1;
+    }
+    if at != data.len() { return None; }
+  } else {
+    if data.len() != base { return None; }
+  }
 
   var keys = Vec[Int].new();
   var values = Vec[Int].new();
@@ -1996,10 +2232,36 @@ fn snap_decode_node(data: &Vec[Int]) -> Option[BTreeNode] {
     i = i + 1;
   }
 
+  var payloads = Vec[Vec[Int]].new();
+  if version == SNAP_NODE_VERSION {
+    var at2 = base + 8;
+    var j2 = 0;
+    while j2 < key_count {
+      let plen2 = tuple_read_int_le(data, at2);
+      at2 = at2 + 8;
+      var p = Vec[Int].new();
+      var k2 = 0;
+      while k2 < plen2 {
+        p.push(data[at2 + k2] & 0xFF);
+        k2 = k2 + 1;
+      }
+      payloads.push(p);
+      at2 = at2 + plen2;
+      j2 = j2 + 1;
+    }
+  } else {
+    var j3 = 0;
+    while j3 < key_count {
+      payloads.push(Vec[Int].new());
+      j3 = j3 + 1;
+    }
+  }
+
   let leaf = data[3] == 1;
   if leaf && child_count != 0 { return None; }
   if !leaf && child_count == 0 { return None; }
-  return Some(BTreeNode{ keys: keys, values: values, children: children, is_leaf: leaf });
+  return Some(BTreeNode{ keys: keys, values: values, payloads: payloads,
+                         children: children, is_leaf: leaf });
 }
 
 fn snap_decode_header(data: &Vec[Int]) -> Option[SnapshotMeta] {
@@ -2543,7 +2805,8 @@ pub fn db_file_txn_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
   if lsn < 0 { return false; }
   db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
-  db.txn_ops.push(TxOp{ code: 2, key: key, value: value });
+  db.txn_ops.push(TxOp{ code: 2, key: key, value: value,
+                        payload: Vec[Int].new() });
   return true;
 }
 
@@ -2556,7 +2819,8 @@ pub fn db_file_txn_delete(db: &mut DBFile, key: Int) -> Bool {
   if lsn < 0 { return false; }
   db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
-  db.txn_ops.push(TxOp{ code: 3, key: key, value: 0 });
+  db.txn_ops.push(TxOp{ code: 3, key: key, value: 0,
+                        payload: Vec[Int].new() });
   return true;
 }
 
