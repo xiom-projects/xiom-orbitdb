@@ -218,6 +218,9 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     with-twin still red on v0.64.3 (correction
     `REL-20261010-1802-orbitdb`), release-check row `-2` still open.
     Rollback option: v0.64.2 (`xiom.new`; findings file keeps the notes).
+  - Lane heads at the 2026-10-11 handoff: stdlib `0b0abc7`,
+    xvector `e04c723`, packages `d504f2db` (all moved during the day;
+    re-check at the next wrap -- release rows on the bus are the contract).
   - stdlib: `E:\xiom-lang\stdlib` @ `7e513f9` (2026-10-10; handoff snapshot
     25) = `/mnt/e/xiom-lang/stdlib`. **stdlib-v0.64.3 RELEASED + registry
     live** (stdlib lane version, built with compiler v0.64.2; sha256
