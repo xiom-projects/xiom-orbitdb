@@ -22,7 +22,10 @@
 //   (g) query + secondary index vs model -- random put/delete + random
 //       conditions/order/limit/offset on a DBFile with an index installed;
 //       results must equal a brute-force model and usable conditions must
-//       plan as IndexValue.
+//       plan as IndexValue;
+//   (h) tuple codec v2 -- typed-value rows (null/int/float/text/blob):
+//       encode -> decode -> per-kind model assertions -> single-byte
+//       mutations (reject or visibly change the row).
 //
 // Env:
 //   ORBITDB_FUZZ_DIR          scratch dir                     (default probe-logs)
@@ -35,6 +38,7 @@
 //   ORBITDB_FUZZ_BLOCK_ITERS  block-codec iterations per seed (default 200)
 //   ORBITDB_FUZZ_BLOCKSTORE_GENS  block-store generations per seed (default 12)
 //   ORBITDB_FUZZ_QUERY_ITERS    query/index iterations per seed (default 150)
+//   ORBITDB_FUZZ_TUPLE2_ITERS   tuple-v2 iterations per seed    (default 200)
 //
 // Exit: 0 = green; non-zero = failing section + first violation (printed).
 
@@ -833,6 +837,157 @@ fn fuzz_query(seed: Int, iters: Int, dir: Str) -> Int {
   return 0;
 }
 
+// (h) tuple codec v2 -- typed-value rows (M5.1) ------------------------------
+// Random rows over every kind (null/int/float/text/blob): encode -> decode
+// -> per-kind model assertions -> single-byte mutation (decode must reject,
+// or the mutated row must re-encode to something OTHER than the original
+// buffer -- a mutation can never be silently invisible).
+fn fuzz_tuple2(seed: Int, iters: Int) -> Int {
+  var state = seed;
+  var it = 0;
+  while it < iters {
+    let row_id = rand_next(&mut state) % 2000003 - 1000000;
+    let nvals = rand_mod(&mut state, 8);
+    var vals = Vec[TValue].new();
+    var specs = Vec[Int].new();
+    var j = 0;
+    while j < nvals {
+      let kind = rand_mod(&mut state, 5);
+      if kind == 0 {
+        vals.push(TValue.VNull);
+        specs.push(0);
+      } elif kind == 1 {
+        let x = rand_next(&mut state) % 2000003 - 1000000;
+        vals.push(TValue.VInt(x));
+        specs.push(1);
+      } elif kind == 2 {
+        let a = rand_next(&mut state) % 2000003 - 1000000;
+        var f = convert.int_to_float(a) / 16.0;
+        if rand_mod(&mut state, 7) == 0 { f = 0.0; }
+        vals.push(TValue.VFloat(f));
+        specs.push(2);
+      } elif kind == 3 {
+        let l = rand_mod(&mut state, 12);
+        var s = "";
+        var k = 0;
+        while k < l {
+          s = s + "xyz";
+          k = k + 1;
+        }
+        vals.push(TValue.VText(s));
+        specs.push(3);
+      } else {
+        let l = rand_mod(&mut state, 10);
+        var b = Vec[Int].new();
+        var k = 0;
+        while k < l {
+          b.push(rand_next(&mut state) % 256);
+          k = k + 1;
+        }
+        vals.push(TValue.VBlob(b));
+        specs.push(4);
+      }
+      j = j + 1;
+    }
+
+    match tuple2_encode_row_checked(row_id, &vals) {
+      Err(_) => { return 1; }
+      Ok(buf) => {
+        let x: Vec[Int] = buf;
+        if x.len() != tuple2_encoded_len(&vals) { return 2; }
+        match tuple2_decode_row(&x) {
+          Err(_) => { return 3; }
+          Ok(row) => {
+            let r: TypedRow = row;
+            if r.id != row_id { return 4; }
+            if r.values.len() != vals.len() { return 5; }
+            var k = 0;
+            while k < r.values.len() {
+              let spec = specs[k];
+              let v = r.values[k];
+              if tuple2_kind(v) != spec { return 6; }
+              let ov = vals[k];
+              if spec == 0 {
+                if !tuple2_is_null(v) { return 7; }
+              }
+              if spec == 1 {
+                match tuple2_int_value(v) {
+                  None => { return 8; }
+                  Some(iv) => {
+                    match tuple2_int_value(ov) {
+                      None => { return 9; }
+                      Some(orig) => { if iv != orig { return 10; } }
+                    }
+                  }
+                }
+              }
+              if spec == 2 {
+                match tuple2_float_value(v) {
+                  None => { return 11; }
+                  Some(fv) => {
+                    match tuple2_float_value(ov) {
+                      None => { return 12; }
+                      Some(origf) => { if fv != origf { return 13; } }
+                    }
+                  }
+                }
+              }
+              if spec == 3 {
+                match tuple2_text_value(v) {
+                  None => { return 14; }
+                  Some(sv) => {
+                    match tuple2_text_value(ov) {
+                      None => { return 15; }
+                      Some(origs) => { if sv != origs { return 16; } }
+                    }
+                  }
+                }
+              }
+              if spec == 4 {
+                match tuple2_blob_value(v) {
+                  None => { return 17; }
+                  Some(bv) => {
+                    match tuple2_blob_value(ov) {
+                      None => { return 18; }
+                      Some(origb) => { if !vec_eq(&bv, &origb) { return 19; } }
+                    }
+                  }
+                }
+              }
+              k = k + 1;
+            }
+          }
+        }
+
+        // Single-byte mutation: reject, or the mutation must be visible.
+        let at = rand_mod(&mut state, x.len());
+        var mutb = Vec[Int].new();
+        var m = 0;
+        while m < x.len() {
+          mutb.push(x[m]);
+          m = m + 1;
+        }
+        mutb[at] = (mutb[at] + 1 + rand_mod(&mut state, 255)) & 0xFF;
+        match tuple2_decode_row(&mutb) {
+          Err(_) => {}
+          Ok(mrow) => {
+            let r2: TypedRow = mrow;
+            match tuple2_encode_row_checked(r2.id, &r2.values) {
+              Err(_) => { return 20; }
+              Ok(buf2) => {
+                let x2: Vec[Int] = buf2;
+                if vec_eq(&x2, &x) { return 21; }
+              }
+            }
+          }
+        }
+      }
+    }
+    it = it + 1;
+  }
+  return 0;
+}
+
 fn main() -> Int {
   let dir = env.var_or("ORBITDB_FUZZ_DIR", "probe-logs");
   let seeds = parse_env_int("ORBITDB_FUZZ_SEEDS", 4);
@@ -844,6 +999,7 @@ fn main() -> Int {
   let block_iters = parse_env_int("ORBITDB_FUZZ_BLOCK_ITERS", 200);
   let blockstore_gens = parse_env_int("ORBITDB_FUZZ_BLOCKSTORE_GENS", 12);
   let query_iters = parse_env_int("ORBITDB_FUZZ_QUERY_ITERS", 150);
+  let tuple2_iters = parse_env_int("ORBITDB_FUZZ_TUPLE2_ITERS", 200);
 
   var s = 0;
   while s < seeds {
@@ -879,6 +1035,11 @@ fn main() -> Int {
       io.println("fuzz: query FAILED seed=" + convert.int_to_string(seed) + " rc=" + convert.int_to_string(rc_q));
       return 130 + rc_q;
     }
+    let rc_t2 = fuzz_tuple2(seed, tuple2_iters);
+    if rc_t2 != 0 {
+      io.println("fuzz: tuple2 FAILED seed=" + convert.int_to_string(seed) + " rc=" + convert.int_to_string(rc_t2));
+      return 150 + rc_t2;
+    }
     let order = 3 + (s % 3);
     let rc_b = fuzz_btree(seed, ops, n, order);
     if rc_b != 0 {
@@ -892,3 +1053,4 @@ fn main() -> Int {
     + " n=" + convert.int_to_string(n));
   return 0;
 }
+

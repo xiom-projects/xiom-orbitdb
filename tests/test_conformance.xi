@@ -2295,6 +2295,349 @@ fn test_tuple_codec_rejects() -> TestResult {
 }
 
 // ===========================================================================
+// Tuple codec v2 (M5.1): typed values (null/int/float/text/blob). The v1
+// codec above stays frozen; v2 buffers are a separate version byte.
+// ===========================================================================
+
+// KAT: TypedRow(1, [VInt(-2), VText("hi"), VFloat(1.5), VBlob([1,2]), VNull])
+// in exact bytes. Offsets: 0..2 container, 3..11 id VInt, 12..20 VInt(-2),
+// 21..27 VText("hi"), 28..36 VFloat(1.5), 37..43 VBlob([1,2]), 44 VNull.
+fn run_tuple2_kat() -> Int {
+  var vals = Vec[TValue].new();
+  vals.push(TValue.VInt(-2));
+  vals.push(TValue.VText("hi"));
+  vals.push(TValue.VFloat(1.5));
+  var bl = Vec[Int].new();
+  bl.push(1);
+  bl.push(2);
+  vals.push(TValue.VBlob(bl));
+  vals.push(TValue.VNull);
+
+  // 3 + 9 (id) + 9 + (5+2) + 9 + (5+2) + 1 = 45
+  if tuple2_encoded_len(&vals) != 45 { return 1; }
+  let enc = tuple2_encode_row_checked(1, &vals);
+  match enc {
+    Err(_) => { return 2; }
+    Ok(buf) => {
+      let bytes: Vec[Int] = buf;
+      if bytes.len() != 45 { return 3; }
+      if bytes[0] != 0xDB { return 4; }
+      if bytes[1] != 0x02 { return 5; }
+      if bytes[2] != 6 { return 6; }        // id + 5 values
+      if bytes[3] != 0x01 { return 7; }     // id tag VInt
+      if bytes[4] != 1 { return 8; }
+      if bytes[5] != 0 { return 9; }
+      if bytes[11] != 0 { return 10; }
+      if bytes[12] != 0x01 { return 11; }   // VInt(-2)
+      if bytes[13] != 0xFE { return 12; }
+      if bytes[14] != 0xFF { return 13; }
+      if bytes[20] != 0xFF { return 14; }
+      if bytes[21] != 0x03 { return 15; }   // VText("hi")
+      if bytes[22] != 2 { return 16; }      // u32 len
+      if bytes[23] != 0 { return 17; }
+      if bytes[25] != 0 { return 18; }
+      if bytes[26] != 104 { return 19; }    // 'h'
+      if bytes[27] != 105 { return 20; }    // 'i'
+      if bytes[28] != 0x02 { return 21; }   // VFloat(1.5)
+      if bytes[29] != 0 { return 22; }
+      if bytes[34] != 0 { return 23; }
+      if bytes[35] != 0xF8 { return 24; }   // 1.5 = 0x3FF8...
+      if bytes[36] != 0x3F { return 25; }
+      if bytes[37] != 0x04 { return 26; }   // VBlob([1,2])
+      if bytes[38] != 2 { return 27; }
+      if bytes[41] != 0 { return 28; }
+      if bytes[42] != 1 { return 29; }
+      if bytes[43] != 2 { return 30; }
+      if bytes[44] != 0x00 { return 31; }   // VNull
+    }
+  }
+  return 0;
+}
+
+fn test_tuple2_kat() -> TestResult {
+  let rc = run_tuple2_kat();
+  if rc == 0 { return assert(true, "tuple v2: byte KAT (tags + LE payloads + text/blob lengths)"); }
+  return assert(false, "tuple v2: KAT failed rc=" + int_to_str(rc));
+}
+
+// Roundtrip every kind, including i64 extremes, multibyte UTF-8, empty
+// text/blob, a NaN bit pattern (handcrafted) and a bit-exact re-encode.
+fn run_tuple2_roundtrip() -> Int {
+  var vals = Vec[TValue].new();
+  vals.push(TValue.VNull);
+  vals.push(TValue.VInt(-9223372036854775807 - 1));
+  vals.push(TValue.VInt(9223372036854775807));
+  vals.push(TValue.VFloat(-2.25));
+  vals.push(TValue.VText(""));
+  vals.push(TValue.VText("h\xC3\xA9llo \xE2\x86\x92"));
+  var empty_blob = Vec[Int].new();
+  vals.push(TValue.VBlob(empty_blob));
+  var raw = Vec[Int].new();
+  raw.push(0);
+  raw.push(255);
+  raw.push(128);
+  vals.push(TValue.VBlob(raw));
+
+  if !tuple2_fits_page(&vals, 4096) { return 1; }
+  if tuple2_fits_page(&vals, 16) { return 2; }
+  let enc = tuple2_encode_row_checked(-7, &vals);
+  match enc {
+    Err(_) => { return 3; }
+    Ok(buf) => {
+      let bytes: Vec[Int] = buf;
+      if bytes.len() != tuple2_encoded_len(&vals) { return 4; }
+      let dec = tuple2_decode_row(&bytes);
+      match dec {
+        Err(_) => { return 5; }
+        Ok(row) => {
+          let r: TypedRow = row;
+          if r.id != -7 { return 6; }
+          if r.values.len() != 8 { return 7; }
+          if !tuple2_is_null(r.values[0]) { return 8; }
+          let i1 = tuple2_int_value(r.values[1]);
+          match i1 { None => { return 9; } Some(x) => { if x != -9223372036854775807 - 1 { return 10; } } }
+          let i2 = tuple2_int_value(r.values[2]);
+          match i2 { None => { return 11; } Some(x) => { if x != 9223372036854775807 { return 12; } } }
+          let f1 = tuple2_float_value(r.values[3]);
+          match f1 { None => { return 13; } Some(x) => { if x != -2.25 { return 14; } } }
+          let t1 = tuple2_text_value(r.values[4]);
+          match t1 { None => { return 15; } Some(x) => { if x != "" { return 16; } } }
+          let t2 = tuple2_text_value(r.values[5]);
+          match t2 { None => { return 17; } Some(x) => { if x != "h\xC3\xA9llo \xE2\x86\x92" { return 18; } } }
+          let b1 = tuple2_blob_value(r.values[6]);
+          match b1 { None => { return 19; } Some(x) => { if x.len() != 0 { return 20; } } }
+          let b2 = tuple2_blob_value(r.values[7]);
+          match b2 {
+            None => { return 21; }
+            Some(x) => {
+              if x.len() != 3 { return 22; }
+              if x[0] != 0 { return 23; }
+              if x[1] != 255 { return 24; }
+              if x[2] != 128 { return 25; }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // NaN bit pattern (0x7FF8000000000000 LE) must decode and re-encode
+  // byte-exactly: idx 3 tag VFloat, idx 4..11 NaN bits.
+  var nan_row = Vec[Int].new();
+  nan_row.push(0xDB);
+  nan_row.push(0x02);
+  nan_row.push(0x02);
+  nan_row.push(0x01);
+  nan_row.push(1);
+  var z = 0;
+  while z < 7 { nan_row.push(0); z = z + 1; }
+  nan_row.push(0x02);
+  nan_row.push(0x00);
+  nan_row.push(0x00);
+  nan_row.push(0x00);
+  nan_row.push(0x00);
+  nan_row.push(0x00);
+  nan_row.push(0x00);
+  nan_row.push(0xF8);
+  nan_row.push(0x7F);
+  let nd = tuple2_decode_row(&nan_row);
+  match nd {
+    Err(_) => { return 26; }
+    Ok(row2) => {
+      let r2: TypedRow = row2;
+      if r2.values.len() != 1 { return 27; }
+      let fv = tuple2_float_value(r2.values[0]);
+      match fv {
+        None => { return 28; }
+        Some(f) => { if f == f { return 29; } } // NaN != NaN
+      }
+      // Re-encode through the typed path and compare bytes (bit-exact).
+      var re = tuple2_encode_row_checked(1, &r2.values);
+      match re {
+        Err(_) => { return 30; }
+        Ok(buf3) => {
+          let b3: Vec[Int] = buf3;
+          if b3.len() != nan_row.len() { return 31; }
+          var k = 0;
+          while k < b3.len() {
+            if b3[k] != nan_row[k] { return 32; }
+            k = k + 1;
+          }
+        }
+      }
+    }
+  }
+  return 0;
+}
+
+fn test_tuple2_roundtrip() -> TestResult {
+  let rc = run_tuple2_roundtrip();
+  if rc == 0 { return assert(true, "tuple v2: roundtrip all kinds (extremes, UTF-8, NaN bit-exact)"); }
+  return assert(false, "tuple v2: roundtrip failed rc=" + int_to_str(rc));
+}
+
+// Corrupt / cross-version / oversized inputs must be rejected, never
+// partially decoded.
+fn run_tuple2_rejects() -> Int {
+  // Valid v2 baseline to corrupt.
+  var vals = Vec[TValue].new();
+  vals.push(TValue.VInt(5));
+  vals.push(TValue.VText("ab"));
+  let enc = tuple2_encode_row_checked(3, &vals);
+  match enc {
+    Err(_) => { return 1; }
+    Ok(buf) => {
+      let v2: Vec[Int] = buf;
+
+      // v1 buffer must not decode as v2 (version discriminator).
+      var data1 = Vec[Int].new();
+      data1.push(1);
+      let row1 = Row.new(1, data1);
+      let v1enc = tuple_encode_checked(&row1);
+      match v1enc {
+        Err(_) => { return 2; }
+        Ok(v1buf) => {
+          let b1: Vec[Int] = v1buf;
+          let d1 = tuple2_decode_row(&b1);
+          match d1 { Ok(_) => { return 3; } Err(_) => {} }
+          // ... and the v2 buffer must not decode as v1.
+          let d2 = tuple_decode(&v2);
+          match d2 { Ok(_) => { return 4; } Err(_) => {} }
+        }
+      }
+
+      // Truncated by one byte (exact-length rule).
+      var trunc = Vec[Int].new();
+      var i = 0;
+      while i < v2.len() - 1 { trunc.push(v2[i]); i = i + 1; }
+      let d3 = tuple2_decode_row(&trunc);
+      match d3 { Ok(_) => { return 5; } Err(_) => {} }
+
+      // Trailing byte.
+      var trail = Vec[Int].new();
+      i = 0;
+      while i < v2.len() { trail.push(v2[i]); i = i + 1; }
+      trail.push(0);
+      let d4 = tuple2_decode_row(&trail);
+      match d4 { Ok(_) => { return 6; } Err(_) => {} }
+
+      // Wrong magic.
+      var magic = Vec[Int].new();
+      i = 0;
+      while i < v2.len() { magic.push(v2[i]); i = i + 1; }
+      magic[0] = 0x00;
+      let d5 = tuple2_decode_row(&magic);
+      match d5 { Ok(_) => { return 7; } Err(_) => {} }
+
+      // Unknown tag in field 1.
+      var unk = Vec[Int].new();
+      i = 0;
+      while i < v2.len() { unk.push(v2[i]); i = i + 1; }
+      unk[12] = 0x7F;
+      let d6 = tuple2_decode_row(&unk);
+      match d6 { Ok(_) => { return 8; } Err(_) => {} }
+
+      // Field 0 not VInt: flip the id tag to VText with a 1-byte body.
+      var f0 = Vec[Int].new();
+      f0.push(0xDB);
+      f0.push(0x02);
+      f0.push(0x01);
+      f0.push(0x03);
+      f0.push(1);
+      f0.push(0);
+      f0.push(0);
+      f0.push(0);
+      f0.push(65);
+      let d7 = tuple2_decode_row(&f0);
+      match d7 { Ok(_) => { return 9; } Err(_) => {} }
+
+      // Text length field larger than the remaining buffer.
+      var short = Vec[Int].new();
+      short.push(0xDB);
+      short.push(0x02);
+      short.push(0x02);
+      short.push(0x01);
+      var q = 0;
+      while q < 8 { short.push(0); q = q + 1; }
+      short.push(0x03);
+      short.push(9); // len 9, only 2 bytes below
+      short.push(0);
+      short.push(0);
+      short.push(0);
+      short.push(104);
+      short.push(105);
+      let d8 = tuple2_decode_row(&short);
+      match d8 { Ok(_) => { return 10; } Err(_) => {} }
+
+      // A non-byte element anywhere in the buffer (999) is corruption.
+      var wide = Vec[Int].new();
+      i = 0;
+      while i < v2.len() { wide.push(v2[i]); i = i + 1; }
+      wide[6] = 999;
+      let d9 = tuple2_decode_row(&wide);
+      match d9 { Ok(_) => { return 11; } Err(_) => {} }
+    }
+  }
+
+  // Encode-side guards: 256 fields refuse; blob byte > 255 refuses.
+  var many = Vec[TValue].new();
+  var j = 0;
+  while j < 255 { many.push(TValue.VNull); j = j + 1; }
+  let e1 = tuple2_encode_row_checked(1, &many);
+  match e1 { Ok(_) => { return 12; } Err(_) => {} }
+
+  var bad_blob_vals = Vec[TValue].new();
+  var bb = Vec[Int].new();
+  bb.push(300);
+  bad_blob_vals.push(TValue.VBlob(bb));
+  let e2 = tuple2_encode_row_checked(1, &bad_blob_vals);
+  match e2 { Ok(_) => { return 13; } Err(_) => {} }
+
+  return 0;
+}
+
+fn test_tuple2_rejects() -> TestResult {
+  let rc = run_tuple2_rejects();
+  if rc == 0 { return assert(true, "tuple v2: rejects corruption + cross-version + oversized"); }
+  return assert(false, "tuple v2: rejects failed rc=" + int_to_str(rc));
+}
+
+// Kinds, per-value lengths and the page budget boundary.
+fn run_tuple2_budget() -> Int {
+  if tuple2_kind(TValue.VNull) != 0x00 { return 1; }
+  if tuple2_kind(TValue.VInt(1)) != 0x01 { return 2; }
+  if tuple2_kind(TValue.VFloat(1.0)) != 0x02 { return 3; }
+  if tuple2_kind(TValue.VText("a")) != 0x03 { return 4; }
+  var one = Vec[Int].new();
+  one.push(9);
+  if tuple2_kind(TValue.VBlob(one)) != 0x04 { return 5; }
+
+  if tuple2_value_len(TValue.VNull) != 1 { return 6; }
+  if tuple2_value_len(TValue.VInt(0)) != 9 { return 7; }
+  if tuple2_value_len(TValue.VFloat(0.0)) != 9 { return 8; }
+  if tuple2_value_len(TValue.VText("abc")) != 8 { return 9; }
+  if tuple2_value_len(TValue.VBlob(one)) != 6 { return 10; }
+
+  // One 4000-byte text: row len = 3 + 9 + 5 + 4000 = 4017. Boundary only.
+  var s = "";
+  var i = 0;
+  while i < 4000 { s = s + "a"; i = i + 1; }
+  var vals = Vec[TValue].new();
+  vals.push(TValue.VText(s));
+  if tuple2_encoded_len(&vals) != 4017 { return 11; }
+  if !tuple2_fits_page(&vals, 4017) { return 12; }
+  if tuple2_fits_page(&vals, 4016) { return 13; }
+  if tuple2_fits_page(&vals, -1) { return 14; }
+  return 0;
+}
+
+fn test_tuple2_budget() -> TestResult {
+  let rc = run_tuple2_budget();
+  if rc == 0 { return assert(true, "tuple v2: kinds + per-value lengths + page budget boundary"); }
+  return assert(false, "tuple v2: budget failed rc=" + int_to_str(rc));
+}
+
+// ===========================================================================
 // Durable page file (text v1, CRC32C verified, atomic rewrite)
 // ===========================================================================
 
@@ -4272,6 +4615,16 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r109.passed, r109.name);
   let r110 = test_query_order_limit();
   total = total + 1; failed = failed + report(r110.passed, r110.name);
+
+  // Tuple codec v2 -- typed values (M5.1)
+  let r111 = test_tuple2_kat();
+  total = total + 1; failed = failed + report(r111.passed, r111.name);
+  let r112 = test_tuple2_roundtrip();
+  total = total + 1; failed = failed + report(r112.passed, r112.name);
+  let r113 = test_tuple2_rejects();
+  total = total + 1; failed = failed + report(r113.passed, r113.name);
+  let r114 = test_tuple2_budget();
+  total = total + 1; failed = failed + report(r114.passed, r114.name);
 
   let passed = total - failed;
   io.println("");

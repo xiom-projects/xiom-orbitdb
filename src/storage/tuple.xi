@@ -3,6 +3,8 @@
 
 module xiom.db.storage.tuple
 
+use xiom.string;
+
 // Local error type for tuple encoding -- mirrors xiom.db.error.DbError.
 enum DbError {
   NotFound,
@@ -175,6 +177,356 @@ pub fn tuple_decode(buf: &Vec[Int]) -> DbResult[Row] {
     j = j + 1;
   }
   return Ok(Row{ id: id, data: data });
+}
+
+// --- Tuple codec v2 (typed values, M5.1) ----------------------------------
+//
+// Same container magic; version 2 makes every field a TYPE-TAGGED value:
+//
+//   0: magic 0xDB    1: version 0x02    2: field_count (1..255)
+//   then field_count tagged values; field 0 MUST be VInt (the row id).
+//
+//   tag 0x00 VNull   -- no payload
+//   tag 0x01 VInt    -- 8 bytes little-endian
+//   tag 0x02 VFloat  -- 8 bytes IEEE-754 double, little-endian
+//   tag 0x03 VText   -- u32 LE byte length + UTF-8 bytes (byte-exact)
+//   tag 0x04 VBlob   -- u32 LE byte length + raw bytes (0..255)
+//
+// Strict decode: every buffer element must be a byte (0..255) for the whole
+// row, exact length (no trailing bytes), field 0 must decode as VInt, each
+// tagged payload must lie inside the buffer and respect the u32 length
+// fields. v1 buffers do not decode here and v2 buffers do not decode in
+// `tuple_decode` -- the version byte is the discriminator (migration notes
+// in docs/FORMATS.md). The v1 codec stays frozen; new on-disk rows use v2
+// (the engine integration is the following M5 slice).
+
+pub const TUPLE_VERSION_V2: Int = 2;
+pub const TUPLE2_TAG_NULL: Int = 0x00;
+pub const TUPLE2_TAG_INT: Int = 0x01;
+pub const TUPLE2_TAG_FLOAT: Int = 0x02;
+pub const TUPLE2_TAG_TEXT: Int = 0x03;
+pub const TUPLE2_TAG_BLOB: Int = 0x04;
+// One text/blob length field is u32; longer values are not representable.
+pub const TUPLE2_MAX_VALUE_BYTES: Int = 4294967295;
+
+// The M5 value model: null, int64, f64, UTF-8 text, raw bytes. Variant names
+// are V-prefixed so composed programs stay unambiguous (C-ORBIT-07 hygiene);
+// consumer modules still module-qualify their patterns (m225 caveat).
+pub type TValue = enum {
+  VNull,
+  VInt(v: Int),
+  VFloat(f: Float64),
+  VText(s: Str),
+  VBlob(b: Vec[Int]),
+}
+
+// A v2 row: id plus typed column values (on disk field 0 is the id's VInt).
+pub type TypedRow = {
+  id: Int;
+  values: Vec[TValue];
+}
+
+fn tuple2_push_u32_le(out: &mut Vec[Int], v: Int) {
+  out.push(v & 0xFF);
+  out.push((v >> 8) & 0xFF);
+  out.push((v >> 16) & 0xFF);
+  out.push((v >> 24) & 0xFF);
+}
+
+// Composed multiplicatively so no bitwise/additive precedence is involved.
+fn tuple2_read_u32_le(buf: &Vec[Int], at: Int) -> Int {
+  var v = 0;
+  var k = 3;
+  while k >= 0 {
+    v = v * 256 + (buf[at + k] & 0xFF);
+    k = k - 1;
+  }
+  return v;
+}
+
+// Whole-body unsafe (pointer bit-cast, mirroring xiom.serialize.endian):
+// T007 requires a pre-entry contract on the confinement unit.
+fn tuple2_push_f64_le(out: &mut Vec[Int], f: Float64)
+  requires: true
+{
+  unsafe {
+    var b: [8]UInt8;
+    let fp: *mut Float64 = &b[0] as *mut Float64;
+    *fp = f;
+    var i = 0;
+    while i < 8 {
+      // Mask: `b[i] as Int` on the fixed UInt8 array sign-extends high
+      // bytes on v0.64.3 (0xF8 -> -8); the storage byte convention is 0..255.
+      out.push((b[i] as Int) & 0xFF);
+      i = i + 1;
+    }
+  }
+}
+
+fn tuple2_read_f64_le(buf: &Vec[Int], at: Int) -> Float64
+  requires: true
+{
+  unsafe {
+    var b: [8]UInt8;
+    var i = 0;
+    while i < 8 {
+      b[i] = (buf[at + i] & 0xFF) as UInt8;
+      i = i + 1;
+    }
+    let fp: *const Float64 = &b[0] as *const Float64;
+    return *fp;
+  }
+}
+
+// Strict byte convention: every element of [from, to) is 0..255.
+fn tuple2_bytes_valid(buf: &Vec[Int], from: Int, to: Int) -> Bool {
+  var i = from;
+  while i < to {
+    if buf[i] < 0 { return false; }
+    if buf[i] > 255 { return false; }
+    i = i + 1;
+  }
+  return true;
+}
+
+// UTF-8 bytes [at, at+n) -> Str (byte-exact; the stdlib builds the Str).
+fn tuple2_text_from_bytes(buf: &Vec[Int], at: Int, n: Int) -> Str {
+  var bytes = Vec[UInt8].new();
+  var i = 0;
+  while i < n {
+    bytes.push((buf[at + i] & 0xFF) as UInt8);
+    i = i + 1;
+  }
+  return Str::from_utf8(bytes);
+}
+
+// Encoded byte length of one value (tag + payload).
+pub fn tuple2_value_len(v: TValue) -> Int {
+  match v {
+    VNull => { return 1; }
+    VInt(_) => { return 9; }
+    VFloat(_) => { return 9; }
+    VText(s) => { return 5 + s.len(); }
+    VBlob(b) => { return 5 + b.len(); }
+  }
+}
+
+// Append one tagged value. Callers must have validated it (see
+// `tuple2_encode_row_checked`); blob elements are masked to bytes here.
+fn tuple2_push_value(out: &mut Vec[Int], v: TValue) {
+  match v {
+    VNull => { out.push(TUPLE2_TAG_NULL); }
+    VInt(x) => {
+      out.push(TUPLE2_TAG_INT);
+      tuple_push_int_le(out, x);
+    }
+    VFloat(f) => {
+      out.push(TUPLE2_TAG_FLOAT);
+      tuple2_push_f64_le(out, f);
+    }
+    VText(s) => {
+      out.push(TUPLE2_TAG_TEXT);
+      tuple2_push_u32_le(out, s.len());
+      var i = 0;
+      while i < s.len() {
+        out.push(string.byte_at(s, i) as Int);
+        i = i + 1;
+      }
+    }
+    VBlob(b) => {
+      out.push(TUPLE2_TAG_BLOB);
+      tuple2_push_u32_le(out, b.len());
+      var i = 0;
+      while i < b.len() {
+        out.push(b[i] & 0xFF);
+        i = i + 1;
+      }
+    }
+  }
+}
+
+// Decode one tagged value at `at`. Returns only the value: the consumed
+// length is `tuple2_value_len(v)`, so callers advance by at +
+// tuple2_value_len(v). (A `(TValue, Int)` tuple return miscompiles on
+// v0.64.3 -- the `Tuple__TValue__Int` unknown-type codegen warning --
+// so no position tuple is returned.)
+pub fn tuple2_read_value(buf: &Vec[Int], at: Int) -> DbResult[TValue] {
+  if at < 0 { return Err(DbError.Corruption); }
+  if at >= buf.len() { return Err(DbError.Corruption); }
+  let tag = buf[at] & 0xFF;
+  if tag == TUPLE2_TAG_NULL {
+    return Ok(TValue.VNull);
+  }
+  if tag == TUPLE2_TAG_INT {
+    if at + 9 > buf.len() { return Err(DbError.Corruption); }
+    let x = tuple_read_int_le(buf, at + 1);
+    return Ok(TValue.VInt(x));
+  }
+  if tag == TUPLE2_TAG_FLOAT {
+    if at + 9 > buf.len() { return Err(DbError.Corruption); }
+    let f = tuple2_read_f64_le(buf, at + 1);
+    return Ok(TValue.VFloat(f));
+  }
+  if tag == TUPLE2_TAG_TEXT {
+    if at + 5 > buf.len() { return Err(DbError.Corruption); }
+    let n = tuple2_read_u32_le(buf, at + 1);
+    if at + 5 + n > buf.len() { return Err(DbError.Corruption); }
+    let s = tuple2_text_from_bytes(buf, at + 5, n);
+    return Ok(TValue.VText(s));
+  }
+  if tag == TUPLE2_TAG_BLOB {
+    if at + 5 > buf.len() { return Err(DbError.Corruption); }
+    let n = tuple2_read_u32_le(buf, at + 1);
+    if at + 5 + n > buf.len() { return Err(DbError.Corruption); }
+    var b = Vec[Int].new();
+    var i = 0;
+    while i < n {
+      b.push(buf[at + 5 + i] & 0xFF);
+      i = i + 1;
+    }
+    return Ok(TValue.VBlob(b));
+  }
+  return Err(DbError.Corruption);
+}
+
+// Encoded length of a v2 row: 3 container bytes + the id's VInt + values.
+pub fn tuple2_encoded_len(values: &Vec[TValue]) -> Int {
+  var n = 3 + 9;
+  var i = 0;
+  while i < values.len() {
+    n = n + tuple2_value_len(values[i]);
+    i = i + 1;
+  }
+  return n;
+}
+
+// True when the row's v2 encoding fits the given page payload budget.
+pub fn tuple2_fits_page(values: &Vec[TValue], page_size: Int) -> Bool {
+  if page_size < 0 { return false; }
+  return tuple2_encoded_len(values) <= page_size;
+}
+
+pub fn tuple2_kind(v: TValue) -> Int {
+  match v {
+    VNull => { return TUPLE2_TAG_NULL; }
+    VInt(_) => { return TUPLE2_TAG_INT; }
+    VFloat(_) => { return TUPLE2_TAG_FLOAT; }
+    VText(_) => { return TUPLE2_TAG_TEXT; }
+    VBlob(_) => { return TUPLE2_TAG_BLOB; }
+  }
+}
+
+pub fn tuple2_is_null(v: TValue) -> Bool {
+  match v {
+    VNull => { return true; }
+    _ => { return false; }
+  }
+}
+
+pub fn tuple2_int_value(v: TValue) -> Option[Int] {
+  match v {
+    VInt(x) => { return Some(x); }
+    _ => { return None; }
+  }
+}
+
+pub fn tuple2_float_value(v: TValue) -> Option[Float64] {
+  match v {
+    VFloat(f) => { return Some(f); }
+    _ => { return None; }
+  }
+}
+
+pub fn tuple2_text_value(v: TValue) -> Option[Str] {
+  match v {
+    VText(s) => { return Some(s); }
+    _ => { return None; }
+  }
+}
+
+pub fn tuple2_blob_value(v: TValue) -> Option[Vec[Int]] {
+  match v {
+    VBlob(b) => { return Some(b); }
+    _ => { return None; }
+  }
+}
+
+// Checked encode: the row must be representable -- field count <= 255, text
+// and blob lengths within u32, blob elements 0..255. The id is field 0 and
+// is always VInt on disk.
+pub fn tuple2_encode_row_checked(id: Int, values: &Vec[TValue]) -> DbResult[Vec[Int]] {
+  if values.len() + 1 > TUPLE_MAX_FIELDS {
+    return Err(DbError.ConstraintViolation);
+  }
+  var i = 0;
+  while i < values.len() {
+    let v = values[i];
+    match v {
+      VNull => {}
+      VInt(_) => {}
+      VFloat(_) => {}
+      VText(s) => {
+        if s.len() > TUPLE2_MAX_VALUE_BYTES { return Err(DbError.ConstraintViolation); }
+      }
+      VBlob(b) => {
+        if b.len() > TUPLE2_MAX_VALUE_BYTES { return Err(DbError.ConstraintViolation); }
+        var k = 0;
+        while k < b.len() {
+          if b[k] < 0 { return Err(DbError.ConstraintViolation); }
+          if b[k] > 255 { return Err(DbError.ConstraintViolation); }
+          k = k + 1;
+        }
+      }
+    }
+    i = i + 1;
+  }
+  var out = Vec[Int].new();
+  out.push(TUPLE_MAGIC);
+  out.push(TUPLE_VERSION_V2);
+  out.push(values.len() + 1);
+  tuple2_push_value(&mut out, TValue.VInt(id));
+  i = 0;
+  while i < values.len() {
+    tuple2_push_value(&mut out, values[i]);
+    i = i + 1;
+  }
+  return Ok(out);
+}
+
+// Strict decode of a v2 buffer produced by `tuple2_encode_row_checked`.
+pub fn tuple2_decode_row(buf: &Vec[Int]) -> DbResult[TypedRow] {
+  if buf.len() < 12 { return Err(DbError.Corruption); }
+  if buf[0] != TUPLE_MAGIC { return Err(DbError.Corruption); }
+  if buf[1] != TUPLE_VERSION_V2 { return Err(DbError.Corruption); }
+  let count = buf[2];
+  if count < 1 { return Err(DbError.Corruption); }
+  if !tuple2_bytes_valid(buf, 0, buf.len()) { return Err(DbError.Corruption); }
+
+  match tuple2_read_value(buf, 3) {
+    Err(e) => { return Err(e); }
+    Ok(idv) => {
+      match tuple2_int_value(idv) {
+        None => { return Err(DbError.Corruption); }
+        Some(id) => {
+          var values = Vec[TValue].new();
+          var at = 3 + tuple2_value_len(idv);
+          var j = 1;
+          while j < count {
+            match tuple2_read_value(buf, at) {
+              Err(e2) => { return Err(e2); }
+              Ok(v) => {
+                values.push(v);
+                at = at + tuple2_value_len(v);
+              }
+            }
+            j = j + 1;
+          }
+          if at != buf.len() { return Err(DbError.Corruption); }
+          return Ok(TypedRow{ id: id, values: values });
+        }
+      }
+    }
+  }
 }
 
 pub type ResultSet = {

@@ -228,6 +228,12 @@ fields (`ids` / `blocks` / `gens` directory, `header`, `active_slot`,
 | `tuple_decode(buf)` | `DbResult[Row]` | Strict: magic/version/count/length/type bytes; `Err(Corruption)` on any violation. |
 | `tuple_encoded_len(row)` / `tuple_fits_page(row, page_size)` | `Int` / `Bool` | Size helpers. |
 | `tuple_push_int_le(out, v)` / `tuple_read_int_le(buf, at)` | -- / `Int` | Shared LE i64 helpers (also used by the snapshot node codec). |
+| `TValue` (`VNull`/`VInt`/`VFloat`/`VText`/`VBlob`) | enum | M5 typed-value model; construct as `TValue.VInt(5)` etc., inspect via the accessors below (consumers should not pattern-match: m225/C-ORBIT-07 hygiene). |
+| `tuple2_encode_row_checked(id, values)` | `DbResult[Vec[Int]]` | Codec v2 row; `Err(ConstraintViolation)` above 255 fields / u32 lengths / non-byte blob elements. |
+| `tuple2_decode_row(buf)` | `DbResult[TypedRow]` | Strict v2 decode (whole-buffer byte check, exact length, `VInt` id field); rejects v1 bytes. |
+| `tuple2_read_value(buf, at)` | `DbResult[TValue]` | One tagged value; consumed length is `tuple2_value_len(v)`. |
+| `tuple2_value_len(v)` / `tuple2_encoded_len(values)` / `tuple2_fits_page(values, page_size)` | `Int` / `Int` / `Bool` | Size helpers (page budget gate). |
+| `tuple2_kind` / `tuple2_is_null` / `tuple2_int_value` / `tuple2_float_value` / `tuple2_text_value` / `tuple2_blob_value` | `Int` / `Bool` / `Option[...]` | Accessors (kind tag + per-kind extraction). |
 | `ResultSet.new(columns)` / `add_row` / `row_count` / `column_count` / `get_row` | -- | In-memory result materialization. |
 
 ## Free-space map (`xiom.db.storage.free_space_map`)

@@ -168,6 +168,54 @@ for each column:
 - Page budget: callers use `tuple_fits_page` / the `Page` 4096-byte contract;
   snapshots embed no tuples today.
 
+## 5A. Tuple codec v2 (typed values, M5.1) -- ADDITIVE
+
+The typed-value model and its row codec. v1 (section 5) stays readable and
+frozen; the version byte discriminates (v1 bytes never decode as v2 and
+vice versa). Codec: `src/storage/tuple.xi` (`TValue`, `TypedRow`,
+`tuple2_*` functions).
+
+```
+byte 0        magic 0xDB
+byte 1        version 2
+byte 2        field_count = values.len() + 1   (1..255)
+field 0       tagged id -- MUST be tag 0x01 (VInt)
+fields 1..    tagged values, each:
+  byte t      tag
+  tag 0x00    VNull   (no payload)
+  tag 0x01    VInt    (8 bytes LE i64)
+  tag 0x02    VFloat  (8 bytes IEEE-754 f64, little-endian)
+  tag 0x03    VText   (u32 LE byte length + UTF-8 bytes, byte-exact)
+  tag 0x04    VBlob   (u32 LE byte length + raw bytes 0..255)
+```
+
+Typed value model (M5):
+
+| Kind | Tag | Payload | Notes |
+|------|-----|---------|-------|
+| Null | 0x00 | -- | SQL NULL analog |
+| Int | 0x01 | 8B LE i64 | same LE helper as v1 |
+| Float | 0x02 | 8B IEEE-754 f64 LE | bit-exact incl. -0.0/NaN; never decimal text |
+| Text | 0x03 | u32 len + UTF-8 | byte-exact; `Str.len()` IS the byte count |
+| Blob | 0x04 | u32 len + bytes | elements 0..255 enforced on encode |
+
+- Strict decode: every buffer element must be byte-like (0..255) for the
+  WHOLE row; exact total length (no trailing bytes); field 0 must decode as
+  VInt; payloads must lie inside the buffer; u32 length fields. Any
+  violation -> `Err(Corruption)`, no partial rows.
+- Encode (`tuple2_encode_row_checked`): rejects >255 fields, text/blob
+  lengths above u32, and blob elements outside 0..255
+  (`ConstraintViolation`).
+- Budget: `tuple2_encoded_len(values)` = 3 + 9 + sum(value lengths);
+  `tuple2_fits_page(values, page_size)` is the caller gate. Value lengths:
+  null 1, int/float 9, text/blob 5 + byte length.
+- Migration notes: no automatic rewrite. v1 snapshots/WALs keep v1 rows.
+  When the engine integration slice lands (schema-driven storage), new
+  writes use v2 while readers keep accepting both; the flip is gated per
+  container exactly like `page_format` 2. `tuple_decode` (v1) rejects v2
+  bytes and `tuple2_decode_row` rejects v1 -- the version byte is the
+  discriminator.
+
 ## 6. Database file set
 
 | File | Format |
