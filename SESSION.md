@@ -238,15 +238,22 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
 **Updated:** 2026-10-11 (M3.1 wrap -- CLEAN HANDOFF, next session): tree
   clean at the M3.1 wrap commit; lane heads at this wrap: stdlib `7e82225`
   (v0.64.3 sweep verdicts -- docs-only move; suite re-verified on it) /
-  xvector `200cbc7` / packages `7ab0d82f` / relays `dd0d624` (this lane's
-  C-ORBIT-09 push; compiler lane `c86e2f2d` -- m268/m269 on main, no new
-  archive yet, WATCH armed). Bus: orbitdb queue clear (packages-8 stays
+  xvector `200cbc7` / packages `7ab0d82f` / relays `d45eccf` (two orbitdb
+  pushes this wrap: C-ORBIT-09 + the xvector tree note); compiler lane
+  `c86e2f2d` -- m268/m269 on main, no new
+  archive yet, WATCH armed. Bus: orbitdb queue clear (packages-8 stays
   `fixed` awaiting THEIR verification; compiler batch plan open, no fix
   batches landed); C-ORBIT-09 filed + pushed. Next per task order: **M1.2 S4
   when the stdlib byte-IO/fsync rows land** (bus -3..-8 acked), else M1.1b
   pager groundwork (deterministic deferred-free allocator; the M3 pins feed
-  its min-pinned-LSN hook); re-run the hybrid battery when the XVECTOR pin
-  moves.
+  its min-pinned-LSN hook). **Hybrid re-run at their moved pin:** the LIVE
+  xvector working tree is mid-refactor and fails to compose
+  (`xiom.vector.engine` 172 undefined `engine_memory_estimate`), so the
+  probe `full` was re-run against an extracted copy of their HEAD commit
+  `200cbc7` (throwaway composition under `probe-logs/xvec-head/`, their repo
+  untouched): **FULL GREEN x2 Win + x2 WSL**; courtesy note
+  `REL-20261011-1716-orbitdb` filed; the crash-harness half + live-tree
+  re-run are deferred until their tree builds.
 **Updated:** 2026-10-11 (reference study, owner grant): cloned + studied
   bbolt (MIT), redb (MIT/Apache-2.0) and SQLite (public domain) under
   `E:\repos`; `docs/REFERENCE-STUDY.md` maps their load-bearing mechanisms
@@ -388,7 +395,8 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     contract).
   - Lane heads at the 2026-10-11 M3.1 wrap: stdlib `7e82225` (v0.64.3
     sweep verdicts, docs-only; suite re-verified on it), xvector `200cbc7`,
-    packages `7ab0d82f`, relays `dd0d624` (this lane's C-ORBIT-09 push);
+    packages `7ab0d82f`, relays `d45eccf` (two orbitdb pushes this wrap:
+    C-ORBIT-09 + the xvector tree note);
     compiler lane `c86e2f2d` (m268/m269 on main, no archive yet).
   - stdlib: `E:\xiom-lang\stdlib` @ `7e513f9` (2026-10-10; handoff snapshot
     25) = `/mnt/e/xiom-lang/stdlib`. **stdlib-v0.64.3 RELEASED + registry
@@ -468,6 +476,13 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     `full` mode: 36 checks (join integrity, brute-force exact top-k equality,
     delete pipeline, reopen bit-equality, WAL prefix + torn tail) x2 Win +
     WSL. `tests/hybrid/repro_chain.xi` is the XV-ORBITDB-01 evidence run.
+    **M3.1 wrap re-run** (their pin moved to `200cbc7`): the LIVE sibling
+    tree is mid-refactor (does not compile: `engine.xi:172` undefined
+    `engine_memory_estimate`), so `full` was re-run x2 Win + x2 WSL against
+    an extracted copy of their HEAD commit (throwaway composition under
+    `probe-logs/xvec-head/`, their repo untouched) -- **FULL GREEN**; the
+    crash-harness half is deferred until their tree builds (note
+    `REL-20261011-1716-orbitdb`).
 - **What exists (Phase 0 + most of Phase 1):**
   - In-memory: flat-array B-tree (churn-proven delete), query (value
     semantics, pinned in `docs/query-pipeline.md`), clock buffer-pool with
@@ -1008,8 +1023,12 @@ TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
 4. When the fixed `xiom.btree` is re-extracted (order-3; bus -9 acked), run
    our two-way consumer pass.
 5. Keep the hybrid harness green at every wrap (and when the XVECTOR pin
-   moves); keep SESSION.md STATE, the bus items and PRODUCTION-READINESS
-   updated at every wrap; commit signed per step.
+   moves). At THIS wrap the live sibling tree did not compile
+   (`engine_memory_estimate` refactor), so the probe `full` was re-run x2
+   both platforms against an extracted copy of their HEAD commit (`200cbc7`)
+   and was GREEN -- re-run LIVE plus the crash-harness half when their tree
+   builds again. Keep SESSION.md STATE, the bus items and
+   PRODUCTION-READINESS updated at every wrap; commit signed per step.
 
 DISCIPLINE (v0.64.3; C-ORBIT-01..05/06 workarounds dropped -- C-ORBIT-07/08/
 09 workarounds stay until their batches/fixes land; see COMPILER-FINDINGS):
