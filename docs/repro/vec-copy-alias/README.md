@@ -21,7 +21,7 @@ returned post-write values); the fix deep-copies every vector in
   element assignment on it leaves the source untouched (the ORBITDB
   workaround).
 
-## Commands and observed results (v0.64.3)
+## Commands and observed results (v0.64.3, Windows + WSL identical output)
 
 ```
 scripts\run.ps1 docs\repro\vec-copy-alias\probe_alias.xi

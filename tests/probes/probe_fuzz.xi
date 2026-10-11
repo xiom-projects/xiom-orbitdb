@@ -32,7 +32,13 @@
 //       non-nullable, kind mismatch, pk non-int) must be rejected;
 //   (j) db_file typed rows -- random put/put_typed/delete mixes with
 //       periodic checkpoints/reopens vs a model (size/get/get_typed/range
-//       checked after every op, incl. after recovery).
+//       checked after every op, incl. after recovery);
+//   (k) typed queries -- random typed rows + conditions/order/limit/offset vs
+//       an independent model;
+//   (l) snapshot pins + savepoints (M3) -- random put/delete/pin/end-pin/
+//       checkpoint/reopen/txn-savepoint streams; the live tree and EVERY live
+//       pin must match their models after every op; a final reopen must match
+//       the live model.
 //
 // Env:
 //   ORBITDB_FUZZ_DIR          scratch dir                     (default probe-logs)
@@ -49,6 +55,7 @@
 //   ORBITDB_FUZZ_SCHEMA_ITERS   schema-row iterations per seed  (default 150)
 //   ORBITDB_FUZZ_TYPED_ITERS    db typed-row iterations per seed (default 200)
 //   ORBITDB_FUZZ_TQUERY_ITERS   typed-query iterations per seed  (default 150)
+//   ORBITDB_FUZZ_PINS_ITERS     pin/savepoint iterations per seed (default 150)
 //
 // Exit: 0 = green; non-zero = failing section + first violation (printed).
 
@@ -1574,6 +1581,134 @@ fn fuzz_typed_query(seed: Int, iters: Int, dir: Str) -> Int {
   return 0;
 }
 
+// (l) snapshot pins + savepoints (M3) ----------------------------------------
+
+fn fuzz_pins_copy(v: &Vec[Int]) -> Vec[Int] {
+  var out = Vec[Int].new();
+  var i = 0;
+  while i < v.len() {
+    out.push(v[i]);
+    i = i + 1;
+  }
+  return out;
+}
+
+fn fuzz_pins_expected(m: &Vec[Int]) -> Vec[Int] {
+  var out = Vec[Int].new();
+  var i = 1;
+  while i < m.len() {
+    if m[i] >= 0 { out.push(m[i]); }
+    i = i + 1;
+  }
+  return out;
+}
+
+fn fuzz_db_pins(seed: Int, iters: Int, dir: Str) -> Int {
+  let path = dir + "/fuzz-mvcc.wal";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(path + ".snap");
+  let n = 48;
+  var db = db_file_open(path, 3);
+  var model = Vec[Int].new();
+  var i0 = 0;
+  while i0 <= n {
+    model.push(-1);
+    i0 = i0 + 1;
+  }
+  var pin_ids = Vec[Int].new();
+  var pin_models = Vec[Vec[Int]].new();
+  var state = seed;
+  var it = 0;
+  while it < iters {
+    let roll = rand_mod(&mut state, 100);
+    let key = 1 + rand_mod(&mut state, n);
+    let val = rand_mod(&mut state, 1000);
+    if roll < 55 {
+      if !db_file_put(&mut db, key, val) { return 1; }
+      model[key] = val;
+    } elif roll < 70 {
+      let _ = db_file_delete(&mut db, key);
+      model[key] = -1;
+    } elif roll < 80 {
+      let s = db_file_snapshot_begin(&mut db);
+      pin_ids.push(s.id);
+      pin_models.push(fuzz_pins_copy(&model));
+    } elif roll < 88 {
+      if pin_ids.len() > 0 {
+        let at = rand_mod(&mut state, pin_ids.len());
+        if !db_file_snapshot_end(&mut db, pin_ids[at]) { return 2; }
+        var j = at;
+        while j < pin_ids.len() - 1 {
+          pin_ids[j] = pin_ids[j + 1];
+          pin_models[j] = pin_models[j + 1];
+          j = j + 1;
+        }
+        pin_ids.pop();
+        pin_models.pop();
+      }
+    } elif roll < 93 {
+      if db_file_checkpoint(&mut db) < 0 { return 3; }
+    } elif roll < 97 {
+      db = db_file_open(path, 3);
+      pin_ids = Vec[Int].new();
+      pin_models = Vec[Vec[Int]].new();
+    } else {
+      // Txn dance with a savepoint: buffer w1, marker, w2, maybe restore, w3;
+      // commit applies the surviving set (or abort drops everything).
+      if !db_file_txn_begin(&mut db) { return 4; }
+      let k1 = 1 + rand_mod(&mut state, n);
+      let v1 = rand_mod(&mut state, 700);
+      if !db_file_txn_put(&mut db, k1, v1) { return 5; }
+      if !db_file_txn_savepoint(&mut db) { return 6; }
+      let k2 = 1 + rand_mod(&mut state, n);
+      let v2 = rand_mod(&mut state, 700);
+      if !db_file_txn_put(&mut db, k2, v2) { return 7; }
+      var restored = false;
+      if rand_mod(&mut state, 2) == 0 {
+        if !db_file_txn_savepoint_restore(&mut db) { return 8; }
+        restored = true;
+      }
+      let k3 = 1 + rand_mod(&mut state, n);
+      let v3 = rand_mod(&mut state, 700);
+      if !db_file_txn_put(&mut db, k3, v3) { return 9; }
+      if rand_mod(&mut state, 5) == 0 {
+        if !db_file_txn_abort(&mut db) { return 10; }
+      } else {
+        if !db_file_txn_commit(&mut db) { return 11; }
+        model[k1] = v1;
+        if !restored { model[k2] = v2; }
+        model[k3] = v3;
+      }
+    }
+    // After every op: the live tree and EVERY live pin must match the model.
+    let want_live = fuzz_pins_expected(&model);
+    let got_live = db_file_range(&db, 1, n);
+    if !vec_eq(&got_live, &want_live) { return 20; }
+    var p = 0;
+    while p < pin_ids.len() {
+      let want_p = fuzz_pins_expected(&pin_models[p]);
+      let got_p = db_file_snapshot_range(&db, pin_ids[p], 1, n);
+      if !vec_eq(&got_p, &want_p) { return 21; }
+      if db_file_snapshot_count(&db, pin_ids[p]) != want_p.len() { return 22; }
+      p = p + 1;
+    }
+    it = it + 1;
+  }
+  var q = 0;
+  while q < pin_ids.len() {
+    if !db_file_snapshot_end(&mut db, pin_ids[q]) { return 30; }
+    q = q + 1;
+  }
+  if db_file_checkpoint(&mut db) < 0 { return 31; }
+  var db2 = db_file_open(path, 3);
+  let want_final = fuzz_pins_expected(&model);
+  let got_final = db_file_range(&db2, 1, n);
+  if !vec_eq(&got_final, &want_final) { return 32; }
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(path + ".snap");
+  return 0;
+}
+
 
 fn main() -> Int {
   let dir = env.var_or("ORBITDB_FUZZ_DIR", "probe-logs");
@@ -1590,6 +1725,7 @@ fn main() -> Int {
   let schema_iters = parse_env_int("ORBITDB_FUZZ_SCHEMA_ITERS", 150);
   let typed_iters = parse_env_int("ORBITDB_FUZZ_TYPED_ITERS", 200);
   let tquery_iters = parse_env_int("ORBITDB_FUZZ_TQUERY_ITERS", 150);
+  let pins_iters = parse_env_int("ORBITDB_FUZZ_PINS_ITERS", 150);
 
   var s = 0;
   while s < seeds {
@@ -1644,6 +1780,11 @@ fn main() -> Int {
     if rc_tq != 0 {
       io.println("fuzz: typed_query FAILED seed=" + convert.int_to_string(seed) + " rc=" + convert.int_to_string(rc_tq));
       return 210 + rc_tq;
+    }
+    let rc_pins = fuzz_db_pins(seed, pins_iters, dir);
+    if rc_pins != 0 {
+      io.println("fuzz: pins FAILED seed=" + convert.int_to_string(seed) + " rc=" + convert.int_to_string(rc_pins));
+      return 230 + rc_pins;
     }
     let order = 3 + (s % 3);
     let rc_b = fuzz_btree(seed, ops, n, order);
