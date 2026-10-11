@@ -184,6 +184,20 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `putrow`/`getrow` (typed rows in the shell). **E4 awarded 2/2 ->
   readiness 73.5.** Remaining M5 work: typed-column query/index
   predicates (S4).
+**Updated:** 2026-10-11 (M5-S4 typed predicates, same session): M5 is
+  COMPLETE. `tuple2_compare` defines the typed total order (Null < numeric
+  (Int/Float numeric; VInt(1) == VFloat(1.0)) < Text bytewise < Blob
+  element-wise; NaN first + self-equal); `TypedQuery`/`TypedCond` +
+  `db_file_query_typed` return matching pks in key order (conditions ANDed,
+  `col = -1` = row id, int rows + undecodable payloads never match,
+  offset/limit on matches). Evidence: 3 suite tests (**152/152**) + fuzz
+  (k) vs an INDEPENDENT model (4 seeds x 150 iters; model values in natural
+  domains, comparator re-implemented; per-op verification across
+  checkpoints/reopens); CLI `qrow <col> <op> <literal>` verified on Windows
+  + WSL. Docs: API rows, TYPED-VALUES-STORAGE landed-details, plan item 5
+  marked complete. Typed secondary indexes are an optional follow-on (not
+  required by the M5 gates). Readiness holds at 73.5 (extends the awarded
+  E4 evidence).
 **Updated:** 2026-10-11 (reference study, owner grant): cloned + studied
   bbolt (MIT), redb (MIT/Apache-2.0) and SQLite (public domain) under
   `E:\repos`; `docs/REFERENCE-STUDY.md` maps their load-bearing mechanisms
@@ -800,7 +814,7 @@ CURRENT STATE: v0.64.3 pin (Windows shadow `xiom.new.0643` via dev-env;
 WSL canonical `~/.local/bin/xiom`; the Windows canonical `xiom.new` stays
 v0.64.2 for the fleet -- swap is owner/ops-coordinated); all C-ORBIT compiler
 workarounds REVERTED and the suite is green on the native forms --
-conformance 149/149 x2 Win + WSL (see
+conformance 152/152 x2 Win + WSL (see
 the findings file for the one consumer-qualification caveat); db_crash five
 scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn discarded,
 committed txn recovered) x2 Win + WSL, each recovery followed by qverify
@@ -859,7 +873,10 @@ M5.1 codec + M5.2 schema layer + **M5.3 ENGINE PERSISTENCE DONE 2026-10-11**
 WAL tagged subtype-1 records; node pages v2 with auto-detect; 
 `db_file_put_typed`/`get_typed` + budget + byte validation; legacy v1-node
 artifacts load unchanged; 5 suite tests + fuzz (h)/(i)/(j) + fault E; CLI
-`putrow`/`getrow`); remaining M5: typed-column query/index (S4)). Known
+`putrow`/`getrow`/`qrow`); **M5-S4 typed predicates DONE** (`tuple2_compare`
+total order + `TypedQuery`/`db_file_query_typed` + fuzz (k) vs an
+independent model; CLI `qrow`; typed secondary indexes are an optional
+follow-on)). Known
 limits: no fsync
 (process-crash safe only; the durability API
 + env fault injector are pinned so the swap is behavior-only); replay is linear now but file IO is O(n) per read
@@ -870,12 +887,14 @@ docs/ISOLATION.md); buffer pool in-memory only (pager seam C3 pending);
 fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-1. M5.1 codec + M5.2 schema layer + **M5.3 engine persistence DONE
-   2026-10-11** (suite 149 x2 both + fuzz (h)/(i)/(j) + fault E; legacy
-   artifacts verified; `docs/TYPED-VALUES-STORAGE.md` S3 LANDED; readiness
-   73.5). Next: **typed-column query/index predicates (M5-S4)** -- compare
-   decoded values in filters, typed secondary indexes -- then continue the
-   order below.
+1. **M5 COMPLETE 2026-10-11** (codec -> schema -> engine persistence ->
+   typed predicates; suite 152 x2 both + fuzz (h)/(i)/(j)/(k) + fault E;
+   `docs/TYPED-VALUES-STORAGE.md` landed; readiness 73.5; CLI
+   putrow/getrow/qrow). Optional follow-on: typed secondary indexes.
+   Next actionable: **M3 MVCC minimal subset** (snapshot pinning +
+   savepoint slice per docs/REFERENCE-STUDY.md) -- self-contained, no
+   stdlib dependency; while watching the stdlib rows (M1.2 S4) and the
+   `xiom.btree` re-extract (bus -9) to slot in when they land.
 2. M1.2 S4 when the stdlib rows land (byte-IO/fsync swap -- bus -3..-8
    acked; v2 default flip + fresh bench + FORMATS 3v2 tables; M2.1 second
    half rides here), then M1.1b (pager: deterministic deferred-free

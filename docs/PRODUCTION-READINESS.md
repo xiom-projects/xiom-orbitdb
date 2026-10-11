@@ -36,7 +36,7 @@
 | G. Performance & limits | 5 | 3.0 | Benchmarks published (v0.64.1); WAL segment size policy live (`maybe_checkpoint`); replay constrained by the filed stdlib `str_split` quadratic; page/cache bounds pending |
 | H. Security & integrity | 5 | 4.5 | Checksums + full input validation + deterministic fuzz harness; encryption/supply-chain pinning pending |
 | I. Documentation & evidence | 5 | 5.0 | Full doc set + relay docs + repro bundles + public API/runbook/format reference |
-| **Total** | **100** | **73.5** | **~74% -- alpha-track, durable log + pages + checkpoints + transactions + planner pushdown + secondary index + ORDER/LIMIT + clock replacer + typed rows (codec -> schema -> engine persistence) + fuzz, benchmarks live, both WAL/B-tree packages registry-live** |
+| **Total** | **100** | **73.5** | **~74% -- alpha-track, durable log + pages + checkpoints + transactions + planner pushdown + secondary index + ORDER/LIMIT + clock replacer + typed rows (codec -> schema -> engine persistence -> typed predicates) + fuzz, benchmarks live, both WAL/B-tree packages registry-live** |
 
 Scoreboard changelog:
 - 2026-10-08: bootstrap complete (suite migrated, engine defects fixed, WAL
@@ -292,6 +292,14 @@ Scoreboard changelog:
   awarded 2/2** (typed values + column constraints now stored and
   readable end to end; typed-column query/index predicates are S4):
   71.5 -> **73.5**.
+- 2026-10-11 (M5-S4 typed predicates): `tuple2_compare` total order
+  (Null < numeric < Text < Blob; int/float coercion; NaN first/self-equal)
+  + `TypedQuery`/`TypedCond` + `db_file_query_typed` (matching pks in key
+  order; `col = -1` = row id; int rows/undecodable payloads never match;
+  offset/limit on matches); suite x3 (152 total) + fuzz (k) vs an
+  INDEPENDENT model (4 seeds x 150 iters, per-op verification across
+  checkpoints/reopens); CLI `qrow`. No score change (extends the awarded
+  E4 evidence; typed secondary indexes remain a follow-on): 73.5.
 
 ## A. Correctness & data structures (20)
 

@@ -250,8 +250,11 @@ suite.
    the tree (parallel `BTreeNode.payloads`), WAL tagged records (subtype 1),
    node pages v2 with auto-detect, `db_file_put_typed`/`get_typed` + the
    payload budget; 5 suite tests + fuzz (j) + fault scenario E; legacy
-   v1-node-page artifacts load unchanged. Remaining: typed-column
-   query/index predicates (S4, compares decoded values).
+   v1-node-page artifacts load unchanged. **M5-S4 typed query predicates
+   DONE 2026-10-11** (`tuple2_compare` total order + `TypedQuery`/
+   `db_file_query_typed`; suite x3 + fuzz (k) vs an independent model; CLI
+   `qrow`). M5 is complete; typed secondary indexes are an optional
+   follow-on (not required by the M5 gates).
 6. **M2.1 -- fsync wiring + fault injection** when the stdlib row lands.
 7. M6.1 -- cursor API + error taxonomy; bindings spike.
 8. **M6.0 -- consumer handshakes** (done at doc level): PULSE

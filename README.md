@@ -66,14 +66,15 @@ orbitdb> get 1
 orbitdb> range 1 10
 orbitdb> putrow 2 i:7,s:hello,f:2.5,n     # typed row (M5.3)
 orbitdb> getrow 2
+orbitdb> qrow 2 < f:3.0                   # typed predicate -> matching pks
 orbitdb> ckpt
 orbitdb> kill      # exits WITHOUT cleanup -- restart to watch WAL replay
 ```
 
 `help` lists every command (`put/get/del/range/count/ckpt/bench/info/
-recover/kill/putrow/getrow`). Typed rows store opaque bytes end to end
-(tuple codec v2 rows; `docs/TYPED-VALUES-STORAGE.md`); typed-column
-query predicates are the next slice.
+recover/kill/putrow/getrow/qrow`). Typed rows store opaque bytes end to end
+(tuple codec v2 rows; `docs/TYPED-VALUES-STORAGE.md`) and typed predicates
+compare decoded columns (Null < numeric < text < blob, per `tuple2_compare`).
 
 ## Module Layout
 
