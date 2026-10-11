@@ -234,7 +234,15 @@ suite.
    `query_order`; catalog `IndexDef` tie-in; suite 134/134 x2 both + fuzz
    section (g) vs brute-force model. Durable page-backed storage stays with
    A5.
-5. **M5.1 -- typed values v2** (type-tagged tuples; text at least).
+5. **M5.1 -- typed values v2. Codec DONE 2026-10-11:** `TValue`
+   (null/int/float/text/blob) + tuple codec v2 (version byte 2, tagged
+   fields, u32 lengths, strict whole-buffer decode) in
+   `src/storage/tuple.xi`; 4 suite tests (KAT, roundtrip incl. UTF-8 + NaN
+   bit-exactness, reject matrix incl. cross-version isolation, budget) +
+   fuzz section (h) over all kinds; FORMATS section 5A documents the model
+   + migration notes. Next: schema-driven storage integration (engine
+   writes/reads typed rows; the v1/v2 flip is a container decision like
+   `page_format` 2).
 6. **M2.1 -- fsync wiring + fault injection** when the stdlib row lands.
 7. M6.1 -- cursor API + error taxonomy; bindings spike.
 8. **M6.0 -- consumer handshakes** (done at doc level): PULSE

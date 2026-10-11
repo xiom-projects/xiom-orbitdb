@@ -47,9 +47,9 @@
 
 ## M5 -- Types & codecs
 
-- [ ] Typed value model (int/float/text/blob) documented
-- [ ] Tuple v2 codec + fuzz round-trip over all types
-- [ ] Schema-driven storage; migration notes in FORMATS.md
+- [x] Typed value model (int/float/text/blob) documented (FORMATS 5A, 2026-10-11)
+- [x] Tuple v2 codec + fuzz round-trip over all types (suite x4 + fuzz (h), 2026-10-11)
+- [ ] Schema-driven storage; migration notes in FORMATS.md (notes DONE in FORMATS 5A; engine integration next)
 
 ## M6 -- API & bindings
 

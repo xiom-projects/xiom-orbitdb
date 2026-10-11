@@ -35,6 +35,15 @@ with empty-string args; surfaced as a contract panic at `os/env.xi:29:13`).
 Bundle `docs/repro/consumer-fn-hijack/`; bus `REL-20261011-1124-orbitdb`;
 workaround applied (distinct helper name `probe_arm`).
 
+**Status 2026-10-11: C-ORBIT-08 filed (OPEN on v0.64.3)** -- two codegen
+traps found by the M5.1 typed-values codec: (A) a tuple containing an ENUM
+(`Result[(TValue, Int)]`) miscompiles -- warning `unknown type
+'Tuple__TValue__Int' -- defaulting to i64`, hard crash or silently skipped
+match arms; (B) fixed-size `[N]UInt8` element `as Int` sign-extends
+(0xF8 -> -8; `Vec[UInt8]` is correct). Bundle
+`docs/repro/enum-tuple-codegen/`; workarounds applied in `tuple.xi`
+(`DbResult[TValue]` + explicit advance; `(b[i] as Int) & 0xFF`).
+
 **Relay:** hand this file to the compiler-lane session together with the
 matching `docs/repro/<bundle>/` directories from the ORBITDB repo
 (`E:\xiom-projects\xiom-orbitdb`). ORBITDB is a consumer lane; it does not
@@ -388,6 +397,32 @@ applied then; every one is resolved on v0.64.2 (see the re-test above).
   when a same-named function exists in another module of the program.
   Secondary: include the source file in contract-violation messages
   (currently `line:col` only).
+
+## C-ORBIT-08 -- enum-in-tuple miscompile + `[N]UInt8` element cast sign-extension (OPEN, filed 2026-10-11)
+
+- **Bundle:** `docs/repro/enum-tuple-codegen/` (`repro_enum_tuple.xi`,
+  `repro_u8_cast.xi`, README with exact outputs on both platforms).
+- **Part A (enum in a tuple -- HARD failure):** `Result[(Color, Int), Int]`
+  compiles with the warning `unknown type 'Tuple__Color__Int' -- defaulting
+  to i64. This may produce incorrect code.` and then: Windows exit code
+  -2147483645 (0x80000003 STATUS_BREAKPOINT) with no output at all; WSL exit
+  -1/255. In the ORBITDB codec (`DbResult[(TValue, Int)]`) the failure mode
+  was even quieter -- `Ok` match arms silently did not execute (neither arm
+  printed), which is how it was found. Workaround: never put an enum in a
+  tuple; return the enum alone (`DbResult[TValue]`) and advance positions
+  with `tuple2_value_len(v)`.
+- **Part B (fixed-array byte cast -- silent data corruption):** a
+  `[8]UInt8` element read with `as Int` SIGN-EXTENDS high bytes (0xF8 ->
+  -8) on both platforms; `Vec[UInt8]` element reads are correct (248) --
+  so `byte_io`/block-store readers are unaffected. The storage byte
+  convention is 0..255: code reading through fixed-size arrays must mask
+  (`(b[i] as Int) & 0xFF`, applied in `tuple2_push_f64_le`).
+- **Impact:** any program moving enums through tuples (a natural API shape)
+  or reading bytes out of fixed-size arrays (a natural codec shape) gets
+  crashes or silently wrong values with no type error.
+- **Suggested fix:** type the tuple shape correctly (no default-to-i64
+  escape hatch), and zero-extend `UInt8 -> Int` casts for fixed-size array
+  element reads.
 
 ## Bump procedure used by this lane
 

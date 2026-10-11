@@ -250,6 +250,17 @@ Scoreboard changelog:
   workaround: distinct helper name). No score change (B5/B6 stay gated on
   the stdlib fsync row; the API is pinned so the swap is behavior-only):
   71.5.
+- 2026-10-11 (M5.1 codec): typed values v2 landed at the codec layer --
+  `TValue` (null/int/float/text/blob) + tuple codec version 2 (tagged
+  fields, u32 lengths, strict whole-buffer decode, bit-exact f64 incl. NaN,
+  byte-exact UTF-8 text) in `src/storage/tuple.xi`; 4 suite tests (byte KAT,
+  roundtrip/all kinds, reject matrix incl. cross-version isolation, budget)
+  + fuzz section (h); FORMATS 5A (model + migration notes); suite
+  **140/140** + fuzz OK on v0.64.3. Two v0.64.3 codegen traps found en
+  route (fixed in our code, noted in-line: a tuple containing an enum --
+  `Result[(TValue, Int)]` -- miscompiles as `Tuple__TValue__Int`; fixed
+  byte-cast sign-extension needs `& 0xFF`). No score change (E4 stays
+  unshipped until engine rows store/query typed values): 71.5.
 
 ## A. Correctness & data structures (20)
 
@@ -298,7 +309,7 @@ Scoreboard changelog:
 | E1 | Query engine: AND filter, offset, limit, deterministic order | 3 | OK | suite query/db_query/db_file tests; **value semantics pinned** in docs/query-pipeline.md; `db_file_range`/`db_file_query` on recovered trees; `qverify` in every `db_crash_test` scenario x2 Win + WSL; ORDER BY (key/value asc/desc, stable ties) executed before offset/limit (M4.2) |
 | E2 | Index-aware planner (key-range pushdown, point lookup, cost) | 3 | OK | additive semantics decision recorded (`query_key_range`; key range -> value conditions -> offset -> limit, docs/query-pipeline.md); `plan_query` chooses PointLookup/IndexRange/FullScan with clamped range-width estimate; `execute_plan` scans `btree_range_query` then filters; `db_file_query` planned; suite plan-kind test + 200-case seeded property vs brute force x2 Win + WSL |
 | E3 | Secondary indexes driven by catalog `IndexDef` | 2 | WIP 1 | handle-scoped value index (`src/secondary_index.xi`: (value, pk) sorted entries, binary-search probes) maintained by put/update/delete/txn-commit; `db_file_create_index_from_def` accepts a catalog `IndexDef` (value column 0, non-unique); planner `IndexValue` plan + executor; suite (build/maintenance/plan/order) + fuzz section (g) vs brute-force model x2 Win + WSL. **Durable page-backed index storage pending A5** |
-| E4 | Typed values + column constraints (beyond Int) | 2 | -- | codec v1 carries type byte 0x01; more types later |
+| E4 | Typed values + column constraints (beyond Int) | 2 | -- | M5.1 codec landed 2026-10-11: `TValue` model (null/int/float/text/blob) + tuple v2 (tagged, strict, bit-exact floats, UTF-8 text) with suite KAT/roundtrip/reject/budget + fuzz (h) over all kinds; engine integration + column constraints pending (no score yet -- not stored or queryable) |
 
 ## F. Operations & tooling (10)
 

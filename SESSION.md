@@ -109,6 +109,26 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   tests need an isolated XIOM_HOME + a `to: all` announcement. Next per task
   order: M5.1 typed values v2 (codec landed this session, evidence in
   progress).
+**Updated:** 2026-10-11 (M5.1 codec, same session): typed values v2 at the
+  codec layer -- `TValue` (null/int/float/text/blob) + tuple codec version 2
+  in `src/storage/tuple.xi` (tagged fields, u32 lengths, strict
+  whole-buffer decode, bit-exact f64 incl. NaN, byte-exact UTF-8 text); 4
+  new suite tests (byte KAT; roundtrip all kinds; reject matrix incl.
+  cross-version isolation; budget) -- suite **140/140**; fuzz section (h)
+  over all kinds (encode/decode/per-kind model + visible-mutation rule);
+  FORMATS 5A (typed value model + migration notes); API.md rows; plan item
+  5 + M5 checklist updated (engine integration = the next slice). v1 stays
+  frozen in both directions (version byte discriminates). Found while
+  building it: v0.64.3 miscompiles a tuple CONTAINING AN ENUM
+  (`Result[(TValue, Int)]` -- the `Tuple__TValue__Int` codegen warning;
+  match arms silently skipped) and `[8]UInt8` element `as Int` casts
+  sign-extend (0xF8 -> -8); worked around in our code (`DbResult[TValue]`
+  + `tuple2_value_len` advance; `& 0xFF` mask) + filed as C-ORBIT-08 with a
+  repro bundle (bus `REL-20261011-1219-orbitdb`;
+  `docs/repro/enum-tuple-codegen/`). Evidence: suite **140/140 x2 Win +
+  WSL**, fuzz (h) OK x2 both. Next: schema-driven storage (engine rows
+  store/query typed values; the v1/v2 flip is a per-container decision like
+  `page_format` 2).
 **Updated:** 2026-10-11 (reference study, owner grant): cloned + studied
   bbolt (MIT), redb (MIT/Apache-2.0) and SQLite (public domain) under
   `E:\repos`; `docs/REFERENCE-STUDY.md` maps their load-bearing mechanisms
@@ -404,6 +424,15 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     `src/storage/fault.xi` env-armed Nth-op injector (kill/partial/skip/
     syncfail, one fire per arming) wired into the `byte_io` gates. Evidence:
     2 suite tests + `probe_fault_sync.xi` (49 checks) x2 Win + WSL.
+  - Typed values v2 (new, M5.1 codec): `TValue` (null/int/float/text/blob) +
+    tuple codec version 2 in `src/storage/tuple.xi` (tagged fields, u32
+    lengths, strict whole-buffer decode, bit-exact f64 incl. NaN, byte-exact
+    UTF-8 text); v1 frozen (the version byte discriminates both ways);
+    evidence: 4 suite tests + fuzz section (h) x2 Win + WSL; FORMATS 5A
+    (typed value model + migration notes). Engine integration
+    (schema-driven storage) is the next slice; two v0.64.3 codegen traps
+    worked around in-tree (C-ORBIT-08: enum-in-tuple miscompile; fixed-array
+    UInt8 cast sign-extension).
   - Index-of-record: `docs/PRODUCTION-READINESS.md` **71.5/100 (~71%)**,
     per-area table + changelog + 100% checklist (v0.3-beta gate needs fsync +
     torn-page matrix + benchmarks at scale).
@@ -520,7 +549,9 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   (standalone-check quirk; C-ORBIT-06 itself is packages' cross-file
   `REL-20261010-1549-packages-4`) + **`REL-20261011-1124-orbitdb`
   (C-ORBIT-07, consumer fn hijacks a module-private same-named call; filed
-  2026-10-11)**; stdlib `-3` fsync, `-4` append handle,
+  2026-10-11)** + **`REL-20261011-1219-orbitdb` (C-ORBIT-08, enum-in-tuple
+  miscompile + fixed-array UInt8 cast sign-extension; filed 2026-10-11)**;
+  stdlib `-3` fsync, `-4` append handle,
   `-5` truncate, `-6` byte-IO random access, `-7` append+repair, `-8` tail
   check; packages `-9` btree re-extract, `-10` variant qualification;
   xvector `-11` (XV-ORBITDB-01).
@@ -686,7 +717,7 @@ CURRENT STATE: v0.64.3 pin (Windows shadow `xiom.new.0643` via dev-env;
 WSL canonical `~/.local/bin/xiom`; the Windows canonical `xiom.new` stays
 v0.64.2 for the fleet -- swap is owner/ops-coordinated); all C-ORBIT compiler
 workarounds REVERTED and the suite is green on the native forms --
-conformance 136/136 x2 Win + WSL (see
+conformance 140/140 x2 Win + WSL (see
 the findings file for the one consumer-qualification caveat); db_crash five
 scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn discarded,
 committed txn recovered) x2 Win + WSL, each recovery followed by qverify
@@ -702,6 +733,10 @@ queued for v0.64.4; standalone `--check` quirk = bus row -2 (acked, still
 open); C-ORBIT-07 filed 2026-10-11 (a consumer fn silently hijacks a
 module-private same-named call; bundle `docs/repro/consumer-fn-hijack/`,
 bus `REL-20261011-1124-orbitdb`; workaround: distinct helper names);
+C-ORBIT-08 filed 2026-10-11 (enum-in-tuple miscompiles -- crash or skipped
+match arms; fixed-size `[N]UInt8` element `as Int` sign-extends;
+workarounds in `tuple.xi`; bundle `docs/repro/enum-tuple-codegen/`, bus
+`REL-20261011-1219-orbitdb`);
 XV-ORBITDB-01 FIXED (xvector `3c36f34`), verified against their
 source and CLOSED -- the `persist_recovered` workaround is REMOVED; fuzz/property harness
 `scripts/fuzz.{ps1,sh}` (seeds=4 ops/seed=4000) x2 Win + WSL; policy soak
@@ -735,7 +770,11 @@ secondary value index + ORDER/LIMIT (M4.2: `src/secondary_index.xi` +
 empty-chain fix (predecessor/successor, fill_child, min/max; suite
 regression + fuzz orders 3/4/5); durability API + fault injector (M2.1
 first half DONE -- evidence: 2 suite tests + `tests/probes/probe_fault_sync.xi`,
-49 checks, x2 Win + WSL; see the top Updated entry)). Known limits: no fsync
+49 checks, x2 Win + WSL; see the top Updated entry); typed values v2 --
+M5.1 CODEC DONE (M5.1: `TValue` null/int/float/text/blob + tuple codec
+version 2 `tuple2_*` in `src/storage/tuple.xi`; 4 suite tests + fuzz (h);
+FORMATS 5A; evidence x2 Win + WSL; engine integration = next slice)). Known
+limits: no fsync
 (process-crash safe only; the durability API
 + env fault injector are pinned so the swap is behavior-only); replay is linear now but file IO is O(n) per read
 (no random access); checkpoint encodes only dirty nodes (M1.1) but the tree
@@ -745,7 +784,11 @@ docs/ISOLATION.md); buffer pool in-memory only (pager seam C3 pending);
 fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-1. M5.1 typed values v2 (type-tagged tuples; text at least).
+1. M5.1 typed values v2 -- **codec DONE 2026-10-11** (`TValue` + `tuple2_*`
+   in src/storage/tuple.xi; suite 140 x2 both + fuzz (h) x2 both; FORMATS
+   5A; C-ORBIT-08 workarounds in-tree). Next: **schema-driven storage** --
+   engine rows store/read typed values (WAL/snapshot container decision
+   like `page_format` 2), then query/index support for typed columns.
 2. M1.2 S4 when the stdlib rows land (byte-IO/fsync swap -- bus -3..-8
    acked; v2 default flip + fresh bench + FORMATS 3v2 tables; M2.1 second
    half rides here), then M1.1b (pager: deterministic deferred-free
@@ -768,6 +811,11 @@ DISCIPLINE (v0.64.3; C-ORBIT workarounds DROPPED -- see COMPILER-FINDINGS):
   same-named helper silently binds to the consumer's function (missing args
   arrive as empty values; no diagnostic; symptom is often a bogus contract
   panic inside a stdlib module).
+- Never put an enum in a tuple (C-ORBIT-08A: `Result[(Enum, Int)]`
+  miscompiles -- crash or silently skipped match arms; return the enum alone
+  and pass positions separately). Mask fixed-size array byte reads
+  (C-ORBIT-08B: `[N]UInt8` element `as Int` sign-extends; use
+  `(b[i] as Int) & 0xFF`; `Vec[UInt8]` casts are correct).
 - Prefer parallel vectors over Vec[Option] element writes for hot caches
   (design choice; m226 fixed the language bug).
 - Deep equality works (m239): Vec/Str == compare by content; hand-written
