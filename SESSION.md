@@ -891,7 +891,8 @@ secondary value index + ORDER/LIMIT (M4.2: `src/secondary_index.xi` +
 empty-chain fix (predecessor/successor, fill_child, min/max; suite
 regression + fuzz orders 3/4/5); durability API + fault injector (M2.1
 first half DONE -- evidence: 2 suite tests + `tests/probes/probe_fault_sync.xi`,
-49 checks, x2 Win + WSL; see the top Updated entry); typed values v2 --
+56 checks (M2.1 49 + M5.3 scenario E 7), x2 Win + WSL; see the top Updated
+entry); typed values v2 --
 M5.1 codec + M5.2 schema layer + **M5.3 ENGINE PERSISTENCE DONE 2026-10-11**
 (`TValue`/`tuple2_*`; `schema_row`; `BTreeNode.payloads` through tree moves;
 WAL tagged subtype-1 records; node pages v2 with auto-detect; 
