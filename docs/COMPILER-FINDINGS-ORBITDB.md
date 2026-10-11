@@ -27,6 +27,14 @@ WAL/db/block crash + fuzz + 2000-key soak green both platforms. C-ORBIT-06
 with-twin still red on v0.64.3 (correction `REL-20261010-1802-orbitdb`);
 row `-2` (standalone-check quirk) still open. No new findings.
 
+**Status 2026-10-11: C-ORBIT-07 filed (OPEN on v0.64.3)** -- a consumer-defined
+function silently hijacks an unqualified call to a module-PRIVATE same-named
+helper inside an imported module (the ORBITDB M2.1 fault probe's `arm` ran
+from inside `fault.xi` instead of `fault.xi`'s own private zero-arg `arm`,
+with empty-string args; surfaced as a contract panic at `os/env.xi:29:13`).
+Bundle `docs/repro/consumer-fn-hijack/`; bus `REL-20261011-1124-orbitdb`;
+workaround applied (distinct helper name `probe_arm`).
+
 **Relay:** hand this file to the compiler-lane session together with the
 matching `docs/repro/<bundle>/` directories from the ORBITDB repo
 (`E:\xiom-projects\xiom-orbitdb`). ORBITDB is a consumer lane; it does not
@@ -345,6 +353,41 @@ applied then; every one is resolved on v0.64.2 (see the re-test above).
   signatures/field access); prefer the scrutinee's enum for bare pattern
   variants over the same-module enum when both exist, with an ambiguity
   diagnostic.
+
+## C-ORBIT-07 -- consumer fn silently hijacks a module-private same-named call (OPEN, filed 2026-10-11)
+
+- **Bundle:** `docs/repro/consumer-fn-hijack/` (`mod_svc.xi`, `probe_hijack.xi`,
+  `probe_clean.xi`, README with exact outputs).
+- **Symptom (silent, runtime):** `mod_svc.xi` has a module-private zero-arg
+  `arm()` that its `pub fn ping()` calls unqualified; the consumer module
+  defines its own `arm(a: Str, b: Str, c: Str)` and calls `ping()`. Observed
+  on v0.64.3 (Win + WSL identical): the CONSUMER's `arm` runs with
+  empty-string args -- `probe: consumer arm(a=[] b=[] c=[])` instead of
+  `svc: private arm() ran`. No error, no warning; `--check` passes both
+  files. The zero-arg call reaches the 3-arg function with missing arguments
+  materialized as empty values.
+- **App-context evidence:** the ORBITDB M2.1 fault probe defined a helper
+  `arm(Str,Str,Str)`; `fault.xi`'s own `arm()` calls inside `fault_armed()` /
+  `fault_gate()` were redirected to it, feeding empty values into
+  `env.set_var` and tripping a runtime contract panic
+  (`contract violated: ensures at 29:13` = `os/env.xi:29:13`, cstr's
+  `result != null` on an empty value) -- with no file name in the message and
+  no compile-time diagnostic. Bisected via `--emit-ir` (the check is in the
+  inlined `cstr` body of `env.var_opt`) and a scratch control that passed;
+  renaming the probe helper to `probe_arm` made suite + probe green.
+- **Impact:** any composed program can silently redirect a module's private
+  helper calls when another module defines the same function name; the
+  service module cannot defend itself (no way to module-qualify an
+  intra-module call). Same family as the m225 consumer-scope caveat
+  (C-ORBIT-04 residual note), extended from enum variants/types to functions.
+- **Workaround (applied):** keep consumer/probe helper names distinct from
+  functions inside imported modules (`probe_arm`); suite 136/136 x2 +
+  probe GREEN x2 Win + WSL afterwards.
+- **Suggested fix:** resolve unqualified calls to the declaring module's own
+  function (mirror the m225 fix direction) and emit an ambiguity diagnostic
+  when a same-named function exists in another module of the program.
+  Secondary: include the source file in contract-violation messages
+  (currently `line:col` only).
 
 ## Bump procedure used by this lane
 

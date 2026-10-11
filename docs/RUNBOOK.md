@@ -60,6 +60,8 @@ killed); harnesses print `GREEN`/`RED` and exit 0/1.
 | `tests/hybrid/repro_chain.xi` | paths are repo-relative | XV-ORBITDB-01 repro: chained persist -> load -> recover -> persist -> load (load2 loses the log; see `docs/XVECTOR-INTEGRATION.md` section 7). |
 | `tests/pkg/probe_pkg_wal.xi` | `ORBITDB_PKG_WAL` (segment path, default `probe-logs/pkg-wal.log`) | First registry consumer pass: `xiom.wal` 0.1.0 conformance + two-way format interop with `src/wal_file.xi` (project `tests/pkg/xiom.toml`; needs the installed package). Syntax: `scripts/run.ps1 tests\pkg\probe_pkg_wal.xi -TimeoutSec 180`. |
 | `tests/probes/probe_block_store.xi` | `ORBITDB_BLOCK_MODE=full/writer/verify`; `ORBITDB_BLOCK_DB`, `ORBITDB_BLOCK_N`, `ORBITDB_BLOCK_BATCH`, `ORBITDB_BLOCK_KILL_AT` | M1.2 S2 block store: `full` = 26-check functional battery; `writer`/`verify` drive `scripts/block_crash_test.*` (kill states pages2/full2/midheader/compacted). |
+| `tests/probes/probe_fault_sync.xi` | `ORBITDB_FAULT_DB`, `ORBITDB_FAULT_CKPT_DB`, `ORBITDB_FAULT_BLOCK` (paths only) | M2.1 durability/fault battery (49 checks): put/delete syncfail latch + reopen recovery, checkpoint 2PC pre-sync failure (snapshot file size unchanged, WAL untruncated, tail replayed), block-store partial writes (torn page append/update, torn header slot fallback). |
+| | `ORBITDB_FAULT_AT` / `ORBITDB_FAULT_MODE` (`kill`/`partial`/`skip`/`syncfail`) / `ORBITDB_FAULT_TAIL` | **Test-only** fault layer (`src/storage/fault.xi`, wired into the `byte_io` gates): fires on the Nth write-ish op (or sync for `syncfail`), one fire per arming; `fault_reset()` + removing the env re-arms. Never set in production. |
 
 Standard soak (policy checkpoints every 250 records):
 
@@ -138,6 +140,13 @@ scripts\run.ps1 tests\probes\probe_db_file.xi -TimeoutSec 180
   optimized away.
 - Harness flake: a single page-crash `observed=2`-style start miss under load
   is environmental; re-run with `-TimeoutSec 120` and confirm with a clean x2.
+- Keep consumer helper names distinct from functions inside imported modules:
+  an unqualified call to a module's PRIVATE same-named helper binds to the
+  consumer's function silently (C-ORBIT-07 -- the M2.1 probe's `arm` had to
+  become `probe_arm`; bundle `docs/repro/consumer-fn-hijack/`, bus
+  `REL-20261011-1124-orbitdb`). Symptom shape: bogus contract panic in a
+  stdlib module reached through the hijacked call, no file name in the
+  message.
 - WSL memory/contention: other lanes (PULSE/XVECTOR) share the WSL VM. Before
   chained WSL harness runs check `ps aux --sort=-rss | head` and `free -m`,
   run at most ONE heavy harness per command, and pause/retry if the VM is

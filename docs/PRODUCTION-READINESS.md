@@ -23,7 +23,7 @@
    can take partial points only where the row defines a fraction.
 5. **Recompute on every wrap.** Add a dated line to the scoreboard changelog.
 
-## Current scoreboard -- 2026-10-10 (v0.64.2 pin, workarounds dropped)
+## Current scoreboard -- 2026-10-11 (v0.64.3 pin)
 
 | Area | Weight | Earned | Status summary |
 |---|---|---|---|
@@ -237,6 +237,19 @@ Scoreboard changelog:
   ordered next-action list (M2.1 durability API + `byte_io` fault injector
   first). No score change (practice/evidence, not shipped capability):
   71.5.
+- 2026-10-11 (M2.1 first half -- evidence): the durability API + fault
+  injector completed and pinned by evidence -- 2 suite tests (durability
+  defaults/setters + reopen reset; syncfail latch with reopen recovery) and
+  `tests/probes/probe_fault_sync.xi` (49 checks: put/delete latch,
+  checkpoint-2PC pre-sync failure with the snapshot file untouched + the WAL
+  untruncated, block-store torn page append/update + torn header-slot
+  fallback through the env fault layer). Suite **136/136 x2 Win + WSL**,
+  probe GREEN x2 both, fuzz OK x2 both. Found and filed **C-ORBIT-07**
+  (consumer fn silently hijacks a module-private same-named call; bundle
+  `docs/repro/consumer-fn-hijack/`, bus `REL-20261011-1124-orbitdb`;
+  workaround: distinct helper name). No score change (B5/B6 stay gated on
+  the stdlib fsync row; the API is pinned so the swap is behavior-only):
+  71.5.
 
 ## A. Correctness & data structures (20)
 
@@ -257,8 +270,8 @@ Scoreboard changelog:
 | B2 | WAL checkpoint/truncate seam | 2 | OK | `db_file_checkpoint`: **incremental** generation-committed snapshot (changed nodes only, header-last commit, uncommitted-generation ignored on load, compaction at node_count+64) + Checkpoint anchor + `wal_file_truncate` keep >= anchor; `db_file_maybe_checkpoint(limit)` policy; suite crash-state tests (no-op delta, uncommitted generation, torn-tail heal, compaction); `db_crash_test.{ps1,sh}` scenarios B/C x2 Win + WSL; 2000-key policy soak (9 checkpoints) x2 Win + WSL |
 | B3 | CRC32C page integrity (KAT-locked) | 2 | OK | `probe_crc32c` x2 + suite KAT |
 | B4 | Engine wired to the disk WAL (WAL-before-ack on real files) | 4 | OK | `DBFile` facade: `db_file_put/delete` append then apply; `db_file_open` replays; `db_crash_test.{ps1,sh}` GREEN x2 Win + WSL + 200-key soak; suite roundtrip |
-| B5 | fsync/durable flush on commit (`wal_file_flush` is honest no-op) | 4 | 0 | blocked: stdlib fsync row (STDLIB-WISHLIST-ORBITDB.md #1) |
-| B6 | Torn-page detection on read + crash matrix (page-level) | 4 | 2 | checksum reject + `page_crash_test.{ps1,sh}` GREEN x2 Win + WSL; power-loss leg still blocked on fsync |
+| B5 | fsync/durable flush on commit (`wal_file_flush` is honest no-op) | 4 | 0 | blocked: stdlib fsync row (STDLIB-WISHLIST-ORBITDB.md #1). The durability API (normal/immediate modes, 2PC checkpoint ordering, failed latch) is pinned and probe-tested so the swap is behavior-only (`probe_fault_sync`, M2.1 first half) |
+| B6 | Torn-page detection on read + crash matrix (page-level) | 4 | 2 | checksum reject + `page_crash_test.{ps1,sh}` GREEN x2 Win + WSL; v2 block-store torn-tail + partial-write recovery via the env fault layer (`probe_fault_sync` section D; torn append/update invisible on reopen, torn header slot falls back); power-loss leg still blocked on fsync |
 | | *Partial:* B1+B2+B3 = 8/20, B6 = 2/4 | | | |
 
 ## C. Storage engine (pages/pager) (15)

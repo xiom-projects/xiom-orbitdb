@@ -49,7 +49,6 @@ layout: `<path>` = WAL segment, `<path>.snap` = snapshot page log.
 | `db_file_query(db, query)` | `Vec[Int]` | Value-filter query; same semantics as `db_query` / `query_execute` (conditions filter VALUES). |
 | `db_file_size(db)` | `Int` | Number of keys. |
 | `db_file_last_lsn(db)` | `Int` | Highest WAL LSN assigned (0 = empty). |
-| `db_file_flush(db)` | `Bool` | Durability seam (no-op until fsync lands); kept for API symmetry. |
 | `db_file_checkpoint(db)` | `Int` | Commit a checkpoint; returns the anchor LSN, or `-1` (snapshot failure, or a transaction is active). |
 | `db_file_set_durability(db, mode)` / `db_file_durability(db)` | `Bool` / `Int` | 0 = normal (ack without a flush; sync at checkpoint only), 1 = immediate (flush at every commit ack; default). With the stdlib fsync stub both are no-ops today; the API is pinned for the swap. |
 | `db_file_set_two_phase(db, on)` / `db_file_two_phase(db)` | `Bool` | Immediate-only: flush the WAL before a checkpoint publishes its snapshot header (redb-style 2PC). |

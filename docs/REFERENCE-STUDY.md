@@ -132,11 +132,23 @@ public domain -- all copy-safe for our MIT/Apache dual license.**
 
 ## 3. Ordered next actions (feed the task order)
 
-1. **M2.1 first half (no stdlib dependency): the durability API + fault
-   injector.** Add `durability`/`two_phase` to `DatabaseConfig`, the
-   `db_file_flush` mode plumbing, and the `byte_io` fault layer with a crash
-   runner that kills at the Nth write/sync and validates invariants -- this
-   is testable today with the sync stub and de-risks the moment fsync lands.
+1. ~~**M2.1 first half (no stdlib dependency): the durability API + fault
+   injector.**~~ **DONE 2026-10-11** (code commit `70f709a`; evidence: 2 suite
+   tests + `tests/probes/probe_fault_sync.xi` -- 49 checks; suite 136/136 x2 +
+   probe x2 + fuzz x2 on Win + WSL). Shape as landed: `durability`/`two_phase`
+   are DBFile handle fields (setters `db_file_set_durability` /
+   `db_file_set_two_phase`; reopen resets to defaults) rather than
+   `DatabaseConfig` -- the handle is the only consumer today; the `byte_io`
+   gates carry `kill|partial|skip|syncfail` (env-armed, one fire per arming,
+   `fault_reset` re-arms); the probe runs the crash shapes in-process
+   (put/delete syncfail latch + reopen replay, checkpoint-2PC pre-sync window
+   with the snapshot file untouched, block-store torn page/header recovery).
+   A kill-based harness can build on `mode=kill` (`io.exit(99)`) later. The
+   second half (real `fsync` + WAL v2 commit records) rides S4. **Caveat
+   found en route: C-ORBIT-07** -- a consumer function silently hijacks a
+   module-private same-named call (cost the probe an `arm` naming collision;
+   bundle `docs/repro/consumer-fn-hijack/`, bus
+   `REL-20261011-1124-orbitdb`).
 2. **WAL v2 commit records (checksum chain + row count + epoch) in S4**,
    flag-gated like the v2 snapshot (reader keeps v1).
 3. **Checkpoint policy**: byte threshold + attempted/backfilled accounting
