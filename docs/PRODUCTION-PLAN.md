@@ -240,9 +240,14 @@ suite.
    `src/storage/tuple.xi`; 4 suite tests (KAT, roundtrip incl. UTF-8 + NaN
    bit-exactness, reject matrix incl. cross-version isolation, budget) +
    fuzz section (h) over all kinds; FORMATS section 5A documents the model
-   + migration notes. Next: schema-driven storage integration (engine
-   writes/reads typed rows; the v1/v2 flip is a container decision like
-   `page_format` 2).
+   + migration notes. **M5.2 schema layer DONE 2026-10-11:** `schema_row`
+   (ColumnType<->TValue mapping, validation, key/encode/decode, id/pk
+   consistency, error codes) in `src/catalog/schema_row.xi`; 4 suite tests +
+   fuzz section (i); the container decision for persistence is recorded in
+   `docs/TYPED-VALUES-STORAGE.md` (chosen: entry payloads in the nodes; WAL
+   rides the existing tagged records; snapshot node pages v3). Next: M5.3
+   engine integration (payloads through DBFile: put/get_typed, replay,
+   checkpoint v3, crash + fuzz), then typed-column query/index.
 6. **M2.1 -- fsync wiring + fault injection** when the stdlib row lands.
 7. M6.1 -- cursor API + error taxonomy; bindings spike.
 8. **M6.0 -- consumer handshakes** (done at doc level): PULSE

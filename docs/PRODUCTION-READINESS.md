@@ -261,6 +261,16 @@ Scoreboard changelog:
   `Result[(TValue, Int)]` -- miscompiles as `Tuple__TValue__Int`; fixed
   byte-cast sign-extension needs `& 0xFF`). No score change (E4 stays
   unshipped until engine rows store/query typed values): 71.5.
+- 2026-10-11 (M5.2 schema layer + container decision): `schema_row`
+  (ColumnType<->TValue mapping incl. the bool 0/1 domain, nullability,
+  arity, pk-is-VInt, id/pk consistency, consumer-safe error codes) in
+  `src/catalog/schema_row.xi`; 4 suite tests (**144/144**) + fuzz section
+  (i) (random schemas/rows vs model + every single-column violation must be
+  rejected); `column_type_code` keeps enum matching out of consumers (m225/
+  C-ORBIT-07 hygiene); the engine persistence contract is recorded in
+  **`docs/TYPED-VALUES-STORAGE.md`** (entry payloads in the nodes; WAL rides
+  the existing tagged records with subtype 1; snapshot node pages v3).
+  No score change (E4 still unshipped until rows persist/query): 71.5.
 
 ## A. Correctness & data structures (20)
 
@@ -309,7 +319,7 @@ Scoreboard changelog:
 | E1 | Query engine: AND filter, offset, limit, deterministic order | 3 | OK | suite query/db_query/db_file tests; **value semantics pinned** in docs/query-pipeline.md; `db_file_range`/`db_file_query` on recovered trees; `qverify` in every `db_crash_test` scenario x2 Win + WSL; ORDER BY (key/value asc/desc, stable ties) executed before offset/limit (M4.2) |
 | E2 | Index-aware planner (key-range pushdown, point lookup, cost) | 3 | OK | additive semantics decision recorded (`query_key_range`; key range -> value conditions -> offset -> limit, docs/query-pipeline.md); `plan_query` chooses PointLookup/IndexRange/FullScan with clamped range-width estimate; `execute_plan` scans `btree_range_query` then filters; `db_file_query` planned; suite plan-kind test + 200-case seeded property vs brute force x2 Win + WSL |
 | E3 | Secondary indexes driven by catalog `IndexDef` | 2 | WIP 1 | handle-scoped value index (`src/secondary_index.xi`: (value, pk) sorted entries, binary-search probes) maintained by put/update/delete/txn-commit; `db_file_create_index_from_def` accepts a catalog `IndexDef` (value column 0, non-unique); planner `IndexValue` plan + executor; suite (build/maintenance/plan/order) + fuzz section (g) vs brute-force model x2 Win + WSL. **Durable page-backed index storage pending A5** |
-| E4 | Typed values + column constraints (beyond Int) | 2 | -- | M5.1 codec landed 2026-10-11: `TValue` model (null/int/float/text/blob) + tuple v2 (tagged, strict, bit-exact floats, UTF-8 text) with suite KAT/roundtrip/reject/budget + fuzz (h) over all kinds; engine integration + column constraints pending (no score yet -- not stored or queryable) |
+| E4 | Typed values + column constraints (beyond Int) | 2 | -- | M5.1 codec + M5.2 schema layer landed 2026-10-11: `TValue` model + tuple v2 (KAT/roundtrip/reject/budget + fuzz (h)) and `schema_row` (column-type mapping, nullability, pk rules, id/pk consistency; suite 144 + fuzz (i)); container decision in `docs/TYPED-VALUES-STORAGE.md`; engine persistence + typed query/index pending (no score yet -- not stored or queryable) |
 
 ## F. Operations & tooling (10)
 

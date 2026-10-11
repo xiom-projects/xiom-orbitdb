@@ -136,6 +136,22 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   WSL**, fuzz (h) OK x2 both. Next: schema-driven storage (engine rows
   store/query typed values; the v1/v2 flip is a per-container decision like
   `page_format` 2).
+**Updated:** 2026-10-11 (M5.2 schema layer, same session): schema-driven
+  rows -- `schema_row` in `src/catalog/schema_row.xi`: ColumnType<->TValue
+  mapping (Int / Float / Bool=0|1 / String / Bytes), nullability + arity +
+  pk-is-VInt validation, `schema_row_key/encode/decode` with id/pk
+  consistency (Corruption) and schema-drift taxonomy, consumer-safe error
+  codes; `column_type_code` added to `schema` so consumers never
+  pattern-match an imported enum (m225/C-ORBIT-07 hygiene). 4 suite tests
+  (**144/144**) + fuzz section (i) (random schemas/rows vs model + every
+  single-column violation must be rejected). The engine **persistence
+  container decision** is written down: `docs/TYPED-VALUES-STORAGE.md`
+  (chosen: entry payloads in the nodes; WAL rides the EXISTING
+  tagged-payload records with subtype 1; snapshot node pages v3 with
+  auto-detect; int users stay byte-identical). Next: M5.3 engine
+  integration (`db_file_put_typed`/`get_typed`, replay, checkpoint v3,
+  crash + fuzz per the doc's evidence ladder), then typed-column
+  query/index.
 **Updated:** 2026-10-11 (reference study, owner grant): cloned + studied
   bbolt (MIT), redb (MIT/Apache-2.0) and SQLite (public domain) under
   `E:\repos`; `docs/REFERENCE-STUDY.md` maps their load-bearing mechanisms
@@ -440,6 +456,12 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     (schema-driven storage) is the next slice; two v0.64.3 codegen traps
     worked around in-tree (C-ORBIT-08: enum-in-tuple miscompile; fixed-array
     UInt8 cast sign-extension).
+  - Schema-driven rows (new, M5.2): `src/catalog/schema_row.xi` -- kind
+    mapping (Int/Float/Bool 0|1/String/Bytes), validation (arity,
+    nullability, pk-is-VInt), key/encode/decode + id/pk consistency, error
+    codes; evidence: 4 suite tests (144 total) + fuzz section (i); the
+    engine persistence contract (entry payloads, WAL subtype-1 tagged
+    records, snapshot node pages v3) is `docs/TYPED-VALUES-STORAGE.md`.
   - Index-of-record: `docs/PRODUCTION-READINESS.md` **71.5/100 (~71%)**,
     per-area table + changelog + 100% checklist (v0.3-beta gate needs fsync +
     torn-page matrix + benchmarks at scale).
@@ -780,7 +802,10 @@ first half DONE -- evidence: 2 suite tests + `tests/probes/probe_fault_sync.xi`,
 49 checks, x2 Win + WSL; see the top Updated entry); typed values v2 --
 M5.1 CODEC DONE (M5.1: `TValue` null/int/float/text/blob + tuple codec
 version 2 `tuple2_*` in `src/storage/tuple.xi`; 4 suite tests + fuzz (h);
-FORMATS 5A; evidence x2 Win + WSL; engine integration = next slice)). Known
+FORMATS 5A; evidence x2 Win + WSL); schema-driven rows -- M5.2 LAYER DONE
+(`schema_row`: kind mapping, nullability, pk rules, id/pk consistency, error
+codes; suite 144 + fuzz (i); container contract
+`docs/TYPED-VALUES-STORAGE.md`); M5.3 engine integration = next slice)). Known
 limits: no fsync
 (process-crash safe only; the durability API
 + env fault injector are pinned so the swap is behavior-only); replay is linear now but file IO is O(n) per read
@@ -791,11 +816,13 @@ docs/ISOLATION.md); buffer pool in-memory only (pager seam C3 pending);
 fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-1. M5.1 typed values v2 -- **codec DONE 2026-10-11** (`TValue` + `tuple2_*`
-   in src/storage/tuple.xi; suite 140 x2 both + fuzz (h) x2 both; FORMATS
-   5A; C-ORBIT-08 workarounds in-tree). Next: **schema-driven storage** --
-   engine rows store/read typed values (WAL/snapshot container decision
-   like `page_format` 2), then query/index support for typed columns.
+1. M5.1 codec + M5.2 schema layer **DONE 2026-10-11** (`TValue` +
+   `tuple2_*`; `schema_row`; suite 144 x2 both + fuzz (h)/(i); FORMATS 5A;
+   `docs/TYPED-VALUES-STORAGE.md` = the container contract). Next: **M5.3
+   engine integration** -- `db_file_put_typed`/`db_file_get_typed`
+   (opaque payloads), WAL tagged records subtype 1, snapshot node pages v3
+   with auto-detect, replay + crash (fault injector) + fuzz per the doc's
+   evidence ladder, then typed-column query/index (S4).
 2. M1.2 S4 when the stdlib rows land (byte-IO/fsync swap -- bus -3..-8
    acked; v2 default flip + fresh bench + FORMATS 3v2 tables; M2.1 second
    half rides here), then M1.1b (pager: deterministic deferred-free
