@@ -27,7 +27,7 @@ Shell scripts and `.xi` files must stay LF; `.ps1` files are CRLF
 
 | Purpose | Command | Notes |
 |---------|---------|-------|
-| Conformance suite | `scripts/run.ps1 tests\test_conformance.xi -TimeoutSec 300` | 144 tests; expect `144/144` and exit 0. |
+| Conformance suite | `scripts/run.ps1 tests\test_conformance.xi -TimeoutSec 300` | 149 tests; expect `149/149` and exit 0. |
 | WAL crash harness | `scripts\crash_test.ps1 -Events 20 -TimeoutSec 90` | writer -> hard kill -> torn tail -> reopen -> verify -> heal -> verify+1. |
 | Page crash harness | `scripts\page_crash_test.ps1 -Pages 20 -TimeoutSec 120` | Use 120s: the writer's first compile can exceed 90s under load. |
 | DB crash harness | `scripts\db_crash_test.ps1 -Keys 20 -Tail 3 -Tx 5 -TimeoutSec 90` | Five scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn, committed txn); 25 checks. Prefix `ORBITDB_DB_FORMAT=v2` (env) to run the whole matrix with v2 byte-block snapshots (same 25 checks; GREEN x2 both platforms). |
@@ -36,7 +36,7 @@ Shell scripts and `.xi` files must stay LF; `.ps1` files are CRLF
 | Fuzz/property | `scripts\fuzz.ps1 -TimeoutSec 600` | Deterministic; see section 4. |
 | Benchmarks | `scripts\bench.ps1 -N 10000` | Numbers summarized in the readiness doc G1 row (`docs/PRODUCTION-READINESS.md`). |
 | App build (icon) | `scripts\build.ps1 <source.xi> [-Out out\orbitdb-app.exe]` | Compiles one source into an app binary and embeds `assets/orbitdb.ico` via `--icon` (verified on v0.64.2; `llvm-rc`). `scripts/build.sh` is the Linux/WSL twin (PE icons are Windows-only). |
-| User shell (v0) | `scripts\build.ps1 apps\orbitdb_cli.xi -Out out\orbitdb.exe` then `out\orbitdb.exe [db-path]` | Interactive REPL over the int-keyed engine: `put/get/del/range/count/ckpt/bench/info/recover/kill/help/quit`. `kill` exits WITHOUT cleanup -- restart to watch WAL replay. WSL twin: `bash scripts/build.sh apps/orbitdb_cli.xi out/orbitdb-cli`. |
+| User shell (v0) | `scripts\build.ps1 apps\orbitdb_cli.xi -Out out\orbitdb.exe` then `out\orbitdb.exe [db-path]` | Interactive REPL: `put/get/del/range/count/ckpt/bench/info/recover/kill/help/quit` + typed rows `putrow <k> <spec>` / `getrow <k>` (spec: `int \| s:text \| f:float \| i:int \| n`). `kill` exits WITHOUT cleanup -- restart to watch WAL replay. WSL twin: `bash scripts/build.sh apps/orbitdb_cli.xi out/orbitdb-cli`. |
 | Soaks | probe `soak` mode, section 3 | 2000-key policy soak is the standard long path. |
 
 Twin `.sh` scripts accept the kebab-case flags (`--events`, `--pages`,
@@ -61,7 +61,7 @@ killed); harnesses print `GREEN`/`RED` and exit 0/1.
 | `tests/hybrid/repro_chain.xi` | paths are repo-relative | XV-ORBITDB-01 repro: chained persist -> load -> recover -> persist -> load (load2 loses the log; see `docs/XVECTOR-INTEGRATION.md` section 7). |
 | `tests/pkg/probe_pkg_wal.xi` | `ORBITDB_PKG_WAL` (segment path, default `probe-logs/pkg-wal.log`) | First registry consumer pass: `xiom.wal` 0.1.0 conformance + two-way format interop with `src/wal_file.xi` (project `tests/pkg/xiom.toml`; needs the installed package). Syntax: `scripts/run.ps1 tests\pkg\probe_pkg_wal.xi -TimeoutSec 180`. |
 | `tests/probes/probe_block_store.xi` | `ORBITDB_BLOCK_MODE=full/writer/verify`; `ORBITDB_BLOCK_DB`, `ORBITDB_BLOCK_N`, `ORBITDB_BLOCK_BATCH`, `ORBITDB_BLOCK_KILL_AT` | M1.2 S2 block store: `full` = 26-check functional battery; `writer`/`verify` drive `scripts/block_crash_test.*` (kill states pages2/full2/midheader/compacted). |
-| `tests/probes/probe_fault_sync.xi` | `ORBITDB_FAULT_DB`, `ORBITDB_FAULT_CKPT_DB`, `ORBITDB_FAULT_BLOCK` (paths only) | M2.1 durability/fault battery (49 checks): put/delete syncfail latch + reopen recovery, checkpoint 2PC pre-sync failure (snapshot file size unchanged, WAL untruncated, tail replayed), block-store partial writes (torn page append/update, torn header slot fallback). |
+| `tests/probes/probe_fault_sync.xi` | `ORBITDB_FAULT_DB`, `ORBITDB_FAULT_CKPT_DB`, `ORBITDB_FAULT_BLOCK` (paths only) | M2.1+M5.3 durability/fault battery (56 checks): put/delete/typed-put syncfail latch + reopen recovery, checkpoint 2PC pre-sync failure (snapshot file size unchanged, WAL untruncated, tail replayed), block-store partial writes (torn page append/update, torn header slot fallback). |
 | | `ORBITDB_FAULT_AT` / `ORBITDB_FAULT_MODE` (`kill`/`partial`/`skip`/`syncfail`) / `ORBITDB_FAULT_TAIL` | **Test-only** fault layer (`src/storage/fault.xi`, wired into the `byte_io` gates): fires on the Nth write-ish op (or sync for `syncfail`), one fire per arming; `fault_reset()` + removing the env re-arms. Never set in production. |
 
 Standard soak (policy checkpoints every 250 records):

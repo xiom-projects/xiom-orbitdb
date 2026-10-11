@@ -49,9 +49,11 @@
 
 - [x] Typed value model (int/float/text/blob) documented (FORMATS 5A, 2026-10-11)
 - [x] Tuple v2 codec + fuzz round-trip over all types (suite x4 + fuzz (h), 2026-10-11)
-- [ ] Schema-driven storage; migration notes in FORMATS.md (schema layer +
-      container decision DONE 2026-10-11 -- `schema_row` + suite/fuzz (i) +
-      `docs/TYPED-VALUES-STORAGE.md`; engine persistence M5.3 next)
+- [x] Schema-driven storage; migration notes in FORMATS.md (schema layer +
+      container decision + engine persistence DONE 2026-10-11: `schema_row`
+      + `db_file_put_typed`/`get_typed` + node pages v2 + WAL subtype-1
+      records + budget; suite/fuzz (j)/fault E; legacy artifacts load
+      unchanged. Typed-column query/index predicates remain (S4).)
 
 ## M6 -- API & bindings
 

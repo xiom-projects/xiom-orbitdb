@@ -165,6 +165,25 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   "proper user test": **NOW** for the int-keyed engine (this binary);
   typed rows after M5.3; embeddable + registry after M6 + the release
   gate.
+**Updated:** 2026-10-11 (M5.3 typed rows in the engine, same session):
+  the container contract is IMPLEMENTED. Tree: parallel
+  `BTreeNode.payloads` (every split/merge/borrow/delete mirror, incl. the
+  predecessor/successor substitution now carrying payloads via a
+  `NodeEntry` struct -- no enum-in-tuple, C-ORBIT-08). WAL: typed writes
+  use the existing tagged records (subtype 1 + row bytes; `value` mirrors
+  the key); replay applies payloads (incl. crafted txn windows via TxOp
+  payload buffering) and fails closed on unknown subtypes / non-byte
+  elements. Snapshot: node page version 2 payload section (u64 LE framing;
+  v1 pages decode with empty payloads). API: `db_file_put_typed`/
+  `db_file_get_typed`/`db_file_typed_payload_max` (bytes 0..255 enforced,
+  budget refused up front, non-transactional in S3). Evidence: suite
+  **149/149** (5 new tests), fuzz (j) (per-op verification across
+  checkpoints/reopens), fault scenario E (typed latch + payload recovery),
+  **legacy artifacts verified** (pre-change v1-node-page snapshots load
+  unchanged; 2994-row store + write + migration-on-write). CLI grew
+  `putrow`/`getrow` (typed rows in the shell). **E4 awarded 2/2 ->
+  readiness 73.5.** Remaining M5 work: typed-column query/index
+  predicates (S4).
 **Updated:** 2026-10-11 (reference study, owner grant): cloned + studied
   bbolt (MIT), redb (MIT/Apache-2.0) and SQLite (public domain) under
   `E:\repos`; `docs/REFERENCE-STUDY.md` maps their load-bearing mechanisms
@@ -472,15 +491,24 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   - Schema-driven rows (new, M5.2): `src/catalog/schema_row.xi` -- kind
     mapping (Int/Float/Bool 0|1/String/Bytes), validation (arity,
     nullability, pk-is-VInt), key/encode/decode + id/pk consistency, error
-    codes; evidence: 4 suite tests (144 total) + fuzz section (i); the
+    codes; evidence: 4 suite tests + fuzz section (i); the
     engine persistence contract (entry payloads, WAL subtype-1 tagged
-    records, snapshot node pages v3) is `docs/TYPED-VALUES-STORAGE.md`.
+    records, snapshot node pages v2) is `docs/TYPED-VALUES-STORAGE.md`
+    (S3 LANDED).
+  - Typed rows in the engine (new, M5.3): `BTreeNode.payloads` parallel
+    vector (all tree moves mirrored); WAL tagged records subtype 1; node
+    page version 2 payload section (both containers, v1 pages load with
+    empty payloads); `db_file_put_typed`/`get_typed` +
+    `db_file_typed_payload_max` (byte 0..255 + budget enforced;
+    non-transactional in S3; typed writes drop stale int index entries).
+    Evidence: 5 suite tests (149 total) + fuzz (j) + fault E + legacy
+    artifact load/migration verification; CLI `putrow`/`getrow`.
   - User shell v0 (new, owner ask): `apps/orbitdb_cli.xi` -> `out/orbitdb.exe`
     (icon embedded) / `out/orbitdb-cli` (WSL); REPL
     put/get/del/range/count/ckpt/bench/info/recover/kill; `kill` -> restart
     WAL-replay recovery demo verified on both platforms; README "Try it" +
     RUNBOOK row. Typed-row commands ride M5.3.
-  - Index-of-record: `docs/PRODUCTION-READINESS.md` **71.5/100 (~71%)**,
+  - Index-of-record: `docs/PRODUCTION-READINESS.md` **73.5/100 (~74%)**,
     per-area table + changelog + 100% checklist (v0.3-beta gate needs fsync +
     torn-page matrix + benchmarks at scale).
 - **Known limitations / risks (read before touching storage):**
@@ -752,7 +780,15 @@ the public repo/CI/registry and adds ORBITDB to the benchmark suite.
 WATCH each session: any newer COMPILER archive (re-test the repro
 bundles -- now incl. `docs/repro/consumer-fn-hijack/` for C-ORBIT-07 --
 plus the suite first; re-verify the phantom bundle on the first archive
-containing m255 -- REL-20261010-1802-orbitdb), PULSE's `probe_pkg_orbitdb`
+containing m255 -- REL-20261010-1802-orbitdb). **Compiler batch plan
+`REL-20261011-1342-compiler` (2026-10-11, to: all) names OUR witnesses:**
+batch 1 resolver/isolation (items 1052+1124; gate: module-local precedence,
+module-private isolation, ambiguity diagnostics, m225 regression set)
+expects `docs/repro/consumer-fn-hijack/` to print `svc: private arm() ran`
+on BOTH import orders; batch 3 phantom imports (1802+2124) expects the
+`docs/repro/phantom-core-import/` symptom to vanish. Keep the workarounds
+(`probe_arm`, type declarations) until each batch lands, then re-verify
+from the bundle READMEs and report on the bus. PULSE's `probe_pkg_orbitdb`
 results, and the stdlib rows on the bus (-3..-8 acked). (XVECTOR's
 XV-ORBITDB-01 fix was verified and closed 2026-10-10; re-run the hybrid
 probe when their pin moves.) **Doorbell: scheduled cron tasks are
@@ -764,7 +800,7 @@ CURRENT STATE: v0.64.3 pin (Windows shadow `xiom.new.0643` via dev-env;
 WSL canonical `~/.local/bin/xiom`; the Windows canonical `xiom.new` stays
 v0.64.2 for the fleet -- swap is owner/ops-coordinated); all C-ORBIT compiler
 workarounds REVERTED and the suite is green on the native forms --
-conformance 140/140 x2 Win + WSL (see
+conformance 149/149 x2 Win + WSL (see
 the findings file for the one consumer-qualification caveat); db_crash five
 scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn discarded,
 committed txn recovered) x2 Win + WSL, each recovery followed by qverify
@@ -790,7 +826,7 @@ source and CLOSED -- the `persist_recovered` workaround is REMOVED; fuzz/propert
 2000 keys / 9 checkpoints x2 Win + WSL; 20k-record WAL replay ~9.9 s (linear
 stdlib); bench harness live; app build `scripts/build.ps1` embeds
 assets/orbitdb.ico (--icon verified); readiness
-71.5/100 (docs/PRODUCTION-READINESS.md -- recompute + changelog every wrap);
+73.5/100 (docs/PRODUCTION-READINESS.md -- recompute + changelog every wrap);
 reference docs docs/API.md + docs/RUNBOOK.md + docs/FORMATS.md +
 docs/ISOLATION.md + docs/REFERENCE-STUDY.md; production plan
 docs/PRODUCTION-PLAN.md +
@@ -818,12 +854,12 @@ empty-chain fix (predecessor/successor, fill_child, min/max; suite
 regression + fuzz orders 3/4/5); durability API + fault injector (M2.1
 first half DONE -- evidence: 2 suite tests + `tests/probes/probe_fault_sync.xi`,
 49 checks, x2 Win + WSL; see the top Updated entry); typed values v2 --
-M5.1 CODEC DONE (M5.1: `TValue` null/int/float/text/blob + tuple codec
-version 2 `tuple2_*` in `src/storage/tuple.xi`; 4 suite tests + fuzz (h);
-FORMATS 5A; evidence x2 Win + WSL); schema-driven rows -- M5.2 LAYER DONE
-(`schema_row`: kind mapping, nullability, pk rules, id/pk consistency, error
-codes; suite 144 + fuzz (i); container contract
-`docs/TYPED-VALUES-STORAGE.md`); M5.3 engine integration = next slice)). Known
+M5.1 codec + M5.2 schema layer + **M5.3 ENGINE PERSISTENCE DONE 2026-10-11**
+(`TValue`/`tuple2_*`; `schema_row`; `BTreeNode.payloads` through tree moves;
+WAL tagged subtype-1 records; node pages v2 with auto-detect; 
+`db_file_put_typed`/`get_typed` + budget + byte validation; legacy v1-node
+artifacts load unchanged; 5 suite tests + fuzz (h)/(i)/(j) + fault E; CLI
+`putrow`/`getrow`); remaining M5: typed-column query/index (S4)). Known
 limits: no fsync
 (process-crash safe only; the durability API
 + env fault injector are pinned so the swap is behavior-only); replay is linear now but file IO is O(n) per read
@@ -834,15 +870,12 @@ docs/ISOLATION.md); buffer pool in-memory only (pager seam C3 pending);
 fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-1. M5.1 codec + M5.2 schema layer **DONE 2026-10-11** (`TValue` +
-   `tuple2_*`; `schema_row`; suite 144 x2 both + fuzz (h)/(i); FORMATS 5A;
-   `docs/TYPED-VALUES-STORAGE.md` = the container contract). Next: **M5.3
-   engine integration** -- `db_file_put_typed`/`db_file_get_typed`
-   (opaque payloads), WAL tagged records subtype 1, snapshot node pages v3
-   with auto-detect, replay + crash (fault injector) + fuzz per the doc's
-   evidence ladder, then typed-column query/index (S4). **User shell v0
-   landed 2026-10-11** (`apps/orbitdb_cli.xi` -> `out/orbitdb.exe`); its
-   typed-row commands ride M5.3.
+1. M5.1 codec + M5.2 schema layer + **M5.3 engine persistence DONE
+   2026-10-11** (suite 149 x2 both + fuzz (h)/(i)/(j) + fault E; legacy
+   artifacts verified; `docs/TYPED-VALUES-STORAGE.md` S3 LANDED; readiness
+   73.5). Next: **typed-column query/index predicates (M5-S4)** -- compare
+   decoded values in filters, typed secondary indexes -- then continue the
+   order below.
 2. M1.2 S4 when the stdlib rows land (byte-IO/fsync swap -- bus -3..-8
    acked; v2 default flip + fresh bench + FORMATS 3v2 tables; M2.1 second
    half rides here), then M1.1b (pager: deterministic deferred-free

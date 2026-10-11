@@ -36,7 +36,7 @@
 | G. Performance & limits | 5 | 3.0 | Benchmarks published (v0.64.1); WAL segment size policy live (`maybe_checkpoint`); replay constrained by the filed stdlib `str_split` quadratic; page/cache bounds pending |
 | H. Security & integrity | 5 | 4.5 | Checksums + full input validation + deterministic fuzz harness; encryption/supply-chain pinning pending |
 | I. Documentation & evidence | 5 | 5.0 | Full doc set + relay docs + repro bundles + public API/runbook/format reference |
-| **Total** | **100** | **71.5** | **~71% -- alpha-track, durable log + pages + checkpoints + transactions + planner pushdown + secondary index + ORDER/LIMIT + clock replacer + fuzz, benchmarks live, both WAL/B-tree packages registry-live** |
+| **Total** | **100** | **73.5** | **~74% -- alpha-track, durable log + pages + checkpoints + transactions + planner pushdown + secondary index + ORDER/LIMIT + clock replacer + typed rows (codec -> schema -> engine persistence) + fuzz, benchmarks live, both WAL/B-tree packages registry-live** |
 
 Scoreboard changelog:
 - 2026-10-08: bootstrap complete (suite migrated, engine defects fixed, WAL
@@ -278,6 +278,20 @@ Scoreboard changelog:
   flow on both platforms, bench 2000 puts ~1.1k ops/s). README "Try it"
   section + RUNBOOK row. No score change (tooling surface, not engine
   capability): 71.5.
+- 2026-10-11 (M5.3 typed rows in the engine): payloads ride the tree
+  (parallel `BTreeNode.payloads`), the WAL (existing tagged records,
+  subtype 1), and BOTH snapshot containers (node page version 2 with a
+  payload section; v1 pages decode with empty payloads). API:
+  `db_file_put_typed`/`db_file_get_typed` + `db_file_typed_payload_max`
+  (byte-validated, budget-refused, non-transactional in S3). Evidence:
+  suite **149/149 x2 Win + WSL** (5 new tests incl. crafted txn windows),
+  fuzz section (j) (random typed mixes with per-op verification across
+  checkpoints/reopens), fault scenario E (typed latch + payload recovery),
+  and legacy-artifact verification (pre-change v1-node-page snapshots load
+  unchanged; a 2994-row store survives write + migration-on-write). **E4
+  awarded 2/2** (typed values + column constraints now stored and
+  readable end to end; typed-column query/index predicates are S4):
+  71.5 -> **73.5**.
 
 ## A. Correctness & data structures (20)
 
@@ -326,7 +340,7 @@ Scoreboard changelog:
 | E1 | Query engine: AND filter, offset, limit, deterministic order | 3 | OK | suite query/db_query/db_file tests; **value semantics pinned** in docs/query-pipeline.md; `db_file_range`/`db_file_query` on recovered trees; `qverify` in every `db_crash_test` scenario x2 Win + WSL; ORDER BY (key/value asc/desc, stable ties) executed before offset/limit (M4.2) |
 | E2 | Index-aware planner (key-range pushdown, point lookup, cost) | 3 | OK | additive semantics decision recorded (`query_key_range`; key range -> value conditions -> offset -> limit, docs/query-pipeline.md); `plan_query` chooses PointLookup/IndexRange/FullScan with clamped range-width estimate; `execute_plan` scans `btree_range_query` then filters; `db_file_query` planned; suite plan-kind test + 200-case seeded property vs brute force x2 Win + WSL |
 | E3 | Secondary indexes driven by catalog `IndexDef` | 2 | WIP 1 | handle-scoped value index (`src/secondary_index.xi`: (value, pk) sorted entries, binary-search probes) maintained by put/update/delete/txn-commit; `db_file_create_index_from_def` accepts a catalog `IndexDef` (value column 0, non-unique); planner `IndexValue` plan + executor; suite (build/maintenance/plan/order) + fuzz section (g) vs brute-force model x2 Win + WSL. **Durable page-backed index storage pending A5** |
-| E4 | Typed values + column constraints (beyond Int) | 2 | -- | M5.1 codec + M5.2 schema layer landed 2026-10-11: `TValue` model + tuple v2 (KAT/roundtrip/reject/budget + fuzz (h)) and `schema_row` (column-type mapping, nullability, pk rules, id/pk consistency; suite 144 + fuzz (i)); container decision in `docs/TYPED-VALUES-STORAGE.md`; engine persistence + typed query/index pending (no score yet -- not stored or queryable) |
+| E4 | Typed values + column constraints (beyond Int) | 2 | **2** | M5.1 codec + M5.2 schema layer + M5.3 engine persistence landed 2026-10-11: `TValue`/tuple v2, `schema_row` (kind/nullability/pk constraints), payloads through tree/WAL (subtype 1)/both snapshot containers with auto-detect + budget + byte validation; suite 149 x2 both, fuzz (h)(i)(j), fault E, legacy v1-node-page artifacts load unchanged; typed-column query/index predicates remain (S4) but typed write/read is shippable capability |
 
 ## F. Operations & tooling (10)
 

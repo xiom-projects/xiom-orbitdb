@@ -64,13 +64,16 @@ bash scripts/build.sh apps/orbitdb_cli.xi out/orbitdb-cli
 orbitdb> put 1 100
 orbitdb> get 1
 orbitdb> range 1 10
+orbitdb> putrow 2 i:7,s:hello,f:2.5,n     # typed row (M5.3)
+orbitdb> getrow 2
 orbitdb> ckpt
 orbitdb> kill      # exits WITHOUT cleanup -- restart to watch WAL replay
 ```
 
 `help` lists every command (`put/get/del/range/count/ckpt/bench/info/
-recover/kill`). The shell currently covers the int-keyed engine; typed-row
-commands land with M5.3 (`docs/TYPED-VALUES-STORAGE.md`).
+recover/kill/putrow/getrow`). Typed rows store opaque bytes end to end
+(tuple codec v2 rows; `docs/TYPED-VALUES-STORAGE.md`); typed-column
+query predicates are the next slice.
 
 ## Module Layout
 

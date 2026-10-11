@@ -245,9 +245,13 @@ suite.
    consistency, error codes) in `src/catalog/schema_row.xi`; 4 suite tests +
    fuzz section (i); the container decision for persistence is recorded in
    `docs/TYPED-VALUES-STORAGE.md` (chosen: entry payloads in the nodes; WAL
-   rides the existing tagged records; snapshot node pages v3). Next: M5.3
-   engine integration (payloads through DBFile: put/get_typed, replay,
-   checkpoint v3, crash + fuzz), then typed-column query/index.
+   rides the existing tagged records; node pages grew a payload section at
+   version 2). **M5.3 engine integration DONE 2026-10-11:** payloads ride
+   the tree (parallel `BTreeNode.payloads`), WAL tagged records (subtype 1),
+   node pages v2 with auto-detect, `db_file_put_typed`/`get_typed` + the
+   payload budget; 5 suite tests + fuzz (j) + fault scenario E; legacy
+   v1-node-page artifacts load unchanged. Remaining: typed-column
+   query/index predicates (S4, compares decoded values).
 6. **M2.1 -- fsync wiring + fault injection** when the stdlib row lands.
 7. M6.1 -- cursor API + error taxonomy; bindings spike.
 8. **M6.0 -- consumer handshakes** (done at doc level): PULSE
