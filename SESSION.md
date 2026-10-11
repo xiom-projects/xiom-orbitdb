@@ -152,6 +152,19 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   integration (`db_file_put_typed`/`get_typed`, replay, checkpoint v3,
   crash + fuzz per the doc's evidence ladder), then typed-column
   query/index.
+**Updated:** 2026-10-11 (user shell v0, owner ask): `apps/orbitdb_cli.xi` --
+  the executable face of the engine. Build: `scripts\build.ps1
+  apps\orbitdb_cli.xi -Out out\orbitdb.exe` (icon embedded; WSL twin
+  `scripts/build.sh apps/orbitdb_cli.xi out/orbitdb-cli`). REPL:
+  put/get/del/range/count/ckpt/bench/info/recover/kill/help/quit; `kill`
+  exits WITHOUT cleanup (crash simulation). Verified as a user flow on both
+  platforms: graceful session + checkpoint + `recover`, kill -> restart WAL
+  replay (rows recovered), bench 2000 -> ~1.1k ops/s. README gained a
+  "Try it (interactive shell)" section; RUNBOOK gained the row (suite
+  count fixed 127 -> 144). Typed-row commands ride M5.3. Stage answer for
+  "proper user test": **NOW** for the int-keyed engine (this binary);
+  typed rows after M5.3; embeddable + registry after M6 + the release
+  gate.
 **Updated:** 2026-10-11 (reference study, owner grant): cloned + studied
   bbolt (MIT), redb (MIT/Apache-2.0) and SQLite (public domain) under
   `E:\repos`; `docs/REFERENCE-STUDY.md` maps their load-bearing mechanisms
@@ -462,6 +475,11 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
     codes; evidence: 4 suite tests (144 total) + fuzz section (i); the
     engine persistence contract (entry payloads, WAL subtype-1 tagged
     records, snapshot node pages v3) is `docs/TYPED-VALUES-STORAGE.md`.
+  - User shell v0 (new, owner ask): `apps/orbitdb_cli.xi` -> `out/orbitdb.exe`
+    (icon embedded) / `out/orbitdb-cli` (WSL); REPL
+    put/get/del/range/count/ckpt/bench/info/recover/kill; `kill` -> restart
+    WAL-replay recovery demo verified on both platforms; README "Try it" +
+    RUNBOOK row. Typed-row commands ride M5.3.
   - Index-of-record: `docs/PRODUCTION-READINESS.md` **71.5/100 (~71%)**,
     per-area table + changelog + 100% checklist (v0.3-beta gate needs fsync +
     torn-page matrix + benchmarks at scale).
@@ -822,7 +840,9 @@ TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
    engine integration** -- `db_file_put_typed`/`db_file_get_typed`
    (opaque payloads), WAL tagged records subtype 1, snapshot node pages v3
    with auto-detect, replay + crash (fault injector) + fuzz per the doc's
-   evidence ladder, then typed-column query/index (S4).
+   evidence ladder, then typed-column query/index (S4). **User shell v0
+   landed 2026-10-11** (`apps/orbitdb_cli.xi` -> `out/orbitdb.exe`); its
+   typed-row commands ride M5.3.
 2. M1.2 S4 when the stdlib rows land (byte-IO/fsync swap -- bus -3..-8
    acked; v2 default flip + fresh bench + FORMATS 3v2 tables; M2.1 second
    half rides here), then M1.1b (pager: deterministic deferred-free

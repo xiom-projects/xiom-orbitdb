@@ -43,6 +43,35 @@ fn main() -> Int {
 
 The lower-level `xiom.db.engine` API (`engine_new`, `engine_insert`, ...) remains available for callers that need direct control.
 
+## Try it (interactive shell)
+
+The repo ships a user-test shell (`apps/orbitdb_cli.xi`) -- the current
+executable face of the engine:
+
+```powershell
+# Windows (embeds assets/orbitdb.ico)
+.\scripts\build.ps1 apps\orbitdb_cli.xi -Out out\orbitdb.exe
+.\out\orbitdb.exe mydata.wal
+```
+
+```bash
+# WSL / Linux
+bash scripts/build.sh apps/orbitdb_cli.xi out/orbitdb-cli
+./out/orbitdb-cli mydata.wal
+```
+
+```
+orbitdb> put 1 100
+orbitdb> get 1
+orbitdb> range 1 10
+orbitdb> ckpt
+orbitdb> kill      # exits WITHOUT cleanup -- restart to watch WAL replay
+```
+
+`help` lists every command (`put/get/del/range/count/ckpt/bench/info/
+recover/kill`). The shell currently covers the int-keyed engine; typed-row
+commands land with M5.3 (`docs/TYPED-VALUES-STORAGE.md`).
+
 ## Module Layout
 
 ```

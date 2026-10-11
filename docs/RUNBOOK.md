@@ -27,7 +27,7 @@ Shell scripts and `.xi` files must stay LF; `.ps1` files are CRLF
 
 | Purpose | Command | Notes |
 |---------|---------|-------|
-| Conformance suite | `scripts/run.ps1 tests\test_conformance.xi -TimeoutSec 300` | 127 tests; expect `127/127` and exit 0. |
+| Conformance suite | `scripts/run.ps1 tests\test_conformance.xi -TimeoutSec 300` | 144 tests; expect `144/144` and exit 0. |
 | WAL crash harness | `scripts\crash_test.ps1 -Events 20 -TimeoutSec 90` | writer -> hard kill -> torn tail -> reopen -> verify -> heal -> verify+1. |
 | Page crash harness | `scripts\page_crash_test.ps1 -Pages 20 -TimeoutSec 120` | Use 120s: the writer's first compile can exceed 90s under load. |
 | DB crash harness | `scripts\db_crash_test.ps1 -Keys 20 -Tail 3 -Tx 5 -TimeoutSec 90` | Five scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn, committed txn); 25 checks. Prefix `ORBITDB_DB_FORMAT=v2` (env) to run the whole matrix with v2 byte-block snapshots (same 25 checks; GREEN x2 both platforms). |
@@ -36,6 +36,7 @@ Shell scripts and `.xi` files must stay LF; `.ps1` files are CRLF
 | Fuzz/property | `scripts\fuzz.ps1 -TimeoutSec 600` | Deterministic; see section 4. |
 | Benchmarks | `scripts\bench.ps1 -N 10000` | Numbers summarized in the readiness doc G1 row (`docs/PRODUCTION-READINESS.md`). |
 | App build (icon) | `scripts\build.ps1 <source.xi> [-Out out\orbitdb-app.exe]` | Compiles one source into an app binary and embeds `assets/orbitdb.ico` via `--icon` (verified on v0.64.2; `llvm-rc`). `scripts/build.sh` is the Linux/WSL twin (PE icons are Windows-only). |
+| User shell (v0) | `scripts\build.ps1 apps\orbitdb_cli.xi -Out out\orbitdb.exe` then `out\orbitdb.exe [db-path]` | Interactive REPL over the int-keyed engine: `put/get/del/range/count/ckpt/bench/info/recover/kill/help/quit`. `kill` exits WITHOUT cleanup -- restart to watch WAL replay. WSL twin: `bash scripts/build.sh apps/orbitdb_cli.xi out/orbitdb-cli`. |
 | Soaks | probe `soak` mode, section 3 | 2000-key policy soak is the standard long path. |
 
 Twin `.sh` scripts accept the kebab-case flags (`--events`, `--pages`,

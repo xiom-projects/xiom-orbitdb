@@ -271,6 +271,13 @@ Scoreboard changelog:
   **`docs/TYPED-VALUES-STORAGE.md`** (entry payloads in the nodes; WAL rides
   the existing tagged records with subtype 1; snapshot node pages v3).
   No score change (E4 still unshipped until rows persist/query): 71.5.
+- 2026-10-11 (user shell v0, owner ask): `apps/orbitdb_cli.xi` builds to
+  `out/orbitdb.exe` (icon embedded) / `out/orbitdb-cli` (WSL) -- interactive
+  REPL (put/get/del/range/count/ckpt/bench/info/recover/kill); `kill` exits
+  without cleanup and the restart completes WAL replay (verified as a user
+  flow on both platforms, bench 2000 puts ~1.1k ops/s). README "Try it"
+  section + RUNBOOK row. No score change (tooling surface, not engine
+  capability): 71.5.
 
 ## A. Correctness & data structures (20)
 

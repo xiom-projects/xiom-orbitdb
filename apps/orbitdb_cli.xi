@@ -1,0 +1,262 @@
+// ORBITDB interactive shell -- the user-test vehicle for the embedded engine.
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+// SPDX-License-Identifier: MIT OR Apache-2.0
+//
+// Build:  scripts\build.ps1 apps\orbitdb_cli.xi -Out out\orbitdb.exe
+// Run:    out\orbitdb.exe [db-path]     (default: orbitdb-data.wal)
+//
+// v0 covers the int-keyed engine that exists today: put/get/del/range,
+// checkpoints, reopen/recovery, a timed bench, and `kill` -- which exits
+// WITHOUT cleanup so the user can restart and watch WAL replay recover the
+// acknowledged rows. Typed-row commands land with M5.3 (see
+// docs/TYPED-VALUES-STORAGE.md).
+//
+// All helper names are cli_*: a consumer-defined helper must never share a
+// name with a private helper of an imported module (C-ORBIT-07).
+
+module orbitdb_cli
+
+use xiom.io;
+use xiom.os.env;
+use xiom.convert;
+use xiom.convert.parse;
+use xiom.string.split;
+use xiom.string.trim;
+use xiom.time.time;
+use xiom.db.engine;
+
+fn cli_i2s(n: Int) -> Str {
+  return convert.int_to_string(n);
+}
+
+fn cli_usage() {
+  io.println("commands:");
+  io.println("  put <k> <v>     insert/update (int key -> int value)");
+  io.println("  get <k>         read one key");
+  io.println("  del <k>         delete one key");
+  io.println("  range <lo> <hi> values for keys in [lo, hi], key order");
+  io.println("  count           live row count");
+  io.println("  ckpt            checkpoint (snapshot publish + WAL truncate)");
+  io.println("  bench <n>       n puts (keys 1..n), timed");
+  io.println("  info            handle + file state");
+  io.println("  recover         close + reopen (snapshot load / WAL replay)");
+  io.println("  kill            exit WITHOUT cleanup -- restart to watch recovery");
+  io.println("  help            this text");
+  io.println("  quit            exit (empty line / EOF also exits)");
+}
+
+fn cli_show_info(db: &DBFile) {
+  io.println("path      : " + db.path);
+  io.println("order     : " + cli_i2s(db.order));
+  io.println("page_fmt  : " + cli_i2s(db.page_format));
+  io.println("rows      : " + cli_i2s(db_file_size(db)));
+  io.println("last_lsn  : " + cli_i2s(db_file_last_lsn(db)));
+  io.println("since_ckpt: " + cli_i2s(db.records_since_ckpt));
+  io.println("durability: " + cli_i2s(db.durability) + " (0 normal / 1 immediate)");
+  if db.two_phase { io.println("two_phase : true"); } else { io.println("two_phase : false"); }
+  if db.failed { io.println("failed    : true (writers refuse until reopen)"); }
+}
+
+fn cli_tokens(line: Str) -> Vec[Str] {
+  var out = Vec[Str].new();
+  let parts = split.str_split(line, " ");
+  var i = 0;
+  while i < parts.len() {
+    let t = trim.str_trim(parts[i]);
+    if t.len() > 0 { out.push(t); }
+    i = i + 1;
+  }
+  return out;
+}
+
+fn cli_arg_int(toks: &Vec[Str], at: Int) -> Result[Int, Str] {
+  if at >= toks.len() { return Err("missing argument"); }
+  return parse.parse_int(toks[at]);
+}
+
+fn cli_run_put(db: &mut DBFile, toks: &Vec[Str]) -> Bool {
+  match cli_arg_int(toks, 1) {
+    Err(_) => { io.println("usage: put <k> <v>"); return true; }
+    Ok(k) => {
+      match cli_arg_int(toks, 2) {
+        Err(_) => { io.println("usage: put <k> <v>"); return true; }
+        Ok(v) => {
+          if db_file_put(db, k, v) {
+            io.println("ok (lsn " + cli_i2s(db_file_last_lsn(db)) + ")");
+          } else {
+            io.println("put failed");
+          }
+        }
+      }
+    }
+  }
+  return true;
+}
+
+fn cli_run_get(db: &DBFile, toks: &Vec[Str]) -> Bool {
+  match cli_arg_int(toks, 1) {
+    Err(_) => { io.println("usage: get <k>"); return true; }
+    Ok(k) => {
+      match db_file_get(db, k) {
+        None => { io.println("(none)"); }
+        Some(v) => { io.println(cli_i2s(v)); }
+      }
+    }
+  }
+  return true;
+}
+
+fn cli_run_del(db: &mut DBFile, toks: &Vec[Str]) -> Bool {
+  match cli_arg_int(toks, 1) {
+    Err(_) => { io.println("usage: del <k>"); return true; }
+    Ok(k) => {
+      if db_file_delete(db, k) { io.println("ok"); } else { io.println("(no such key)"); }
+    }
+  }
+  return true;
+}
+
+fn cli_run_range(db: &DBFile, toks: &Vec[Str]) -> Bool {
+  match cli_arg_int(toks, 1) {
+    Err(_) => { io.println("usage: range <lo> <hi>"); return true; }
+    Ok(lo) => {
+      match cli_arg_int(toks, 2) {
+        Err(_) => { io.println("usage: range <lo> <hi>"); return true; }
+        Ok(hi) => {
+          if lo > hi { io.println("lo > hi"); return true; }
+          let vals = db_file_range(db, lo, hi);
+          io.print("count=" + cli_i2s(vals.len()) + " values=");
+          var i = 0;
+          while i < vals.len() && i < 16 {
+            if i > 0 { io.print(","); }
+            io.print(cli_i2s(vals[i]));
+            i = i + 1;
+          }
+          if vals.len() > 16 { io.print(",..."); }
+          io.println("");
+        }
+      }
+    }
+  }
+  return true;
+}
+
+fn cli_run_ckpt(db: &mut DBFile) -> Bool {
+  let anchor = db_file_checkpoint(db);
+  if anchor >= 0 {
+    io.println("checkpoint ok (anchor lsn " + cli_i2s(anchor) + ", rows " + cli_i2s(db_file_size(db)) + ")");
+  } else {
+    io.println("checkpoint failed (-1)");
+  }
+  return true;
+}
+
+fn cli_run_bench(db: &mut DBFile, toks: &Vec[Str]) -> Bool {
+  match cli_arg_int(toks, 1) {
+    Err(_) => { io.println("usage: bench <n>"); return true; }
+    Ok(n) => {
+      if n < 1 || n > 1000000 { io.println("n must be 1..1000000"); return true; }
+      let t0 = time.monotonic_ms();
+      var ok = true;
+      var i = 1;
+      while i <= n {
+        if db_file_put(db, i, i * 7 + 1) {
+          i = i + 1;
+        } else {
+          ok = false;
+          i = n + 1;
+        }
+      }
+      let dt = time.monotonic_ms() - t0;
+      if !ok {
+        io.println("bench aborted (put failure)");
+        return true;
+      }
+      io.println("bench: " + cli_i2s(n) + " puts in " + cli_i2s(dt) + " ms");
+      if dt > 0 {
+        io.println("       ~" + cli_i2s((n * 1000) / dt) + " ops/s");
+      }
+    }
+  }
+  return true;
+}
+
+// Dispatch one line. Returns: 0 = quit, 1 = continue, 2 = reopen request.
+fn cli_dispatch(db: &mut DBFile, toks: &Vec[Str]) -> Int {
+  if toks.len() == 0 { return 1; }
+  let cmd = toks[0];
+  if cmd == "quit" || cmd == "exit" { return 0; }
+  if cmd == "help" { cli_usage(); return 1; }
+  if cmd == "info" { cli_show_info(db); return 1; }
+  if cmd == "count" {
+    io.println(cli_i2s(db_file_size(db)));
+    return 1;
+  }
+  if cmd == "put" {
+    let _ = cli_run_put(db, toks);
+    return 1;
+  }
+  if cmd == "get" {
+    let _ = cli_run_get(db, toks);
+    return 1;
+  }
+  if cmd == "del" {
+    let _ = cli_run_del(db, toks);
+    return 1;
+  }
+  if cmd == "range" {
+    let _ = cli_run_range(db, toks);
+    return 1;
+  }
+  if cmd == "ckpt" {
+    let _ = cli_run_ckpt(db);
+    return 1;
+  }
+  if cmd == "bench" {
+    let _ = cli_run_bench(db, toks);
+    return 1;
+  }
+  if cmd == "recover" { return 2; }
+  if cmd == "kill" {
+    io.println("killing process WITHOUT cleanup (restart to watch recovery)");
+    io.exit(9);
+  }
+  io.println("unknown command: " + cmd + " (try help)");
+  return 1;
+}
+
+fn main() -> Int {
+  var path = "orbitdb-data.wal";
+  if env.args_len() >= 2 {
+    match env.arg_at(1) {
+      Some(p) => { path = p; }
+      None => {}
+    }
+  }
+  io.println("ORBITDB shell (v0, int rows) -- db: " + path);
+  io.println("help for commands; empty line / EOF exits; `kill` simulates a crash");
+  var db = db_file_open(path, 4);
+  cli_show_info(&db);
+  var running = true;
+  while running {
+    io.print("orbitdb> ");
+    let line = io.read_line();
+    if line.len() == 0 {
+      running = false;
+    } else {
+      let toks = cli_tokens(line);
+      let act = cli_dispatch(&mut db, &toks);
+      if act == 0 {
+        running = false;
+      }
+      if act == 2 {
+        let before = db_file_size(&db);
+        db = db_file_open(path, 4);
+        io.println("reopened: rows " + cli_i2s(before) + " -> " + cli_i2s(db_file_size(&db))
+          + " (lsn " + cli_i2s(db_file_last_lsn(&db)) + ")");
+      }
+    }
+  }
+  io.println("bye");
+  return 0;
+}
