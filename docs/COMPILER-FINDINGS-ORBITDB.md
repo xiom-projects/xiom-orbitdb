@@ -44,6 +44,16 @@ match arms; (B) fixed-size `[N]UInt8` element `as Int` sign-extends
 `docs/repro/enum-tuple-codegen/`; workarounds applied in `tuple.xi`
 (`DbResult[TValue]` + explicit advance; `(b[i] as Int) & 0xFF`).
 
+**Status 2026-10-11: C-ORBIT-09 filed (OPEN on v0.64.3)** -- element
+assignment through a copied Vec handle writes through to the SOURCE buffer
+(`v[i] = x` lacks the copy-on-write check that push/pop perform), so a
+struct/Vec "copy" silently aliases its source; two live handles suffice, no
+use-after-move involved. Found by the M3 snapshot-pin COW (the shadow copy of
+a node still shared `keys`/`values`/`children` buffers with the pinned
+original; pinned reads returned post-write values). Bundle
+`docs/repro/vec-copy-alias/`; workaround applied (`node_deep_copy` in
+`src/engine.xi` rebuilds every vector). Bus item filed this session.
+
 **Relay:** hand this file to the compiler-lane session together with the
 matching `docs/repro/<bundle>/` directories from the ORBITDB repo
 (`E:\xiom-projects\xiom-orbitdb`). ORBITDB is a consumer lane; it does not
@@ -423,6 +433,28 @@ applied then; every one is resolved on v0.64.2 (see the re-test above).
 - **Suggested fix:** type the tuple shape correctly (no default-to-i64
   escape hatch), and zero-extend `UInt8 -> Int` casts for fixed-size array
   element reads.
+
+## C-ORBIT-09 -- element assignment through a copied Vec handle writes through to the source (OPEN, filed 2026-10-11)
+
+- **Bundle:** `docs/repro/vec-copy-alias/` (`probe_alias.xi`,
+  `probe_clean.xi`, README with exact outputs).
+- **Symptom:** after `var copy = src;` (or after extracting a handle from a
+  containing `Vec`/struct), `copy[i] = x` mutates `src[i]` too; `push`/`pop`
+  on the same handle DO copy-on-write. Observed:
+  `src[0] = 99` after `copy[0] = 99`; `src.len` stays 2 after `copy.push(3)`
+  (copy len 3) and after `work.pop()` on an arena handle (local 1,
+  store-copy 2). Exit 0, no diagnostics beyond unrelated move warnings when
+  a moved-from struct is read.
+- **Mechanism:** Vec handles share the underlying buffer through assignment;
+  element assignment skips the sharing check that structural ops perform.
+- **Impact:** silent aliasing for any "clone then mutate in place" pattern.
+  ORBITDB's M3 COW shadows corrupted pinned snapshot views until the copy
+  rebuilt every vector (`node_deep_copy`).
+- **Workaround (applied):** build owned copies explicitly (fresh vectors +
+  push loops, nested vectors included).
+- **Suggested fix:** make element assignment perform the same copy-on-write
+  check as push/pop (or deep-copy on assignment), and consider a diagnostic
+  when writing through a shared handle.
 
 ## Bump procedure used by this lane
 
