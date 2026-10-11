@@ -64,6 +64,14 @@ ships, re-run `docs/repro/consumer-fn-hijack/` (expect `svc: private arm()
 ran` on BOTH import orders) and `docs/repro/phantom-core-import/` before
 moving anything to verified/closed.
 
+**Status 2026-10-11 21:00Z (doorbell): stack PUSHED, archive imminent** --
+owner-authorized doorbell push landed: origin/main `677d65a7 -> 87c6ca3c`
+(m254-m274; the wave added m272-m274 fn-value/ABI fixes found by Gate A and
+the bindings verdicts, no open regressions known). stdlib is cleared to
+dispatch the **v0.64.4 dry-run archive** (witness/revert/battery/tag
+sequence); the compiler pin follows the `stdlib-v0.64.4` tag. Nothing
+testable from our side yet -- same verification plan as above on landing.
+
 **Relay:** hand this file to the compiler-lane session together with the
 matching `docs/repro/<bundle>/` directories from the ORBITDB repo
 (`E:\xiom-projects\xiom-orbitdb`). ORBITDB is a consumer lane; it does not

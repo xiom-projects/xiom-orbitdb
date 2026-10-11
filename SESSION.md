@@ -235,6 +235,14 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   GREEN x2 both, fuzz section (l) x2 both, db_crash 25/25 x2 both; readiness
   **D3 2/4 -> 75.5**. Docs: MVCC.md + ISOLATION rewrite + API/RUNBOOK/README/
   plan/checklist coupled.
+**Updated:** 2026-10-11 (doorbell 21:00Z): `REL-20261011-1731-compiler`
+update 3 -- the v0.64.4 stack was PUSHED (owner-authorized): origin/main
+`677d65a7 -> 87c6ca3c` (m254-m274; m272-m274 are Gate-A/bindings fixes, no
+open regressions known). stdlib is cleared to dispatch the **v0.64.4
+dry-run archive** (witness/revert/battery/tag sequence); the compiler pin
+follows the `stdlib-v0.64.4` tag. Still no archive to test: workarounds
+stay; verification plan unchanged (hijack both import orders + phantom
+bundle on landing). Orbitdb queue otherwise clear.
 **Updated:** 2026-10-11 (doorbell 18:00Z): compiler posted
   `REL-20261011-1731-compiler` -- the six-batch v0.64.4 program is COMPLETE
   (m261-m271) and the stack is staged for the archive push. Fixes target our
@@ -919,7 +927,8 @@ on BOTH import orders; batch 3 phantom imports (1802+2124) expects the
 from the bundle READMEs and report on the bus. STATUS 2026-10-11: the six
 batches are COMPLETE (m261-m271; `REL-20261011-1731-compiler`) -- C-ORBIT-07
 fix = m261/m262 `677d65a7`, phantom gate = m266/m267 `0b1c6374` -- and the
-stack is staged for the v0.64.4 archive; verify on the next archive. PULSE's `probe_pkg_orbitdb`
+stack is PUSHED (`87c6ca3c`, m254-m274; 21:00Z doorbell); the **v0.64.4
+archive is pending the stdlib tag** -- verify on the next archive. PULSE's `probe_pkg_orbitdb`
 results, and the stdlib rows on the bus (-3..-8 acked). (XVECTOR's
 XV-ORBITDB-01 fix was verified and closed 2026-10-10; re-run the hybrid
 probe when their pin moves.) **Doorbell: scheduled cron tasks are
