@@ -819,7 +819,18 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   stdlib `-3` fsync, `-4` append handle,
   `-5` truncate, `-6` byte-IO random access, `-7` append+repair, `-8` tail
   check; packages `-9` btree re-extract, `-10` variant qualification;
-  xvector `-11` (XV-ORBITDB-01).
+  xvector `-11` (XV-ORBITDB-01). **2026-10-12 wave:** C-ORBIT-06/07 closed
+  on v0.64.4 (verdicts in the top Updated entry); btree `-9` pass verified
+  + closed; new: C-ORBIT-10 `REL-20261012-1358-orbitdb`, C-ORBIT-11
+  `REL-20261012-1956-orbitdb`; production-requirements P2 asks
+  `REL-20261012-1945-orbitdb` (stdlib), `-2` (compiler), `-3` (packages) --
+  **packages answered `-3`: `REL-20261012-2039-packages` (offline/vendored
+  install design note `docs/OFFLINE-INSTALL-DESIGN.md` on packages main
+  `474e081e`; flows A online-pinned TODAY / B offline mirror / C vendored;
+  blockers `-1549-packages-7` + `-1548-bindings-11`; interim guidance =
+  exact pins + trust pin + recorded sha256s, airgap pending flow B) --
+  orbitdb ACKED it on the bus 2026-10-12 (adopting the interim guidance for
+  deployment docs; no consumer changes until B/C land).**
 - Report upstream through the xiom-relays bus (section 1) + SESSION rows;
   the owner handles human gates. Read other lanes' bus items before filing
   (reference their ids).
