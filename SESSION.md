@@ -249,6 +249,37 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   GREEN x2 both, fuzz section (l) x2 both, db_crash 25/25 x2 both; readiness
   **D3 2/4 -> 75.5**. Docs: MVCC.md + ISOLATION rewrite + API/RUNBOOK/README/
   plan/checklist coupled.
+**Updated:** 2026-10-12 (v0.64.4 verdict wave + production relay, same
+  session): v0.64.4 LIVE (tag on `df493530`; release run 38256358845 green).
+  Shadow install created + checksum/signature verified
+  (`%LOCALAPPDATA%\xiom.new.0644`, sha256 44a41aea...); dev-env.ps1/.sh pins
+  updated (WSL canonical already 0.64.4, sha256 d0a43a5c...).
+  **Battery on the official artifacts:** suite **159/159 x2 Win + WSL**,
+  db_crash **25/25 x2 both**, fuzz OK Win + WSL, fault probe (with the
+  C-ORBIT-07 `probe_arm` workaround REVERTED -- original collision shape)
+  GREEN x2 Win + WSL, repro-bundle matrix re-run (all expected rc), btree
+  consumer probes Green x2 both. **Verdicts:** C-ORBIT-06/07 VERIFIED FIXED
+  + closed (`REL-20261010-1802-orbitdb`, `REL-20261011-1124-orbitdb`;
+  release-check rows filled incl. the packages-4 corroboration); C-ORBIT-08
+  (enum-tuple rc 0x80000005-class) + C-ORBIT-09 still open; row
+  `REL-20261010-1550-orbitdb-2` still open (T001 at 1756/1761/1766/1771).
+  **New findings:** C-ORBIT-10 (Linux `--check` exits 0 even for syntax
+  errors; bundle `docs/repro/check-exit-code/`, bus
+  `REL-20261012-1358-orbitdb`); C-ORBIT-11 (same-named types across modules:
+  xiom.btree + xiom.db.engine cannot co-compose, hard C001 on the wrong
+  declaration; bundle `docs/repro/same-named-struct-compose/`, bus
+  `REL-20261012-1956-orbitdb`). **xiom.btree 0.1.1 two-way consumer pass
+  GREEN** (`REL-20261010-1550-orbitdb-9` verified + closed):
+  `tests/pkg/probe_pkg_btree.xi` + `probe_pkg_btree_engine.xi` share the
+  identical digest `850,244,294,903,48,601,650,780,133,311` (same stream,
+  both platforms; insert-refuses-existing contract modelled). **Production-
+  requirements relay posted per lane:** stdlib `REL-20261012-1945-orbitdb`
+  (fsync/byte-IO/rename-durability/locks bundle + sequencing ask), compiler
+  `-2` (08/09/10 + threads/perf roadmap), packages `-3` (offline/vendored
+  installs, xiom.os parity, registry hygiene). **Hybrid:** the LIVE xvector
+  tree is again mid-restructure at `24aa093` (missing `xiom.vector.types.*`
+  modules -> 156 T001s) so the live re-run stays deferred; last green
+  composition = their HEAD `200cbc7` (probe full x2 both).
 **Updated:** 2026-10-12 (doorbell 00:00Z): v0.64.4 is PINNED --
 `REL-20261011-1731-compiler` updates 4+5: m275 `4c42fc0a` fixed the
 stdlib-2045 wave regression (pushed); stdlib tagged `stdlib-v0.64.4` =
@@ -937,10 +968,12 @@ Release signal: when the production plan's gates pass (P-rc), tell the owner
 explicitly "ORBITDB is ready for public release" -- the owner then sets up
 the public repo/CI/registry and adds ORBITDB to the benchmark suite.
 WATCH each session: any newer COMPILER archive (re-test the repro
-bundles -- now incl. `docs/repro/consumer-fn-hijack/` for C-ORBIT-07 and
-`docs/repro/vec-copy-alias/` for C-ORBIT-09 --
-plus the suite first; re-verify the phantom bundle on the first archive
-containing m255 -- REL-20261010-1802-orbitdb). **Compiler batch plan
+bundles -- now incl. `docs/repro/vec-copy-alias/` (C-ORBIT-09),
+`docs/repro/check-exit-code/` (C-ORBIT-10),
+`docs/repro/same-named-struct-compose/` (C-ORBIT-11), and
+`docs/repro/enum-tuple-codegen/` (C-ORBIT-08) --
+plus the suite first; the phantom bundle and C-ORBIT-07 are VERIFIED FIXED
+on v0.64.4 and need no re-run -- REL-20261010-1802-orbitdb). **Compiler batch plan
 `REL-20261011-1342-compiler` (2026-10-11, to: all) names OUR witnesses:**
 batch 1 resolver/isolation (items 1052+1124; gate: module-local precedence,
 module-private isolation, ambiguity diagnostics, m225 regression set)
@@ -980,11 +1013,13 @@ BOTH import orders (add a second-order probe variant if the archive
 changes nothing there); fix refs live in
 `release-checks/compiler-compiler-v0.64.3.md` NEXT-BATCH.**
 
-CURRENT STATE: v0.64.3 pin (Windows shadow `xiom.new.0643` via dev-env;
-WSL canonical `~/.local/bin/xiom`; the Windows canonical `xiom.new` stays
-v0.64.2 for the fleet -- swap is owner/ops-coordinated); all C-ORBIT compiler
-workarounds REVERTED except C-ORBIT-07/08/09 until their batches land, and
-the suite is green on the native forms --
+CURRENT STATE: v0.64.4 pin (Windows shadow `xiom.new.0644` via dev-env,
+sha256 44a41aea...; WSL canonical `~/.local/bin/xiom` v0.64.4, sha256
+d0a43a5c...; the Windows canonical `xiom.new` stays v0.64.2 for the fleet --
+swap is owner/ops-coordinated); **C-ORBIT-06/07 verified fixed on v0.64.4
+and closed (probe_arm reverted); C-ORBIT-08/09/10/11 open** (bundles under
+docs/repro/: enum-tuple-codegen, vec-copy-alias, check-exit-code,
+same-named-struct-compose); the suite is green on the native forms --
 conformance 159/159 x2 Win + WSL (see
 the findings file for the one consumer-qualification caveat); db_crash five
 scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn discarded,
@@ -1087,8 +1122,9 @@ TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
    acked; v2 default flip + fresh bench + FORMATS 3v2 tables; M2.1 second
    half rides here), then M1.1b (pager: deterministic deferred-free
    allocator per docs/REFERENCE-STUDY.md).
-4. When the fixed `xiom.btree` is re-extracted (order-3; bus -9 acked), run
-   our two-way consumer pass.
+4. xiom.btree 0.1.1 two-way consumer pass **DONE 2026-10-12** (GREEN both
+   platforms, item closed; remember C-ORBIT-11: package + engine cannot
+   co-compose until fixed -- keep the two-program digest pattern).
 5. Keep the hybrid harness green at every wrap (and when the XVECTOR pin
    moves). At THIS wrap the live sibling tree did not compile
    (`engine_memory_estimate` refactor), so the probe `full` was re-run x2

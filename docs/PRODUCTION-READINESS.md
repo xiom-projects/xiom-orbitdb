@@ -317,6 +317,18 @@ Scoreboard changelog:
   (l) OK x2 both, db_crash 25/25 x2 both. **D3 WIP -> 2/4** (in-process pins
   + savepoints crash-proven; multi-process locks, pager-backed lazy reads and
   version GC remain): 73.5 -> **75.5**.
+- 2026-10-12 (v0.64.4 verdict wave): official artifacts pinned (Windows
+  shadow `xiom.new.0644` sha256 44a41aea...; WSL canonical sha256
+  d0a43a5c...). Battery re-run: suite 159/159 x2 Win + WSL, db_crash 25/25
+  x2 both, fuzz both, fault probe GREEN x2 both with the C-ORBIT-07
+  workaround reverted (original collision shape). C-ORBIT-06/07 verified
+  fixed + closed; C-ORBIT-08/09 unchanged (bundles); **C-ORBIT-10** (Linux
+  `--check` always exits 0) and **C-ORBIT-11** (same-named types across
+  modules break co-composition) filed with bundles. xiom.btree 0.1.1
+  two-way consumer pass GREEN (digest-equal engine companion, both
+  platforms; item closed). Production-requirements relay posted per lane
+  (`REL-20261012-1945-orbitdb` + `-2`/`-3`). No score change (evidence
+  depth, no new row gates): 75.5.
 
 ## A. Correctness & data structures (20)
 
