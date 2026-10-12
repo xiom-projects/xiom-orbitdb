@@ -249,6 +249,25 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   GREEN x2 both, fuzz section (l) x2 both, db_crash 25/25 x2 both; readiness
   **D3 2/4 -> 75.5**. Docs: MVCC.md + ISOLATION rewrite + API/RUNBOOK/README/
   plan/checklist coupled.
+**Updated:** 2026-10-12 (doorbell 21:00Z -- STDLIB DURABILITY UNLOCK): stdlib
+  wave 115 (`c65acb5`) landed **P1 real fsync (`sync_io.sync_fd` /
+  `io.fsync`), P2 byte random-access + held append handle + truncate
+  (`io.read_at/write_at/append_file_bytes/truncate_file`,
+  `sync_io.open_append/write_all/close_fd`), P3 `sync_io.fsync_dir`** on the
+  lane runtime; our rows `-3..-6` moved fixed -> **verified + closed** with
+  the new `tests/probes/probe_io_primitives.xi` (14 checks, **GREEN x2 Win +
+  x2 WSL**, run with `XIOM_RUNTIME_DIR=<stdlib>/runtime` on v0.64.4 --
+  re-vendor pin pending; XIOM_STDLIB already points at the lane). Remaining:
+  P4 real `file_lock` (multi-process) + P5 leftovers (`append_line_sync`,
+  tail check, f32 bitcast); `-7/-8` stay acked. **M1.2 S4 (byte-IO/fsync
+  swap + v2 default flip + fresh bench + FORMATS 3v2) and the M2.1 second
+  half are now unblocked-with-override = the next actionable slice**, then
+  M1.1b (pager over read_at/write_at). Packages answered our P2 offline/
+  vendored ask (`REL-20261012-2039-packages`, design note
+  `docs/OFFLINE-INSTALL-DESIGN.md`; acked; flows B/C pending on
+  `-1549-packages-7` + `-1548-bindings-11`). New to:all production relays
+  from xvector/pulse/engine (owner-requested motion; no orbitdb action).
+  Relays head `1cfd6a2`.
 **Updated:** 2026-10-12 (v0.64.4 verdict wave + production relay, same
   session): v0.64.4 LIVE (tag on `df493530`; release run 38256358845 green).
   Shadow install created + checksum/signature verified
@@ -1129,10 +1148,14 @@ TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
    (l) x2 both). Remaining M3 (when unblocked): multi-process advisory locks
    (stdlib `file_lock` row), pager-backed lazy reads (M1.1b; the pins feed
    its deferred-free hook), version GC tied to checkpoint compaction.
-3. M1.2 S4 when the stdlib rows land (byte-IO/fsync swap -- bus -3..-8
-   acked; v2 default flip + fresh bench + FORMATS 3v2 tables; M2.1 second
-   half rides here), then M1.1b (pager: deterministic deferred-free
-   allocator per docs/REFERENCE-STUDY.md).
+3. **M1.2 S4 -- stdlib rows LANDED 2026-10-12 (wave 115; `-3..-6` verified
+   + closed)**: next slice = byte-IO/fsync swap + v2 default flip + fresh
+   bench + FORMATS 3v2 tables, **run against the lane runtime**
+   (`XIOM_RUNTIME_DIR=<stdlib>/runtime` + `XIOM_STDLIB` lane checkout on
+   v0.64.4 until the re-vendor pin; `probe_io_primitives.xi` is the
+   reference). **M2.1 second half rides here**; then M1.1b (pager over
+   `read_at/write_at`: lazy load, bounded cache, deferred-free allocator).
+   P4 file_lock + P5 leftovers still pending upstream.
 4. xiom.btree 0.1.1 two-way consumer pass **DONE 2026-10-12** (GREEN both
    platforms, item closed; remember C-ORBIT-11: package + engine cannot
    co-compose until fixed -- keep the two-program digest pattern).

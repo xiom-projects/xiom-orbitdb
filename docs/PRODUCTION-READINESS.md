@@ -329,6 +329,14 @@ Scoreboard changelog:
   platforms; item closed). Production-requirements relay posted per lane
   (`REL-20261012-1945-orbitdb` + `-2`/`-3`). No score change (evidence
   depth, no new row gates): 75.5.
+- 2026-10-12 (doorbell 21:00Z -- dependency unlock): stdlib wave 115
+  (`c65acb5`) landed real fsync + byte random-access + held append handle +
+  truncate + `fsync_dir` on the lane runtime; our rows `-3..-6` verified +
+  closed via `tests/probes/probe_io_primitives.xi` (GREEN x2 Win + x2 WSL,
+  `XIOM_RUNTIME_DIR` override on v0.64.4 until the re-vendor pin). M1.2 S4 +
+  the M2.1 second half are now actionable (score moves when they land);
+  still pending upstream: P4 `file_lock`, P5 leftovers. No score change:
+  75.5.
 
 ## A. Correctness & data structures (20)
 
