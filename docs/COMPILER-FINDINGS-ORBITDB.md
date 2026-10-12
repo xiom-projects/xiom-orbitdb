@@ -72,6 +72,16 @@ dispatch the **v0.64.4 dry-run archive** (witness/revert/battery/tag
 sequence); the compiler pin follows the `stdlib-v0.64.4` tag. Nothing
 testable from our side yet -- same verification plan as above on landing.
 
+**Status 2026-10-12 00:00Z (doorbell): v0.64.4 PINNED; owner tag last** --
+`REL-20261011-1731-compiler` updates 4+5: m275 (`4c42fc0a`) fixed the
+stdlib-2045 wave regression and was pushed; stdlib verified and tagged
+`stdlib-v0.64.4` = `3df0843` (refresh run: corpus 954/954, probes 288/288,
+modules 509/509); compiler `STDLIB_VERSION` pinned, release notes + gate
+record done, origin/main = `df493530` (release commit). LAST STEP is
+owner-gated: tag `v0.64.4` on `df493530` -> release run -> assets; then the
+reporter verdict wave. No archive on this machine yet: same verification
+plan (hijack both import orders + phantom bundle) at the archive.
+
 **Relay:** hand this file to the compiler-lane session together with the
 matching `docs/repro/<bundle>/` directories from the ORBITDB repo
 (`E:\xiom-projects\xiom-orbitdb`). ORBITDB is a consumer lane; it does not

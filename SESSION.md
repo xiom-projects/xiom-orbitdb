@@ -235,6 +235,17 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   GREEN x2 both, fuzz section (l) x2 both, db_crash 25/25 x2 both; readiness
   **D3 2/4 -> 75.5**. Docs: MVCC.md + ISOLATION rewrite + API/RUNBOOK/README/
   plan/checklist coupled.
+**Updated:** 2026-10-12 (doorbell 00:00Z): v0.64.4 is PINNED --
+`REL-20261011-1731-compiler` updates 4+5: m275 `4c42fc0a` fixed the
+stdlib-2045 wave regression (pushed); stdlib tagged `stdlib-v0.64.4` =
+`3df0843` (corpus 954/954, probes 288/288, modules 509/509); compiler
+`STDLIB_VERSION` pinned + release notes + gate record; origin/main =
+`df493530`. **Last step is owner-gated: tag `v0.64.4` on `df493530` ->
+release run -> assets.** No archive on this machine yet (no
+`xiom.new.0644`/candidate install; `releases/` has only v0.62.0): nothing
+testable -- workarounds stay; verify hijack (both import orders) + phantom
+bundle when the archive appears. Orbitdb queue otherwise clear; tree was
+clean at `b2a88e3` this cycle.
 **Updated:** 2026-10-11 (doorbell 21:00Z): `REL-20261011-1731-compiler`
 update 3 -- the v0.64.4 stack was PUSHED (owner-authorized): origin/main
 `677d65a7 -> 87c6ca3c` (m254-m274; m272-m274 are Gate-A/bindings fixes, no
@@ -924,11 +935,13 @@ expects `docs/repro/consumer-fn-hijack/` to print `svc: private arm() ran`
 on BOTH import orders; batch 3 phantom imports (1802+2124) expects the
 `docs/repro/phantom-core-import/` symptom to vanish. Keep the workarounds
 (`probe_arm`, type declarations) until each batch lands, then re-verify
-from the bundle READMEs and report on the bus. STATUS 2026-10-11: the six
-batches are COMPLETE (m261-m271; `REL-20261011-1731-compiler`) -- C-ORBIT-07
-fix = m261/m262 `677d65a7`, phantom gate = m266/m267 `0b1c6374` -- and the
-stack is PUSHED (`87c6ca3c`, m254-m274; 21:00Z doorbell); the **v0.64.4
-archive is pending the stdlib tag** -- verify on the next archive. PULSE's `probe_pkg_orbitdb`
+from the bundle READMEs and report on the bus. STATUS 2026-10-12 00:00Z:
+**v0.64.4 is PINNED** (compiler `df493530`; stdlib tag `stdlib-v0.64.4` =
+`3df0843`; C-ORBIT-07 fix = m261/m262 `677d65a7`, phantom gate = m266/m267
+`0b1c6374`, plus m272-m275 wave fixes) -- the LAST step is owner-gated
+(tag `v0.64.4` -> release run -> assets); **verify the two bundles as soon
+as an installable archive appears** (no `xiom.new.0644` on this machine at
+the 00:00Z doorbell). PULSE's `probe_pkg_orbitdb`
 results, and the stdlib rows on the bus (-3..-8 acked). (XVECTOR's
 XV-ORBITDB-01 fix was verified and closed 2026-10-10; re-run the hybrid
 probe when their pin moves.) **Doorbell: scheduled cron tasks are
