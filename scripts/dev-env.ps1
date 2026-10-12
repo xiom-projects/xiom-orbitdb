@@ -8,11 +8,12 @@
 # file the finding, note the last known-good version in SESSION.md as a
 # ROLLBACK OPTION, and keep moving on other slices.
 #
-# As of 2026-10-10 (compiler v0.64.3 bump):
-#   compiler  v0.64.3  %LOCALAPPDATA%\xiom.new.0643\bin\xiom.exe
-#     (shadow install of the v0.64.3 release; the canonical %LOCALAPPDATA%\
-#     xiom.new is still v0.64.2 and is left untouched -- other lanes share it.
-#     Canonical swap is owner/ops-coordinated; this lane pins explicitly.)
+# As of 2026-10-12 (compiler v0.64.4 release):
+#   compiler  v0.64.4  %LOCALAPPDATA%\xiom.new.0644\bin\xiom.exe
+#     (shadow install of the v0.64.4 release, sha256 44a41aea... verified
+#     against SHA256SUMS; the canonical %LOCALAPPDATA%\xiom.new is still
+#     v0.64.2 and is left untouched -- other lanes share it. Canonical swap
+#     is owner/ops-coordinated; this lane pins explicitly.)
 #   stdlib    E:\xiom-lang\stdlib (stdlib-lane checkout = latest lane work)
 #   packages  %LOCALAPPDATA%\xiom\packages (registry, signature-verified)
 #
@@ -29,7 +30,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$env:XIOM_COMPILER = Join-Path $env:LOCALAPPDATA "xiom.new.0643\bin\xiom.exe"
+$env:XIOM_COMPILER = Join-Path $env:LOCALAPPDATA "xiom.new.0644\bin\xiom.exe"
 $env:XIOM_STDLIB   = "E:\xiom-lang\stdlib"
 Remove-Item Env:XIOM_RUNTIME_DIR -ErrorAction SilentlyContinue   # retired
 

@@ -26,11 +26,13 @@
 // probe-logs/fault-sync.wal), ORBITDB_FAULT_CKPT_DB (checkpoint scenario),
 // ORBITDB_FAULT_BLOCK (block store). Exit: 0 = all checks passed, 1 = failed.
 //
-// Naming: the helper below is `probe_arm`, NOT `arm` -- a consumer-defined
-// `arm` silently hijacks `fault.xi`'s private `arm()` (C-ORBIT-07; bundle
-// docs/repro/consumer-fn-hijack/, bus REL-20261011-1124-orbitdb), which made
-// this probe panic in `env.cstr` before the rename. Also: never pass an empty
-// value to `env.set_var` (the stdlib cstr contract rejects it).
+// Naming: the helper below is `arm` (reverted from the C-ORBIT-07 workaround
+// name `probe_arm` on 2026-10-12). A consumer-defined `arm` used to silently
+// hijack `fault.xi`'s private `arm()`; m261/m262 fixed module-local call
+// precedence in v0.64.4, the bundle printed `svc: private arm() ran` on both
+// platforms, and this probe runs the original collision shape as the
+// real-world validation. Also: never pass an empty value to `env.set_var`
+// (the stdlib cstr contract rejects it).
 
 module orbitdb_probe_fault_sync
 
@@ -64,7 +66,7 @@ fn vec_eq(a: &Vec[Int], b: &Vec[Int]) -> Bool {
 // for syncfail, kind 0 = write-ish otherwise); `fault_reset` re-virgins.
 // An empty `tail` UNSETS the variable (env.set_var with "" trips the stdlib
 // cstr contract -- empty values cannot form a C string).
-fn probe_arm(at: Str, mode: Str, tail: Str) {
+fn arm(at: Str, mode: Str, tail: Str) {
   env.set_var("ORBITDB_FAULT_AT", at);
   env.set_var("ORBITDB_FAULT_MODE", mode);
   if tail.len() > 0 {
@@ -115,7 +117,7 @@ fn run_engine_latch(path: Str) -> Int {
   var db = db_file_open(path, 4);
   fails = check(db_file_put(&mut db, 1, 10), "A: baseline put acks", fails);
 
-  probe_arm("1", "syncfail", "");
+  arm("1", "syncfail", "");
   fails = check(!db_file_put(&mut db, 2, 20), "A: put with failing ack sync reports false", fails);
   fails = check(db_file_failed(&db), "A: handle latched", fails);
   fails = check(!db_file_put(&mut db, 3, 30), "A: latched put refuses", fails);
@@ -134,7 +136,7 @@ fn run_engine_latch(path: Str) -> Int {
   }
 
   // B: the delete record was logged before the failed ack too.
-  probe_arm("1", "syncfail", "");
+  arm("1", "syncfail", "");
   fails = check(!db_file_delete(&mut db2, 1), "B: delete with failing ack sync reports false", fails);
   fails = check(db_file_failed(&db2), "B: handle latched after delete", fails);
   disarm();
@@ -187,7 +189,7 @@ fn run_ckpt_2pc(path_in: Str) -> Int {
 
   // The checkpoint's first sync is the 2PC pre-flush; it fails before any
   // snapshot byte is written and before the WAL truncate.
-  probe_arm("1", "syncfail", "");
+  arm("1", "syncfail", "");
   let ck2 = db_file_checkpoint(&mut db);
   fails = check(ck2 == -1, "C: checkpoint with failing pre-sync returns -1", fails);
   fails = check(db_file_failed(&db), "C: handle latched", fails);
@@ -241,7 +243,7 @@ fn run_typed_latch(path: Str) -> Int {
   var row = Vec[Int].new();
   row.push(42);
   row.push(43);
-  probe_arm("1", "syncfail", "");
+  arm("1", "syncfail", "");
   fails = check(!db_file_put_typed(&mut db, 2, row), "E: typed put with failing ack sync reports false", fails);
   fails = check(db_file_failed(&db), "E: handle latched", fails);
   fails = check(!db_file_put_typed(&mut db, 3, row), "E: latched typed put refuses", fails);
@@ -290,7 +292,7 @@ fn run_block_partial(path: Str) -> Int {
 
   // Torn append: the write reports the shrunken byte count as success, but
   // the block never lands whole. No commit follows (crash shape).
-  probe_arm("1", "partial", "100");
+  arm("1", "partial", "100");
   let i3 = block_store_put(&mut bs, 2, 3, &p3);
   fails = check(i3 >= 0, "D: torn append reports an index (shrunken write)", fails);
   match block_store_read(&bs, 3) {
@@ -315,7 +317,7 @@ fn run_block_partial(path: Str) -> Int {
 
   // Torn update of page 1 at gen 3 (no commit): the committed gen-2 view
   // must keep the old payload.
-  probe_arm("1", "partial", "100");
+  arm("1", "partial", "100");
   let i4 = block_store_put(&mut bs3, 3, 1, &p9);
   fails = check(i4 >= 0, "D: torn update reports an index", fails);
   disarm();
@@ -345,7 +347,7 @@ fn run_block_partial(path: Str) -> Int {
   // Torn header slot: the commit's slot write is cut inside the 40-byte
   // block header (the payload region keeps the PREVIOUS header's bytes), so
   // the slot must fail its decode/CRC and the previous slot must win.
-  probe_arm("1", "partial", "40");
+  arm("1", "partial", "40");
   let torn_commit = block_store_commit(&mut bs5, &header_for(4));
   fails = check(torn_commit, "D: torn header write reports success", fails);
   disarm();

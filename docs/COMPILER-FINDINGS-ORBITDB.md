@@ -27,6 +27,17 @@ WAL/db/block crash + fuzz + 2000-key soak green both platforms. C-ORBIT-06
 with-twin still red on v0.64.3 (correction `REL-20261010-1802-orbitdb`);
 row `-2` (standalone-check quirk) still open. No new findings.
 
+**Status 2026-10-12 (v0.64.4 bump):** battery green -- seven repro bundles
+unchanged, suite **159/159 x2 Win + x2 WSL**, fuzz + WAL crash on both
+platforms, 2000-key soak OK. **C-ORBIT-06 and C-ORBIT-07 CLOSED**
+(fixed + verified: an unresolved `use` is now the single hard error
+`T001: unresolved import`; module-local call precedence holds and the
+`probe_fault_sync` workaround name is reverted -- probe green, 57 checks).
+C-ORBIT-08 PART B fixed (m260) / PART A open; C-ORBIT-09 still red;
+**C-ORBIT-10 filed** (Linux `--check` exits 0 on errors; Windows rc=1);
+row `-2` still open. Verdicts on
+`release-checks/compiler-compiler-v0.64.4.md` (bus).
+
 **Status 2026-10-11: C-ORBIT-07 filed (OPEN on v0.64.3)** -- a consumer-defined
 function silently hijacks an unqualified call to a module-PRIVATE same-named
 helper inside an imported module (the ORBITDB M2.1 fault probe's `arm` ran

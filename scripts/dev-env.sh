@@ -10,8 +10,9 @@
 # LATEST compiler / stdlib / packages to harden the ecosystem by real-world
 # use. Record exact versions and lane hashes in SESSION.md at every wrap.
 #
-# As of 2026-10-10: compiler v0.64.3 (mirrors scripts/dev-env.ps1, which pins
-# the Windows shadow install %LOCALAPPDATA%\xiom.new.0643):
+# As of 2026-10-12: compiler v0.64.4 (mirrors scripts/dev-env.ps1, which pins
+# the Windows shadow install %LOCALAPPDATA%\xiom.new.0644; WSL canonical
+# ~/.local/bin/xiom reports v0.64.4 on install root ~/.local/share/xiom):
 #   compiler  xiom (Linux install, canonical layout ~/.local/share/xiom)
 #   stdlib    $XIOM_STDLIB if set; else the WSL-mounted lane checkout
 #             /mnt/e/xiom-lang/stdlib when present; else the compiler's

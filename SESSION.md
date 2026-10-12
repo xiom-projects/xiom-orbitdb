@@ -64,6 +64,20 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   header slot) -- **suite 127/127 x2 Win + WSL**; API.md storage section
   documents the module. Next S1 item: fuzz extension; then S2 block store
   over the byte-IO shim.
+**Updated:** 2026-10-12 (v0.64.4 adoption + verdict wave, doorbell session):
+  pin moved to the v0.64.4 shadow (`xiom.new.0644`, Windows) + WSL canonical
+  v0.64.4 (dev-env both shells). Release-check `compiler-compiler-v0.64.4`
+  verdicts filed + pushed for all four orbitdb rows: `-2` still open (T001
+  1756/1761/1766); `-1219` PART B fixed (m260) / PART A red (0x80000003);
+  `-1659` still red (copy elem-assign writes through); `-1358` confirmed red
+  on Linux = **C-ORBIT-10** (bundle `docs/repro/check-exit-code/`).
+  Witnesses: **C-ORBIT-06 FIXED + CLOSED** (unresolved `use` = single hard
+  T001 `unresolved import 'xiom.core.error'`; phantom silent-pass gone) and
+  **C-ORBIT-07 FIXED + CLOSED** (`probe_fault_sync` workaround reverted to
+  `arm`; witness `svc: private arm() ran`; probe green, 57 checks). Battery:
+  seven bundles green; suite **159/159 x2 Win + x2 WSL**; fuzz + WAL crash
+  both platforms; 2000-key soak OK. Watch on the bus: C-ORBIT-08 PART A,
+  C-ORBIT-09, `-2`, C-ORBIT-10.
 **Updated:** 2026-10-11 (M2.1 first half -- COMPUTE CHECKPOINT, handoff): the
   durability API + fault injector are IN CODE and smoke-green (suite 134/134
   x1 Win, v0.64.3): `src/storage/fault.xi` (env-armed Nth-op injector:
@@ -408,17 +422,16 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   XV-ORBITDB-01, wrap `d9ef464`).
 - **VERSION POLICY (owner): track the LATEST compiler / stdlib / packages.**
   Record exact versions + lane hashes here at every wrap.
-  - compiler: **v0.64.3** (released 2026-10-10, pin `ab894b47`; m243-m246,
-    m248, m249+bridge, m252) -- Windows **shadow install**
-    `%LOCALAPPDATA%\xiom.new.0643\bin\xiom.exe` (the canonical
-    `xiom.new` stays v0.64.2 for the other lanes; swap is
-    owner/ops-coordinated), WSL `~/.local/bin/xiom` (canonical, already
-    0.64.3). Bump re-test 2026-10-10: seven C-ORBIT bundles unchanged/green,
-    suite 130/130 x2 Win + WSL, WAL crash 4/4 x2, db_crash 25/25 Win, block
-    crash 8/8 Win, fuzz + 2000-key soak OK both platforms; C-ORBIT-06
-    with-twin still red on v0.64.3 (correction
-    `REL-20261010-1802-orbitdb`), release-check row `-2` still open.
-    Rollback option: v0.64.2 (`xiom.new`; findings file keeps the notes).
+  - compiler: **v0.64.4** (released 2026-10-12, pin `df493530`; stdlib tag
+    `3df0843`; six batches m254-m273) -- Windows **shadow install**
+    `%LOCALAPPDATA%\xiom.new.0644\bin\xiom.exe` (sha256 `44a41aea...`;
+    canonical `xiom.new` stays v0.64.2 for the other lanes; swap is
+    owner/ops-coordinated), WSL canonical v0.64.4 (`d0a43a5c...`). Bump
+    re-test 2026-10-12: seven bundles green, suite **159/159 x2 Win + x2
+    WSL**, fuzz + WAL crash both platforms, 2000-key soak OK; witnesses
+    C-ORBIT-06 + C-ORBIT-07 fixed/closed; remaining reds on the bus:
+    C-ORBIT-08 PART A, C-ORBIT-09, `-2`, C-ORBIT-10. Rollback option:
+    v0.64.3 (`xiom.new.0643`; findings file keeps the notes).
   - Lane heads at the 2026-10-11 M5 handoff: stdlib `b8eda7d`,
     xvector `ede0e20`, packages `263684d9`, relays `88c2343` (all moving
     fast today; re-check at the next wrap -- release rows on the bus are the
@@ -909,8 +922,8 @@ finishing any task, then python tools/relay.py view --lane orbitdb and
 process items to this lane; never edit another lane's item (open a new one);
 owner relays human gates.
 
-TOOLCHAIN (latest-tracking): compiler v0.64.3 Windows shadow install
-(%LOCALAPPDATA%\xiom.new.0643) + WSL canonical ~/.local/bin/xiom (v0.64.3;
+TOOLCHAIN (latest-tracking): compiler v0.64.4 Windows shadow install
+(%LOCALAPPDATA%\xiom.new.0644) + WSL canonical ~/.local/bin/xiom (v0.64.4;
 dev-env pins both); stdlib
 E:\xiom-lang\stdlib; XIOM_RUNTIME_DIR retired. Dot-source scripts\dev-env.ps1
 (or scripts/dev-env.sh); run everything via scripts\run.ps1 / run.sh with a
@@ -935,16 +948,19 @@ expects `docs/repro/consumer-fn-hijack/` to print `svc: private arm() ran`
 on BOTH import orders; batch 3 phantom imports (1802+2124) expects the
 `docs/repro/phantom-core-import/` symptom to vanish. Keep the workarounds
 (`probe_arm`, type declarations) until each batch lands, then re-verify
-from the bundle READMEs and report on the bus. STATUS 2026-10-12 00:00Z:
-**v0.64.4 is PINNED** (compiler `df493530`; stdlib tag `stdlib-v0.64.4` =
-`3df0843`; C-ORBIT-07 fix = m261/m262 `677d65a7`, phantom gate = m266/m267
-`0b1c6374`, plus m272-m275 wave fixes) -- the LAST step is owner-gated
-(tag `v0.64.4` -> release run -> assets); **verify the two bundles as soon
-as an installable archive appears** (no `xiom.new.0644` on this machine at
-the 00:00Z doorbell). PULSE's `probe_pkg_orbitdb`
-results, and the stdlib rows on the bus (-3..-8 acked). (XVECTOR's
-XV-ORBITDB-01 fix was verified and closed 2026-10-10; re-run the hybrid
-probe when their pin moves.) **Doorbell: scheduled cron tasks are
+from the bundle READMEs and report on the bus. STATUS 2026-10-12 18:30Z:
+**v0.64.4 adopted** (archive installed; `xiom.new.0644` shadow + WSL
+canonical). Both named witnesses are now VERIFIED and their items CLOSED:
+batch 1 -> `svc: private arm() ran` (C-ORBIT-07; the `probe_arm` workaround
+name is reverted, probe green 57 checks); batch 3 -> the phantom symptom is
+gone as designed (unresolved `use` = single hard T001; C-ORBIT-06 closed;
+bundle README expectation rows still need their update pass). Remaining
+orbitdb reds to re-verify on the next archive: C-ORBIT-08 PART A
+(enum-in-tuple), C-ORBIT-09 (copy elem-assign write-through), C-ORBIT-10
+(Linux `--check` exit 0), and row `-2` (standalone-check quirk). PULSE's
+`probe_pkg_orbitdb` results, and the stdlib rows on the bus (-3..-8 acked).
+(XVECTOR's XV-ORBITDB-01 fix was verified and closed 2026-10-10; re-run the
+hybrid probe when their pin moves.) **Doorbell: scheduled cron tasks are
 SESSION-scoped -- a fresh session MUST re-create the 3h `cron_create`
 xiom-relays doorbell (pull, `view --lane orbitdb`, process, verify release
 rows, docs+commit).** (Note: the relays clone fetches a wildcard refspec,
