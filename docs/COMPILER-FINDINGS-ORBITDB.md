@@ -93,6 +93,28 @@ owner-gated: tag `v0.64.4` on `df493530` -> release run -> assets; then the
 reporter verdict wave. No archive on this machine yet: same verification
 plan (hijack both import orders + phantom bundle) at the archive.
 
+**Status 2026-10-12 (v0.64.4 verdict wave): C-ORBIT-06 + C-ORBIT-07
+VERIFIED FIXED and closed** -- the hijack witness prints `svc: private
+arm() ran` on both import orders PLUS a new same-signature variant (Win +
+WSL); the phantom bundle now fails with exactly ONE clear unresolved-import
+error (silent acceptance and the bogus W004s are gone; with-twin
+match-pattern T001 gone). **C-ORBIT-10 filed** (the Linux build's
+`xiom --check` exits 0 even for syntax errors -- official artifacts;
+ci-gate false-pass; bundle `docs/repro/check-exit-code/`, bus
+`REL-20261012-1358-orbitdb`). **C-ORBIT-11 filed** (xiom.btree + 
+xiom.db.engine cannot be co-imported: same-named types resolve the engine's
+own field-method calls against the foreign declaration, hard C001; bundle
+`docs/repro/same-named-struct-compose/`, bus `REL-20261012-1956-orbitdb`).
+C-ORBIT-08/09 re-ran unchanged (bundles' expected rc on v0.64.4); row
+`REL-20261010-1550-orbitdb-2` still open. The `probe_arm` workaround is
+REVERTED -- `probe_fault_sync.xi` now runs the original collision shape and
+is GREEN x2 Win + WSL on v0.64.4.
+
+**Status 2026-10-12 (production relay):** lane requirements for a
+production-grade DB posted per lane (stdlib `REL-20261012-1945-orbitdb`,
+compiler `-2`, packages `-3`), grounded in the acked IO cluster + the
+reference study.
+
 **Relay:** hand this file to the compiler-lane session together with the
 matching `docs/repro/<bundle>/` directories from the ORBITDB repo
 (`E:\xiom-projects\xiom-orbitdb`). ORBITDB is a consumer lane; it does not
@@ -494,6 +516,48 @@ applied then; every one is resolved on v0.64.2 (see the re-test above).
 - **Suggested fix:** make element assignment perform the same copy-on-write
   check as push/pop (or deep-copy on assignment), and consider a diagnostic
   when writing through a shared handle.
+
+## C-ORBIT-10 -- Linux `xiom --check` exits 0 even when it reports errors (OPEN, filed 2026-10-12)
+
+- **Bundle:** `docs/repro/check-exit-code/` (`probe_type.xi`,
+  `probe_syntax.xi`, README with the matrix).
+- **Symptom:** official v0.64.4 Linux artifact
+  (`xiom-0.64.4-linux-x64.tar.gz` `bin/xiom`, sha256 `d0a43a5c...`) prints
+  the diagnostics + `error: compilation failed` but exits **0** for both a
+  T001 type error and a P001 syntax error; the Windows artifact
+  (`44a41aea...`) exits 1 for the same files. Clean files exit 0 on both.
+- **Impact:** every Linux/WSL gate that branches on `--check`'s exit status
+  false-passes (CI gates, release-check scripts, tree-is-green loops).
+- **Workaround:** gate on output text (`compilation failed` / `error[`) or
+  use the Windows shadow for authoritative checks.
+- **Suggested fix:** propagate the error exit status on the check path of
+  the Linux build (the Windows behavior is the reference; `xiom run`
+  already propagates nonzero program exits).
+
+## C-ORBIT-11 -- same-named types across modules break consumers at codegen (OPEN, filed 2026-10-12)
+
+- **Bundle:** `docs/repro/same-named-struct-compose/` (real repro:
+  `tests/pkg/probe_compose_collision.xi`; a minimal two-struct pair is
+  included as negative evidence -- it does NOT reproduce).
+- **Symptom:** co-importing `xiom.btree` (package) with
+  `xiom.db.engine` fails at codegen:
+  `error[C001]: unresolved function symbol(s): 'xiom.btree.BTreeNode.pop'
+  ... from @db.engine.split_child, 'xiom.btree.BTreeNode.push' ... from
+  @db.engine.insert_at_pos`. The engine's own `payloads.pop()` /
+  `payloads.push()` calls (a field only the engine's BTreeNode has) resolve
+  against the package's same-named type. m267 rightly rejects unresolved
+  symbols; the trigger here is only the name collision.
+- **Impact:** registry packages cannot be co-composed with source modules
+  whose public type names overlap (BTreeNode/NodeStore/BTree). The
+  xiom.btree consumer pass had to be split into two programs with a shared
+  digest. Related: `REL-20261010-1709-xvector` (layout shadowing), the
+  C-ORBIT-04/m225 consumer-scope family.
+- **Workaround (applied):** never co-import modules with colliding type
+  names; verify packages in package-only programs and compare via external
+  digests (`probe_pkg_btree.xi` + `probe_pkg_btree_engine.xi`).
+- **Suggested fix:** resolve field/method access against the module-local
+  type definition; emit a clean "no field on <Type>" diagnostic when a
+  field is genuinely missing.
 
 ## Bump procedure used by this lane
 

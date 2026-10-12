@@ -69,3 +69,19 @@ defense inside the service module.
 Prefer the declaring module's own function for unqualified calls (mirror
 the m225 fix direction), and emit an ambiguity diagnostic when a
 same-named function exists in another module of the program.
+
+## Verdict on v0.64.4 (2026-10-12): FIXED
+
+- `probe_hijack.xi` now prints `svc: private arm() ran` + `done`, rc 0 (the
+  consumer's `arm` no longer hijacks).
+- `probe_clean.xi` unchanged green.
+- NEW `probe_shadow.xi` -- the consumer defines an EXACT same-signature
+  zero-arg `arm()`; still `svc: private arm() ran`, rc 0 (the strongest
+  variant).
+- All three x2 Win + x2 WSL on the official artifacts (Win zip sha256
+  `44a41aea...`, WSL linux sha256 `d0a43a5c...`).
+- The `probe_arm` workaround in `probe_fault_sync.xi` is REVERTED: the probe
+  runs the original collision shape (`arm` + fault.xi's private `arm()`) and
+  is GREEN x2 Win + WSL.
+- Bus: `REL-20261011-1124-orbitdb` verified + closed (fix ref m261/m262,
+  commit 677d65a7).
