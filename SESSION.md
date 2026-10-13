@@ -1231,6 +1231,21 @@ TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
    and was GREEN -- re-run LIVE plus the crash-harness half when their tree
    builds again. Keep SESSION.md STATE, the bus items and
    PRODUCTION-READINESS updated at every wrap; commit signed per step.
+6. **BENCH-1 (from the db-benchmarks study, 2026-10-13):** embedded-class
+   cross-engine bench on this box -- SQLite (`synchronous=FULL` for fsync
+   fairness) + bbolt's own bench (Go installed) vs our probe_bench on
+   identical YCSB-ish ops. The db-benchmarks clone (client-server league)
+   stays a methodology reference at `E:\repos\db-benchmarks` (CV-discipline
+   ideas fold into our bench baseline).
+7. **Refactor pass (owner directive 2026-10-13):** the core files exceed the
+   400-600-line guideline (`src/engine.xi` ~3.4k, `tests/test_conformance.xi`
+   ~6k). Plan: **R1** -- spike whether XIOM merges multi-file modules
+   (same `module xiom.db.engine` across files); if yes, move-only split
+   (engine_core / btree / snapshot+pins / txn / db) with suite x2 both at
+   every step and zero consumer changes; if no, split + mechanical import
+   updates on a branch. **R2** -- suite into per-area files + a summing
+   runner script (evidence shape change documented). Sequence: after
+   BENCH-1, before M1.1b.
 
 DISCIPLINE (v0.64.3; C-ORBIT-01..05/06 workarounds dropped -- C-ORBIT-07/08/
 09 workarounds stay until their batches/fixes land; see COMPILER-FINDINGS):
