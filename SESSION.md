@@ -249,6 +249,18 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   GREEN x2 both, fuzz section (l) x2 both, db_crash 25/25 x2 both; readiness
   **D3 2/4 -> 75.5**. Docs: MVCC.md + ISOLATION rewrite + API/RUNBOOK/README/
   plan/checklist coupled.
+**Updated:** 2026-10-13 (doorbell 00:00Z -- P5 rows closed): stdlib wave 117
+  (`260bb44`) landed the P5 pairs: `io.append_line_sync` (torn-tail repair +
+  append + fsync in one call), `io.file_last_byte` (O(1)) /
+  `io.ends_with_newline`, plus `remove_dir` + fd `truncate_fd` (packages-5 /
+  xvector-5 rows). Our rows `-7`/`-8` verified + closed with
+  `probe_io_primitives.xi` section E (24 checks total, GREEN x2 Win + x2
+  WSL on the lane runtime). **All eight of our stdlib IO rows (`-3..-8`)
+  are now verified + closed.** Remaining in the stdlib bundle: **P4 real
+  advisory `file_lock`** and the f32 bitcast pair (xvector); compiler acked
+  C-ORBIT-10 + C-ORBIT-11 (batch-tracked). Next slice unchanged: **M1.2 S4**
+  (byte-IO/fsync/append_line_sync swap + v2 default flip + bench + FORMATS
+  3v2), then M1.1b. Relays head `4357f3a`.
 **Updated:** 2026-10-12 (doorbell 21:00Z -- STDLIB DURABILITY UNLOCK): stdlib
   wave 115 (`c65acb5`) landed **P1 real fsync (`sync_io.sync_fd` /
   `io.fsync`), P2 byte random-access + held append handle + truncate
