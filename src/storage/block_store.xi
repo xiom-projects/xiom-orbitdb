@@ -275,10 +275,15 @@ pub fn block_store_compact(bs: &mut BlockStore, generation: Int) -> Bool {
     i = i + 1;
   }
 
+  // Rename durability (P3, M1.2 S4): the fully-written temp must be synced
+  // before publishing the new name, and the directory that received the
+  // rename after.
+  let _ = byteio_sync(tmp);
   match io.rename(tmp, bs.path) {
     Ok(_) => {}
     Err(_) => { return false; }
   }
+  let _ = byteio_sync_dir(bs.path);
 
   bs.header = h;
   bs.active_slot = 0;

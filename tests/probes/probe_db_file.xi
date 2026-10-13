@@ -32,12 +32,15 @@ use xiom.convert;
 use xiom.convert.parse;
 use xiom.db.engine;
 
-// Open honoring ORBITDB_DB_FORMAT (writes only; reads auto-detect).
+// Open honoring ORBITDB_DB_FORMAT (writes only; reads auto-detect). Both
+// branches are explicit since the M1.2 S4 flip: db_file_open now defaults to
+// v2, while this probe keeps v1 as its default scenario for crash-matrix
+// continuity (the engine's own default is v2).
 fn open_db(path: Str, order: Int) -> DBFile {
   if env.var_or("ORBITDB_DB_FORMAT", "v1") == "v2" {
     return db_file_open_cfg(path, order, 2);
   }
-  return db_file_open(path, order);
+  return db_file_open_cfg(path, order, 1);
 }
 
 fn run_write(path: Str, n: Int) -> Int {

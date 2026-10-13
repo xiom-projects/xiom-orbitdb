@@ -1809,8 +1809,12 @@ pub fn db_close(db: &mut Database) {
 // (torn tail skipped). Data pages still rebuild from the log on open; the
 // durable page file (storage/page_file.xi) takes over persistence next.
 //
-// Durability honesty: `db_file_flush` is the wal_file flush seam (no-op until
-// the stdlib fsync wrapper lands) -- process-crash safe, not power-loss safe.
+// Durability honesty (M2.1 second half, M1.2 S4 2026-10-13): `db_file_flush`
+// is the wal_file flush seam and is now a REAL fsync (sync_io.sync_fd). With
+// durability mode 1 (default) + two_phase, commits and checkpoint publishes
+// are power-loss honest up to the synced seams. Until the next compiler pin
+// re-vendors stdlib/runtime, run with XIOM_RUNTIME_DIR=<stdlib>/runtime
+// (scripts/dev-env.* sets it).
 
 // Transaction record codes (wal_file WALOpKind BeginTxn/CommitTxn/AbortTxn);
 // Int codes keep replay dispatch aligned with `db_file_apply_record`.
@@ -1842,10 +1846,9 @@ pub type DBFile = {
   // Secondary indexes over VALUES (M4.2); handle-scoped, rebuilt on open via
   // `db_file_create_index`. Maintained by put/delete/txn-commit.
   indexes: Vec[SecondaryIndex];
-  // Durability (M2.1 first half): 0 = normal (ack without a flush; sync at
-  // checkpoint only), 1 = immediate (flush at every commit ack). With the
-  // stdlib fsync stub both are no-ops today; the API is pinned now so the
-  // swap is behavior-only. `two_phase` (immediate only) flushes the WAL
+  // Durability (M2.1): 0 = normal (ack without a flush; sync at
+  // checkpoint only), 1 = immediate (REAL fsync at every commit ack since
+  // M1.2 S4; stdlib wave 115). `two_phase` (immediate only) flushes the WAL
   // before a checkpoint publishes its snapshot. A failed flush latches
   // `failed`: writers refuse until the handle is reopened.
   durability: Int;
@@ -1914,13 +1917,14 @@ fn db_file_apply_txop(tree: &mut BTree, op: TxOp) {
 // Open (or create) a file-backed database. Recovery: load the checkpoint
 // snapshot when present, then replay ONLY records newer than its
 // checkpoint_lsn; without a snapshot, replay the whole segment (Phase 1/B
-// behavior). The torn tail is healed once by `wal_file_open`. The v1 page
-// log is the default snapshot container; v2 (byte blocks) is opt-in per
-// handle via `db_file_open_cfg` and is auto-detected on READ (the on-disk
-// format decides how the snapshot loads; the handle's format decides how the
-// next checkpoint writes, migrating the file if needed).
+// behavior). The torn tail is healed once by `wal_file_open`. **The v2
+// byte-block container is the DEFAULT since M1.2 S4** (2026-10-13); v1
+// (text page log) stays fully supported for reads (auto-detected on the
+// on-disk format) and for writes via `db_file_open_cfg(path, order, 1)`.
+// The handle's format decides how the next checkpoint writes, migrating a
+// v1 file to v2 on its first write (migration-on-write).
 pub fn db_file_open(path: Str, order: Int) -> DBFile {
-  return db_file_open_cfg(path, order, 1);
+  return db_file_open_cfg(path, order, 2);
 }
 
 pub fn db_file_open_cfg(path: Str, order: Int, page_format: Int) -> DBFile {
@@ -2401,8 +2405,11 @@ fn db_file_commit_sync(db: &mut DBFile) -> Bool {
 //   2. header append (generation g)      -> snapshot committed at g
 //   3. WAL anchor append + truncate      -> anchor kept, next_lsn resumes
 //
-// Durability honesty: the snapshot rides on `page_file_sync` (no-op until the
-// stdlib fsync wrapper lands) -- process-crash safe, not power-loss safe.
+// Durability honesty (M2.1 second half, M1.2 S4): the snapshot rides on
+// byteio_sync/byteio_sync_dir (REAL fsync since stdlib waves 115/118): a
+// checkpoint syncs the WAL (two_phase pre-sync), writes the generation,
+// publishes the anchor, and syncs the file + directory -- power-loss honest
+// up to those seams.
 
 const SNAP_MAGIC: Int = 0x4F;       // 'O' -- snapshot page codec
 const SNAP_VERSION: Int = 1;        // header page version (unchanged)

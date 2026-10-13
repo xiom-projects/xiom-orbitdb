@@ -168,7 +168,9 @@ fn run_pin_churn(path: Str) -> Int {
 fn run_compaction_deferral(path: Str) -> Int {
   mv_cleanup(path);
   var fails = 0;
-  var db = db_file_open(path, 4);
+  // v1 page-log compaction mechanics (entry counting): explicit v1 handle
+  // after the M1.2 S4 default flip (db_file_open now defaults to v2).
+  var db = db_file_open_cfg(path, 4, 1);
   var i = 1;
   while i <= 24 {
     if !db_file_put(&mut db, i, i * 10) { return fails + 1; }

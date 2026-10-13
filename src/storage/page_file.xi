@@ -19,11 +19,13 @@
 module xiom.db.storage.page_file
 
 use xiom.io;
+use xiom.os.sync_io;
 use xiom.convert;
 use xiom.convert.parse;
 use xiom.string.trim;
 use xiom.string.split;
 use xiom.db.storage.page;
+use xiom.db.storage.byte_io;
 
 pub type PageFile = { path: Str; }
 
@@ -197,9 +199,15 @@ pub fn page_file_write_batch(pf: &PageFile, pages: Vec[Page]) -> Bool {
     Err(_) => { return false; }
     Ok(_) => {}
   }
+  // Rename durability (P3, M1.2 S4): sync the temp before publishing the new
+  // name, then sync the directory that received the rename.
+  let _ = byte_io.byteio_sync(tmp);
   let moved = io.rename(tmp, pf.path);
   match moved {
-    Ok(_) => { return true; }
+    Ok(_) => {
+      let _ = byte_io.byteio_sync_dir(pf.path);
+      return true;
+    }
     Err(_) => { return false; }
   }
 }
@@ -245,17 +253,34 @@ pub fn page_file_write(pf: &PageFile, page: Page) -> Bool {
     Err(_) => { return false; }
     Ok(_) => {}
   }
+  // Rename durability (P3, M1.2 S4): sync the temp before publishing, then
+  // sync the directory that received the rename.
+  let _ = byte_io.byteio_sync(tmp);
   let moved = io.rename(tmp, pf.path);
   match moved {
-    Ok(_) => { return true; }
+    Ok(_) => {
+      let _ = byte_io.byteio_sync_dir(pf.path);
+      return true;
+    }
     Err(_) => { return false; }
   }
 }
 
-// Durability seam: no-op success until the stdlib fsync wrapper lands.
+// Durability seam (M2.1 second half, real since M1.2 S4): fsync the file.
 pub fn page_file_sync(pf: &PageFile) -> Bool {
-  let _ = pf;
-  return true;
+  if !io.file_exists(pf.path) { return true; }
+  match sync_io.open_append(pf.path) {
+    Err(_) => { return false; }
+    Ok(fd) => {
+      var ok = false;
+      match sync_io.sync_fd(fd) {
+        Ok(_) => { ok = true; }
+        Err(_) => {}
+      }
+      let _ = sync_io.close_fd(fd);
+      return ok;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -282,19 +307,18 @@ pub fn page_log_append(pf: &PageFile, page: Page) -> Bool {
 
 // Heal a torn trailing line (crash mid-append): if the file does not end with
 // a newline, terminate the partial line so the next append starts clean.
+// O(1) since M1.2 S4: file_last_byte + append_line_sync (stdlib wave 117).
 pub fn page_log_heal_tail(pf: &PageFile) -> Bool {
-  let r = io.read_file(pf.path);
-  match r {
-    Ok(content) => {
-      if content == "" { return true; }
-      if str_ends_with(content, "\n") { return true; }
-      let wrote = io.append_line(pf.path, "");
-      match wrote {
+  if !io.file_exists(pf.path) { return true; } // missing file: nothing to heal
+  match io.file_last_byte(pf.path) {
+    None => { return true; } // empty file
+    Some(b) => {
+      if b == (10 as UInt8) { return true; }
+      match io.append_line_sync(pf.path, "") {
         Ok(_) => { return true; }
         Err(_) => { return false; }
       }
     }
-    Err(_) => { return true; } // missing file: nothing to heal
   }
 }
 

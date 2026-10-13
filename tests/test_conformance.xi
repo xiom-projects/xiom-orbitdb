@@ -3859,6 +3859,86 @@ fn test_db_snapshot_typed() -> TestResult {
   return assert(false, "db_file snapshot: typed failed rc=" + int_to_str(rc));
 }
 
+// M1.2 S4 default flip: db_file_open now writes the v2 byte container; a v1
+// file opened by default migrates on its next checkpoint; readers keep
+// auto-detecting either format everywhere.
+fn run_db_file_default_v2_flip() -> Int {
+  let path = "orbitdb-suite-db-flip.wal";
+  let snap = "orbitdb-suite-db-flip.wal.snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+
+  // 1. Default open + checkpoint writes a v2 container (first byte 'O').
+  var db = db_file_open(path, 4);
+  var i = 1;
+  while i <= 10 {
+    if !db_file_put(&mut db, i, i * 7) { return 1; }
+    i = i + 1;
+  }
+  if db_file_checkpoint(&mut db) < 0 { return 2; }
+  match io.read_at(snap, 0, 1) {
+    Err(_) => { return 3; }
+    Ok(b) => {
+      if b.len() != 1 { return 4; }
+      if ((b[0] as Int) & 0xFF) != 0x4F { return 5; }
+    }
+  }
+
+  // 2. Default reopen: v2 loads, data intact, further writes + checkpoint.
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 10 { return 6; }
+  if !db_file_put(&mut db2, 11, 77) { return 7; }
+  if db_file_checkpoint(&mut db2) < 0 { return 8; }
+
+  // 3. Migration-on-write via the DEFAULT open: a v1 file flips to v2 at its
+  //    next checkpoint and stays readable.
+  let path1 = "orbitdb-suite-db-flip1.wal";
+  let snap1 = "orbitdb-suite-db-flip1.wal.snap";
+  let _ = io.remove_file(path1);
+  let _ = io.remove_file(snap1);
+  var v1 = db_file_open_cfg(path1, 4, 1);
+  i = 1;
+  while i <= 6 {
+    if !db_file_put(&mut v1, i, i * 3) { return 9; }
+    i = i + 1;
+  }
+  if db_file_checkpoint(&mut v1) < 0 { return 10; }
+  match io.read_at(snap1, 0, 1) {
+    Err(_) => { return 11; }
+    Ok(b) => {
+      if b.len() == 1 && ((b[0] as Int) & 0xFF) == 0x4F { return 12; }
+    }
+  }
+  var m = db_file_open(path1, 4); // default = v2 handle on a v1 file
+  if db_file_size(&m) != 6 { return 13; }
+  if !db_file_put(&mut m, 7, 21) { return 14; }
+  if db_file_checkpoint(&mut m) < 0 { return 15; } // migrates to v2
+  match io.read_at(snap1, 0, 1) {
+    Err(_) => { return 16; }
+    Ok(b) => {
+      if b.len() != 1 { return 17; }
+      if ((b[0] as Int) & 0xFF) != 0x4F { return 18; }
+    }
+  }
+  let v = db_file_open(path1, 4);
+  if db_file_size(&v) != 7 { return 19; }
+  match db_file_get(&v, 7) {
+    None => { return 20; }
+    Some(x) => { if x != 21 { return 21; } }
+  }
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  let _ = io.remove_file(path1);
+  let _ = io.remove_file(snap1);
+  return 0;
+}
+
+fn test_db_file_default_v2_flip() -> TestResult {
+  let rc = run_db_file_default_v2_flip();
+  if rc == 0 { return assert(true, "db_file: v2 is the default container; v1 migrates on default write"); }
+  return assert(false, "db_file: default v2 flip failed rc=" + int_to_str(rc));
+}
+
 // ===========================================================================
 // Durable page file (text v1, CRC32C verified, atomic rewrite)
 // ===========================================================================
@@ -4338,7 +4418,9 @@ fn run_db_file_incremental_checkpoint() -> Int {
   let _ = io.remove_file(path);
   let _ = io.remove_file(snap);
 
-  var db = db_file_open(path, 4);
+  // v1 page-log mechanics test: keep an explicit v1 handle after the M1.2 S4
+  // default flip (db_file_open now defaults to the v2 byte container).
+  var db = db_file_open_cfg(path, 4, 1);
   var i = 1;
   while i <= 12 {
     if !db_file_put(&mut db, i, i * 10) { return 1; }
@@ -4363,7 +4445,7 @@ fn run_db_file_incremental_checkpoint() -> Int {
   let c3 = db_file_checkpoint(&mut db);
   if c3 <= c2 { return 1; }
 
-  var db2 = db_file_open(path, 4);
+  var db2 = db_file_open_cfg(path, 4, 1);
   if db_file_size(&db2) != 13 { return 1; }
   let v13 = db_file_get(&db2, 13);
   match v13 {
@@ -4857,7 +4939,8 @@ fn run_db_file_dirty_flush() -> Int {
   let _ = io.remove_file(path);
   let _ = io.remove_file(snap);
 
-  var db = db_file_open(path, 4);
+  // v1 page-log mechanics test: explicit v1 handle after the M1.2 S4 flip.
+  var db = db_file_open_cfg(path, 4, 1);
   var i = 1;
   while i <= 12 {
     if !db_file_put(&mut db, i, i * 10) { return 1; }
@@ -4885,7 +4968,7 @@ fn run_db_file_dirty_flush() -> Int {
   let entries3 = page_log_len(&pf);
   if entries3 - entries2 != 1 { return 1; }
 
-  var db2 = db_file_open(path, 4);
+  var db2 = db_file_open_cfg(path, 4, 1);
   if db_file_size(&db2) != 12 { return 1; }
   let v5 = db_file_get(&db2, 5);
   match v5 {
@@ -5893,6 +5976,8 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r132.passed, r132.name);
   let r133 = test_db_snapshot_typed();
   total = total + 1; failed = failed + report(r133.passed, r133.name);
+  let r134 = test_db_file_default_v2_flip();
+  total = total + 1; failed = failed + report(r134.passed, r134.name);
 
   let passed = total - failed;
   io.println("");

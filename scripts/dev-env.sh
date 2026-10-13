@@ -19,8 +19,11 @@
 #             bundled lib/xiom tree (release-artifact behavior)
 #   packages  <xiom_home>/packages (xiom pkg install; WSL layout ~/xiom)
 #
-# XIOM_RUNTIME_DIR is RETIRED on v0.64.0 (release R65 links the installed
-# lib/runtime + lib/xiom without overrides). The variable is always cleared.
+# XIOM_RUNTIME_DIR is retired on v0.64.0 in general, BUT temporarily
+# re-enabled for this lane since 2026-10-13 (M1.2 S4): the stdlib
+# durability/byte-IO primitives (waves 115/117/118) live in the lane runtime
+# and only reach consumers at the next compiler pin that re-vendors
+# stdlib/runtime. Remove this override at that pin.
 #
 # Safe to source repeatedly; never exits the caller on warnings.
 # ============================================================================
@@ -37,8 +40,13 @@ if [ -z "${XIOM_COMPILER:-}" ]; then
 fi
 [ -n "${XIOM_COMPILER:-}" ] && export XIOM_COMPILER
 
-# --- retired runtime override ----------------------------------------------
-unset XIOM_RUNTIME_DIR
+# --- lane-runtime override (temporary, S4) ----------------------------------
+if [ -d /mnt/e/xiom-lang/stdlib/runtime ]; then
+  XIOM_RUNTIME_DIR=/mnt/e/xiom-lang/stdlib/runtime
+elif [ -d "${XIOM_STDLIB:-}/runtime" ]; then
+  XIOM_RUNTIME_DIR="$XIOM_STDLIB/runtime"
+fi
+[ -n "${XIOM_RUNTIME_DIR:-}" ] && export XIOM_RUNTIME_DIR
 
 # --- stdlib -----------------------------------------------------------------
 if [ -z "${XIOM_STDLIB:-}" ] && [ -d /mnt/e/xiom-lang/stdlib ]; then
@@ -57,5 +65,5 @@ _ver="$("$XIOM_COMPILER" --version 2>&1 | head -n 1)"
 printf 'dev-env: %s\n' "$_ver"
 printf 'dev-env: XIOM_COMPILER = %s\n' "$XIOM_COMPILER"
 printf 'dev-env: XIOM_STDLIB   = %s\n' "${XIOM_STDLIB:-<unset: compiler bundled stdlib>}"
-printf 'dev-env: XIOM_RUNTIME_DIR retired (v0.64.0 R65 install-layout fix)\n'
+printf 'dev-env: XIOM_RUNTIME_DIR = %s (S4 lane-runtime override; remove at the next re-vendor pin)\n' "${XIOM_RUNTIME_DIR:-<unset>}"
 unset _ver

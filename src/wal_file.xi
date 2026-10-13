@@ -13,9 +13,12 @@
 //   * malformed / torn tail lines are skipped on replay (record healing);
 //   * LSNs are strictly monotonic; `wal_file_open` resumes from the log.
 //
-// Durability honesty: `wal_file_flush` is a no-op until the runtime gains an
-// fsync/FlushFileBuffers wrapper (STDLIB-WISHLIST-ORBITDB.md). "Durable"
-// today means OS write-back + torn-tail healing, not power-loss durability.
+// Durability honesty (M2.1 second half, M1.2 S4 2026-10-13): `wal_file_flush`
+// is a REAL fsync (sync_io.sync_fd) since stdlib wave 115; with the engine's
+// durability mode 1 + two_phase, commits and checkpoint publishes are
+// power-loss honest up to the synced seams. Until the next compiler pin
+// re-vendors stdlib/runtime, run with XIOM_RUNTIME_DIR=<stdlib>/runtime
+// (scripts/dev-env.* sets it).
 //
 // Codec v1 (one record per line, UTF-8 text):
 //   lsn|op|key|value|timestamp[|p0,p1,...]
@@ -25,6 +28,8 @@
 module xiom.db.wal_file
 
 use xiom.io;
+use xiom.os.sync_io;
+use xiom.db.storage.byte_io;
 use xiom.convert;
 use xiom.convert.parse;
 use xiom.string;
@@ -111,20 +116,20 @@ pub fn wal_op_is_write(op: WALOpKind) -> Bool {
 
 // Torn-tail healing: if the segment does not end with a newline (crash
 // mid-record), append one before the next record so the partial tail stays
-// its own skipped line instead of merging with the new record.
+// its own skipped line instead of merging with the new record. Since M1.2 S4
+// this is O(1): file_last_byte + append_line_sync (stdlib wave 117) instead
+// of read-the-whole-segment.
 pub fn wal_file_heal_tail(path: Str) -> Bool {
-  let r = io.read_file(path);
-  match r {
-    Ok(content) => {
-      if content == "" { return true; }
-      if str_ends_with(content, "\n") { return true; }
-      let wrote = io.append_line(path, "");
-      match wrote {
+  if !io.file_exists(path) { return true; } // missing file: nothing to heal
+  match io.file_last_byte(path) {
+    None => { return true; } // empty file
+    Some(b) => {
+      if b == (10 as UInt8) { return true; }
+      match io.append_line_sync(path, "") {
         Ok(_) => { return true; }
         Err(_) => { return false; }
       }
     }
-    Err(_) => { return true; } // missing file: nothing to heal
   }
 }
 
@@ -172,11 +177,24 @@ pub fn wal_file_append_tagged(w: &mut WALFile, op: WALOpKind, key: Int, value: I
   return wal_file_append_line(w, op, key, value, &payload, timestamp);
 }
 
-// Durability seam. No-op success until the runtime exposes fsync
-// (STDLIB-WISHLIST-ORBITDB.md row 1); keep the call site in place so the
-// swap is one line when it lands.
+// Durability seam (M2.1 second half, real since M1.2 S4): fsync the segment
+// via a held append handle (sync_io.sync_fd). The engine's commit path calls
+// byteio_sync directly (fault-gated); this helper is the library-level form
+// for probes/callers that hold a WALFile.
 pub fn wal_file_flush(w: &mut WALFile) -> Bool {
-  return true;
+  if !io.file_exists(w.path) { return true; }
+  match sync_io.open_append(w.path) {
+    Err(_) => { return false; }
+    Ok(fd) => {
+      var ok = false;
+      match sync_io.sync_fd(fd) {
+        Ok(_) => { ok = true; }
+        Err(_) => {}
+      }
+      let _ = sync_io.close_fd(fd);
+      return ok;
+    }
+  }
 }
 
 pub fn wal_file_next_lsn(w: &WALFile) -> Int {
@@ -314,9 +332,15 @@ pub fn wal_file_truncate(path: Str, from_lsn: Int) -> Bool {
     Ok(_) => {}
     Err(_) => { return false; }
   }
+  // Rename durability (P3, M1.2 S4): sync the temp before publishing, then
+  // sync the directory that received the rename.
+  let _ = byteio_sync(tmp);
   let moved = io.rename(tmp, path);
   match moved {
-    Ok(_) => { return true; }
+    Ok(_) => {
+      let _ = byteio_sync_dir(path);
+      return true;
+    }
     Err(_) => { return false; }
   }
 }
