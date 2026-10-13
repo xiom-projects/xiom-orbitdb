@@ -261,6 +261,20 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `-1549-packages-7` (tracked). Remaining production-relay items:
   compiler `1945-2` (08/09/10 in batches) + `1358`/`1956` acked. Relays head
   `2d7505c`.
+**Updated:** 2026-10-13 (bus, engine ask ledger): the engine filed a 38-row
+  ask ledger (`REL-20261013-1948-engine`; `docs/PACKAGE-ASKS.md` @ 2918676,
+  sections A/B/C/S/O). No orbitdb section, but **A09 = "SQLite-class local
+  DB for registry/cache services (orbitdb synergy, optional, contract-bound)"
+  is ours** -- responded with the by-function surface + gates
+  (`REL-20261013-1950-orbitdb`: open/typed rows/queries/durability/
+  checkpoint/backup recipe; gates = pager M1.1b, power-loss matrix, first
+  release; the engine files the concrete verb list when its wave arrives,
+  or we align with the registry pilot adapter). S03 note:
+  fsync/append/truncate/read_exact/file_lock all landed (waves 115/117/118);
+  only **mmap/msync** + the f32 bitcast remain stubs -- our M1.1b pager uses
+  `read_at`/`write_at`, so S03 does not gate us. stdlib wave-130
+  builder-pass re-run acked (`REL-20261013-1903-stdlib`). Relays head
+  `2f01739`.
 **Updated:** 2026-10-13 (bus): registry opened a **pilot gate**
   (`REL-20261013-1707-registry-2`): once ORBITDB is production-grade they
   will back their 2.14.2 social/platform layer with ORBITDB as a store
