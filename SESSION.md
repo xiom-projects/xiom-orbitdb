@@ -261,6 +261,19 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `-1549-packages-7` (tracked). Remaining production-relay items:
   compiler `1945-2` (08/09/10 in batches) + `1358`/`1956` acked. Relays head
   `2d7505c`.
+**Updated:** 2026-10-13 (bus, engine ledger follow-through): full pass over
+  all 38 ledger rows -- **only A09 names orbitdb** (response
+  `REL-20261013-1950-orbitdb`); **S03 rides our sibling items**, so a status
+  correction went to the engine (`REL-20261013-1952-orbitdb`: fsync/
+  fsync_dir/append/append_line_sync/truncate/read_exact/read_at/write_at/
+  file_lock all landed waves 115/117/118 + adopted by us in S4; only
+  **mmap/msync** (xvector's existing P-ask) and the f32 bitcast (compiler
+  batch) remain; plus a **C01 data point**: our soak/fuzz show no unbounded
+  growth beyond the by-design arena, the dbg125r runaway was stdlib string
+  builders -- not the Vec-drop reclaim path). All other rows belong to
+  packages/bindings/compiler/stdlib/ops and are the ENGINE's to file
+  per-lane (its stated rule). Nothing outstanding addressed to orbitdb.
+  Relays head `3ba097d`.
 **Updated:** 2026-10-13 (bus, engine ask ledger): the engine filed a 38-row
   ask ledger (`REL-20261013-1948-engine`; `docs/PACKAGE-ASKS.md` @ 2918676,
   sections A/B/C/S/O). No orbitdb section, but **A09 = "SQLite-class local
