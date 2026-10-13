@@ -70,7 +70,7 @@ export ORBITDB_WAL_MODE="write"
 export ORBITDB_WAL_N="$EVENTS"
 # setsid puts the compiler + program in a new process group so the hard-kill
 # takes down the hanging program too (kill -PGID below).
-setsid "$XIOM_COMPILER" --run "$PROBE" >"$LOG_DIR/crash-writer.out" 2>&1 &
+setsid "$XIOM_COMPILER" --run "$PROBE" -o "$LOG_DIR/crash-writer-$$.bin" >"$LOG_DIR/crash-writer.out" 2>&1 &
 WRITER_PID=$!
 
 DEADLINE=$(( $(date +%s) + TIMEOUT_SEC ))

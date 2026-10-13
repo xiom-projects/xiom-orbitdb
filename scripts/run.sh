@@ -53,12 +53,17 @@ fi
 
 FILE_ABS=$(realpath "$FILE")
 OUT=$(mktemp "${TMPDIR:-/tmp}/orbitdb-run-XXXXXX")
-( cd "$REPO_ROOT" && exec timeout "$TIMEOUT_SEC" "$XIOM_COMPILER" --run "$FILE_ABS" ) >"$OUT" 2>&1
+# Unique output binary per invocation (S4 harness hardening): sharing a.out in
+# the repo root collides on DrvFs when a just-killed writer's image lingers
+# ("Text file busy", os error 26) and cross-run overwrites race.
+BIN=$(mktemp "${TMPDIR:-/tmp}/orbitdb-bin-XXXXXX")
+rm -f "$BIN"
+( cd "$REPO_ROOT" && exec timeout "$TIMEOUT_SEC" "$XIOM_COMPILER" --run "$FILE_ABS" -o "$BIN" ) >"$OUT" 2>&1
 RC=$?
 
 if [ "$RC" -eq 124 ]; then
   sed -n '1,200p' "$OUT"
-  rm -f "$OUT" "$REPO_ROOT/a.out" "$REPO_ROOT/a.exe" "$REPO_ROOT/a.exe.ll"
+  rm -f "$OUT" "$BIN"
   printf 'run: TIMEOUT after %ss\n' "$TIMEOUT_SEC"
   exit 124
 fi
@@ -72,7 +77,7 @@ LINE=$(grep -oE 'exit code:[[:space:]]*-?[0-9]+' "$OUT" | tail -n 1 || true)
 if [ -n "$LINE" ]; then
   PROGRAM_EXIT=$(printf '%s' "$LINE" | grep -oE -- '-?[0-9]+$')
 fi
-rm -f "$OUT" "$REPO_ROOT/a.out" "$REPO_ROOT/a.exe" "$REPO_ROOT/a.exe.ll"
+rm -f "$OUT" "$BIN"
 
 if [ -n "$PROGRAM_EXIT" ]; then
   printf 'run: program_exit=%s compiler_exit=%s\n' "$PROGRAM_EXIT" "$RC"

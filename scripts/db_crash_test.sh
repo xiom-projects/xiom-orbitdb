@@ -80,7 +80,7 @@ invoke_mode() { # mode n [last_key last_val path]
 export ORBITDB_DB_FILE="$WAL_FILE"
 export ORBITDB_DB_MODE="write"
 export ORBITDB_DB_N="$KEYS"
-setsid "$XIOM_COMPILER" --run "$PROBE" >"$LOG_DIR/dbfile-writer.out" 2>&1 &
+setsid "$XIOM_COMPILER" --run "$PROBE" -o "$LOG_DIR/dbfile-writer-$$.bin" >"$LOG_DIR/dbfile-writer.out" 2>&1 &
 WRITER_PID=$!
 
 DEADLINE=$(( $(date +%s) + TIMEOUT_SEC ))
@@ -124,7 +124,7 @@ export ORBITDB_DB_FILE="$CKPT_WAL"
 export ORBITDB_DB_MODE="ckpt"
 export ORBITDB_DB_N="$KEYS"
 export ORBITDB_DB_TAIL="0"
-setsid "$XIOM_COMPILER" --run "$PROBE" >"$LOG_DIR/dbfile-writer-ckpt.out" 2>&1 &
+setsid "$XIOM_COMPILER" --run "$PROBE" -o "$LOG_DIR/dbfile-writer-ckpt-$$.bin" >"$LOG_DIR/dbfile-writer-ckpt.out" 2>&1 &
 WRITER_PID=$!
 
 DEADLINE=$(( $(date +%s) + TIMEOUT_SEC ))
@@ -160,7 +160,7 @@ export ORBITDB_DB_FILE="$TAIL_WAL"
 export ORBITDB_DB_MODE="ckpt"
 export ORBITDB_DB_N="$KEYS"
 export ORBITDB_DB_TAIL="$TAIL"
-setsid "$XIOM_COMPILER" --run "$PROBE" >"$LOG_DIR/dbfile-writer-tail.out" 2>&1 &
+setsid "$XIOM_COMPILER" --run "$PROBE" -o "$LOG_DIR/dbfile-writer-tail-$$.bin" >"$LOG_DIR/dbfile-writer-tail.out" 2>&1 &
 WRITER_PID=$!
 
 DEADLINE=$(( $(date +%s) + TIMEOUT_SEC ))
@@ -197,7 +197,7 @@ export ORBITDB_DB_MODE="txn"
 export ORBITDB_DB_N="$KEYS"
 export ORBITDB_DB_TXN_COUNT="$TX"
 export ORBITDB_DB_TXN_COMMIT="0"
-setsid "$XIOM_COMPILER" --run "$PROBE" >"$LOG_DIR/dbfile-writer-txn.out" 2>&1 &
+setsid "$XIOM_COMPILER" --run "$PROBE" -o "$LOG_DIR/dbfile-writer-txn-$$.bin" >"$LOG_DIR/dbfile-writer-txn.out" 2>&1 &
 WRITER_PID=$!
 
 DEADLINE=$(( $(date +%s) + TIMEOUT_SEC ))
@@ -234,7 +234,7 @@ export ORBITDB_DB_MODE="txn"
 export ORBITDB_DB_N="$KEYS"
 export ORBITDB_DB_TXN_COUNT="$TX"
 export ORBITDB_DB_TXN_COMMIT="1"
-setsid "$XIOM_COMPILER" --run "$PROBE" >"$LOG_DIR/dbfile-writer-txn2.out" 2>&1 &
+setsid "$XIOM_COMPILER" --run "$PROBE" -o "$LOG_DIR/dbfile-writer-txn2-$$.bin" >"$LOG_DIR/dbfile-writer-txn2.out" 2>&1 &
 WRITER_PID=$!
 
 DEADLINE=$(( $(date +%s) + TIMEOUT_SEC ))

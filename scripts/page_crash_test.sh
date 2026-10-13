@@ -67,7 +67,7 @@ invoke_mode() { # mode n [last_id]
 export ORBITDB_PAGE_FILE="$PAGE_FILE"
 export ORBITDB_PAGE_MODE="write"
 export ORBITDB_PAGE_N="$PAGES"
-setsid "$XIOM_COMPILER" --run "$PROBE" >"$LOG_DIR/page-writer.out" 2>&1 &
+setsid "$XIOM_COMPILER" --run "$PROBE" -o "$LOG_DIR/page-writer-$$.bin" >"$LOG_DIR/page-writer.out" 2>&1 &
 WRITER_PID=$!
 
 DEADLINE=$(( $(date +%s) + TIMEOUT_SEC ))

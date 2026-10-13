@@ -61,7 +61,7 @@ for KILL_AT in pages2 full2 midheader compacted; do
   rm -f "$DB" "$DB.tmp" "$DB.ready"
   export ORBITDB_BLOCK_KILL_AT="$KILL_AT"
   export ORBITDB_BLOCK_MODE=writer
-  setsid "$XIOM_COMPILER" --run "$PROBE" >"$LOG_DIR/block-writer-$KILL_AT.out" 2>&1 &
+  setsid "$XIOM_COMPILER" --run "$PROBE" -o "$LOG_DIR/block-writer-$KILL_AT-$$.bin" >"$LOG_DIR/block-writer-$KILL_AT.out" 2>&1 &
   WRITER_PID=$!
   DEADLINE=$(( $(date +%s) + TIMEOUT_SEC ))
   REACHED=1

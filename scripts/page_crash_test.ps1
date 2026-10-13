@@ -58,7 +58,7 @@ $env:ORBITDB_PAGE_MODE = "write"
 $env:ORBITDB_PAGE_N = "$Pages"
 $writerOut = Join-Path $logDir "page-writer.out"
 $writerErr = Join-Path $logDir "page-writer.err"
-$writer = Start-Process -FilePath $env:XIOM_COMPILER -ArgumentList @("--run", $probe) `
+$writer = Start-Process -FilePath $env:XIOM_COMPILER -ArgumentList @("--run", $probe, "-o", (Join-Path $logDir "page-writer-$PID.bin.exe")) `
     -WorkingDirectory $repoRoot -NoNewWindow -PassThru `
     -RedirectStandardOutput $writerOut -RedirectStandardError $writerErr
 

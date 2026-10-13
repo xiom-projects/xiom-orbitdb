@@ -72,7 +72,10 @@ function Start-Writer {
     $env:ORBITDB_DB_TAIL = "$T"
     $out = Join-Path $logDir "$OutName.out"
     $err = Join-Path $logDir "$OutName.err"
-    return Start-Process -FilePath $env:XIOM_COMPILER -ArgumentList @("--run", $probe) `
+    # Unique output binary per writer (S4 harness hardening: sharing a.exe in
+    # the repo root collides on DrvFs with a lingering killed image).
+    $bin = Join-Path $logDir "$OutName-$PID.bin.exe"
+    return Start-Process -FilePath $env:XIOM_COMPILER -ArgumentList @("--run", $probe, "-o", $bin) `
         -WorkingDirectory $repoRoot -NoNewWindow -PassThru `
         -RedirectStandardOutput $out -RedirectStandardError $err
 }

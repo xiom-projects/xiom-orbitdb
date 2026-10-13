@@ -34,12 +34,16 @@ $tmpRoot = if ($env:TEMP) { $env:TEMP } else { [System.IO.Path]::GetTempPath() }
 $base = Join-Path $tmpRoot ("orbitdb-run-" + [guid]::NewGuid().ToString("N"))
 $outFile = "$base.out"
 $errFile = "$base.err"
+# Unique output binary per invocation (S4 harness hardening): sharing a.exe in
+# the repo root collides on DrvFs when a just-killed writer's image lingers
+# ("Text file busy", os error 26) and cross-run overwrites race.
+$binFile = "$base.exe"
 
 Write-Host "run: $filePath"
 Write-Host "  compiler:  $env:XIOM_COMPILER"
 Write-Host "  watchdog:  ${TimeoutSec}s"
 
-$proc = Start-Process -FilePath $env:XIOM_COMPILER -ArgumentList @("--run", $filePath) `
+$proc = Start-Process -FilePath $env:XIOM_COMPILER -ArgumentList @("--run", $filePath, "-o", $binFile) `
     -WorkingDirectory $repoRoot -NoNewWindow -PassThru `
     -RedirectStandardOutput $outFile -RedirectStandardError $errFile
 
@@ -57,10 +61,10 @@ if ($timedOut -and -not $proc.HasExited) {
 
 $stdout = if (Test-Path -LiteralPath $outFile) { Get-Content -LiteralPath $outFile -Raw } else { "" }
 $stderr = if (Test-Path -LiteralPath $errFile) { Get-Content -LiteralPath $errFile -Raw } else { "" }
-Remove-Item -LiteralPath $outFile, $errFile -ErrorAction SilentlyContinue
-# The compiler drops a.exe/a.exe.ll in the working directory; clean up.
-$artifacts = @("a.exe", "a.exe.ll", "a.out") | ForEach-Object { Join-Path $repoRoot $_ }
-Remove-Item -LiteralPath $artifacts -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $outFile, $errFile, $binFile -ErrorAction SilentlyContinue
+# No repo-root a.exe/a.out cleanup: with per-invocation -o binaries nothing is
+# written there, and deleting another process's just-written binary on DrvFs
+# is exactly the cross-run race this hardening removes.
 
 $output = "$stdout$stderr"
 if (-not $Quiet -and $output.Length -gt 0) { Write-Host $output.TrimEnd() }

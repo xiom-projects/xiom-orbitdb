@@ -59,7 +59,7 @@ $env:ORBITDB_WAL_MODE = "write"
 $env:ORBITDB_WAL_N = "$Events"
 $writerOut = Join-Path $logDir "crash-writer.out"
 $writerErr = Join-Path $logDir "crash-writer.err"
-$writer = Start-Process -FilePath $env:XIOM_COMPILER -ArgumentList @("--run", $probe) `
+$writer = Start-Process -FilePath $env:XIOM_COMPILER -ArgumentList @("--run", $probe, "-o", (Join-Path $logDir "crash-writer-$PID.bin.exe")) `
     -WorkingDirectory $repoRoot -NoNewWindow -PassThru `
     -RedirectStandardOutput $writerOut -RedirectStandardError $writerErr
 

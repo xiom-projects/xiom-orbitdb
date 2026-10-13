@@ -67,7 +67,7 @@ check() {
 
 # --- phase 1: writer ingests + persists + hangs -----------------------------
 export ORBITDB_HYBRID_MODE=writer
-setsid "$XIOM_COMPILER" --run "$PROBE" >"$LOG_DIR/hybrid-writer.out" 2>&1 &
+setsid "$XIOM_COMPILER" --run "$PROBE" -o "$LOG_DIR/hybrid-writer-$$.bin" >"$LOG_DIR/hybrid-writer.out" 2>&1 &
 WRITER_PID=$!
 
 DEADLINE=$(( $(date +%s) + TIMEOUT_SEC ))

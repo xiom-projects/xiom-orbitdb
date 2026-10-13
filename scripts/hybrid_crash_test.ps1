@@ -63,7 +63,8 @@ function Invoke-Probe {
     $env:ORBITDB_HYBRID_MODE = $Mode
     $outFile = Join-Path $logDir "$OutName.out"
     $errFile = Join-Path $logDir "$OutName.err"
-    $proc = Start-Process -FilePath $env:XIOM_COMPILER -ArgumentList @("--run", $probe) `
+    $binFile = Join-Path $logDir "$OutName-$PID.bin.exe"
+    $proc = Start-Process -FilePath $env:XIOM_COMPILER -ArgumentList @("--run", $probe, "-o", $binFile) `
         -WorkingDirectory $repoRoot -NoNewWindow -PassThru `
         -RedirectStandardOutput $outFile -RedirectStandardError $errFile
     $timedOut = $false
@@ -86,7 +87,7 @@ function Invoke-Probe {
 $env:ORBITDB_HYBRID_MODE = "writer"
 $wout = Join-Path $logDir "hybrid-writer.out"
 $werr = Join-Path $logDir "hybrid-writer.err"
-$writer = Start-Process -FilePath $env:XIOM_COMPILER -ArgumentList @("--run", $probe) `
+$writer = Start-Process -FilePath $env:XIOM_COMPILER -ArgumentList @("--run", $probe, "-o", (Join-Path $logDir "hybrid-writer-$PID.bin.exe")) `
     -WorkingDirectory $repoRoot -NoNewWindow -PassThru `
     -RedirectStandardOutput $wout -RedirectStandardError $werr
 

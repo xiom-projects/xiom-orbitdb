@@ -56,7 +56,7 @@ foreach ($killAt in $KillAts) {
     $env:ORBITDB_BLOCK_MODE = "writer"
     $wout = Join-Path $logDir "block-writer-$killAt.out"
     $werr = Join-Path $logDir "block-writer-$killAt.err"
-    $writer = Start-Process -FilePath $env:XIOM_COMPILER -ArgumentList @("--run", $probe) `
+    $writer = Start-Process -FilePath $env:XIOM_COMPILER -ArgumentList @("--run", $probe, "-o", (Join-Path $logDir "block-writer-$killAt-$PID.bin.exe")) `
         -WorkingDirectory $repoRoot -NoNewWindow -PassThru `
         -RedirectStandardOutput $wout -RedirectStandardError $werr
 
@@ -85,7 +85,7 @@ foreach ($killAt in $KillAts) {
     $env:ORBITDB_BLOCK_MODE = "verify"
     $vout = Join-Path $logDir "block-verify-$killAt.out"
     $verr = Join-Path $logDir "block-verify-$killAt.err"
-    $v = Start-Process -FilePath $env:XIOM_COMPILER -ArgumentList @("--run", $probe) `
+    $v = Start-Process -FilePath $env:XIOM_COMPILER -ArgumentList @("--run", $probe, "-o", (Join-Path $logDir "block-verify-$killAt-$PID.bin.exe")) `
         -WorkingDirectory $repoRoot -NoNewWindow -PassThru `
         -RedirectStandardOutput $vout -RedirectStandardError $verr
     $timedOut = $false
