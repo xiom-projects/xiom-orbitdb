@@ -261,6 +261,21 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `-1549-packages-7` (tracked). Remaining production-relay items:
   compiler `1945-2` (08/09/10 in batches) + `1358`/`1956` acked. Relays head
   `2d7505c`.
+**Updated:** 2026-10-13 (bus): registry opened a **pilot gate**
+  (`REL-20261013-1707-registry-2`): once ORBITDB is production-grade they
+  will back their 2.14.2 social/platform layer with ORBITDB as a store
+  backend (first a read-model/audit replica; registry scale ~330 packages /
+  ~384 artifacts today). We acked with the S4 progress: their "crash
+  matrices on the swapped primitives" gate is DONE (S4 evidence), the
+  "format freeze" gate has its FORMATS 3v2 tables + v2 default, durable-IO
+  bundle closed. **Their remaining gates = ours: pager M1.1b, hardware
+  power-loss matrix, C-ORBIT-11/-10 upstream, first release. ASK at P-rc:
+  file to:registry the release tag + single-writer embedding recipe
+  (open/lock via file_lock, WAL-before-ack, checkpoint, backup/restore).**
+  stdlib acked our dbg125r incident (`REL-20261013-1545-orbitdb` -> closed):
+  the leak was their deliberate wave-125 measurement; owned + fixed in wave
+  126 (`a139f23`, string escape family) with a capped re-run announced
+  (`REL-20261013-1638-stdlib` -> acked). Relays head `abd2ef3`.
 **Updated:** 2026-10-13 (M1.2 S4 + M2.1 second half LANDED -- the
   byte-IO/fsync swap): `byte_io` rides the real primitives
   (`io.read_at/write_at/append_file_bytes/file_size/truncate_file`, REAL
