@@ -249,6 +249,20 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   GREEN x2 both, fuzz section (l) x2 both, db_crash 25/25 x2 both; readiness
   **D3 2/4 -> 75.5**. Docs: MVCC.md + ISOLATION rewrite + API/RUNBOOK/README/
   plan/checklist coupled.
+**Updated:** 2026-10-13 (doorbell 03:00Z -- stdlib bundle COMPLETE): stdlib
+  wave 118 (`a0631eb`) landed **P4 real advisory locking**
+  (`file_lock/file_unlock/file_try_lock` via fcntl/LockFileEx; the member
+  row `packages-6` moved fixed in their lane). Bundle state per stdlib:
+  **P1/P2/P3 + P4 + P5 all landed**; only the f32 bitcast pair remains
+  (compiler-blocked Float32, tracked via xvector-6). Our production bundle
+  ask `REL-20261012-1945-orbitdb` verified + closed with the delivered-scope
+  evidence. `REL-20261010-1550-packages-8` (their order-3 repro) is
+  `verified` by the reporter (order-3 churn 20k/4096 GREEN on v0.64.4;
+  reporter-only close pending -- we do not move it). Next slices unchanged:
+  **M1.2 S4** (byte-IO/fsync/append_line_sync swap + v2 default flip +
+  bench + FORMATS 3v2), then **M3-proper multi-process is now unblocked**
+  (P4 locks + lockfile design in docs/ISOLATION.md/D3), then M1.1b pager.
+  Relays head `909351e`.
 **Updated:** 2026-10-13 (doorbell 00:00Z -- P5 rows closed): stdlib wave 117
   (`260bb44`) landed the P5 pairs: `io.append_line_sync` (torn-tail repair +
   append + fsync in one call), `io.file_last_byte` (O(1)) /
@@ -1167,7 +1181,10 @@ TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
    v0.64.4 until the re-vendor pin; `probe_io_primitives.xi` is the
    reference). **M2.1 second half rides here**; then M1.1b (pager over
    `read_at/write_at`: lazy load, bounded cache, deferred-free allocator).
-   P4 file_lock + P5 leftovers still pending upstream.
+   P4 file_lock + P5 leftovers: **ALL LANDED 2026-10-13** (waves
+   117/118: append_line_sync, file_last_byte/ends_with_newline, flush_stdout,
+   file_lock/file_unlock/file_try_lock). Only the f32 bitcast pair remains
+   (compiler-blocked, xvector-6).
 4. xiom.btree 0.1.1 two-way consumer pass **DONE 2026-10-12** (GREEN both
    platforms, item closed; remember C-ORBIT-11: package + engine cannot
    co-compose until fixed -- keep the two-program digest pattern).
