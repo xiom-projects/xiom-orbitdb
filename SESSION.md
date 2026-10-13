@@ -249,6 +249,18 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   GREEN x2 both, fuzz section (l) x2 both, db_crash 25/25 x2 both; readiness
   **D3 2/4 -> 75.5**. Docs: MVCC.md + ISOLATION rewrite + API/RUNBOOK/README/
   plan/checklist coupled.
+**Updated:** 2026-10-13 (doorbell 15:00Z -- packages P2 delivered): packages
+  moved our `REL-20261012-1945-orbitdb-3` to fixed with **both P2
+  deliverables**: offline/vendored install design note (474e081e) + the
+  generated **platform matrix v1** (`docs/PLATFORM-MATRIX.md`, pinned
+  v0.64.4, 534 rows, generator + STATUS `platforms/runtime_deps` validation;
+  undeclared-native backlog 36 flagged honestly). All six ORBITDB-consumed
+  packages carry rows with conformance evidence (btree 0.1.1 23/23 @
+  5be4adeb, wal 21/21, vectors 37/37, metrics, rate, http compile/undeclared
+  -- flagged). **Verified + closed** on the bus. Airgap Flow B rides
+  `-1549-packages-7` (tracked). Remaining production-relay items:
+  compiler `1945-2` (08/09/10 in batches) + `1358`/`1956` acked. Relays head
+  `2d7505c`.
 **Updated:** 2026-10-13 (doorbell 03:00Z -- stdlib bundle COMPLETE): stdlib
   wave 118 (`a0631eb`) landed **P4 real advisory locking**
   (`file_lock/file_unlock/file_try_lock` via fcntl/LockFileEx; the member
