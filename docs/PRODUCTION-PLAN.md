@@ -230,8 +230,12 @@ suite.
    + S3 DONE 2026-10-10:** `docs/BYTE-PAGE-FORMAT-V2.md` + checklist; codec
    (`block.xi`), shim (`byte_io.xi`), store (`block_store.xi`) with
    probe/crash/fuzz, and the v2 snapshot container behind `page_format` 2
-   (auto-detect + migration; db_crash v2 25/25 x2 both). Next: S4 (stdlib
-   fixed-size IO + fsync swap, default flip + fresh bench).
+   (auto-detect + migration; db_crash v2 25/25 x2 both). **S4 DONE
+   2026-10-13:** byte-IO/fsync swap (real primitives + fsync + rename
+   durability), **v2 is the default container** (`db_file_open`; v1 pinned
+   via `db_file_open_cfg(...,1)`, migrates on default-open checkpoints),
+   FORMATS 3v2 tables, fresh bench; suite 160/160 x2 both, db_crash 25/25
+   x2 both on the lane runtime (`XIOM_RUNTIME_DIR` until the re-vendor pin).
 4. **M4.2 -- secondary indexes + ORDER/LIMIT. DONE 2026-10-10:**
    `src/secondary_index.xi` + planner `IndexValue` plan + executor +
    `query_order`; catalog `IndexDef` tie-in; suite 134/134 x2 both + fuzz

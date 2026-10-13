@@ -28,7 +28,7 @@
 | Area | Weight | Earned | Status summary |
 |---|---|---|---|
 | A. Correctness & data structures | 20 | 16.0 | B-tree churn-proven orders 3-6 (order-3 empty-chain fix 2026-10-10); tuple codec v1 KAT-locked; FSM best-fit model-soaked; node-per-page durable pages done, paged access pending |
-| B. Durability & crash safety | 20 | 16.0 | Disk WAL segment + page file + engine WAL-before-ack + incremental generation-committed checkpoint crash-proven; fsync still pending |
+| B. Durability & crash safety | 20 | 18.0 | Disk WAL segment + page file + engine WAL-before-ack + incremental generation-committed checkpoint crash-proven; **real fsync wired end-to-end (M1.2 S4 / M2.1 second half): commit acks, checkpoint pre-sync, rename durability (temp sync + fsync_dir); O(1) tail healing; fault-gated (syncfail latches); power-loss honesty up to the synced seams** (lane runtime until the re-vendor pin); power-loss/torn-page matrix on real hardware still pending |
 | C. Storage engine (pages/pager) | 15 | 11.0 | Codec + checksum + FSM + durable page file + clock replacer/pinning done; pager substrate pending |
 | D. Transactions & isolation | 10 | 7.0 | Durable transactions: begin/commit/abort + committed/uncommitted recovery crash-proven; savepoints + in-process snapshot pins (MVCC minimal subset, M3.1) with COW writes + compaction refusal; multi-process/GC pending |
 | E. Query & schema | 10 | 7.0 | Value-filter query + DBFile bindings + key-range planner pushdown (point/range plans, bounds-aware estimate, property-pinned) + secondary index (build/maintenance/IndexValue plan) + ORDER/LIMIT; typed values + durable index storage pending |
@@ -36,7 +36,7 @@
 | G. Performance & limits | 5 | 3.0 | Benchmarks published (v0.64.1); WAL segment size policy live (`maybe_checkpoint`); replay constrained by the filed stdlib `str_split` quadratic; page/cache bounds pending |
 | H. Security & integrity | 5 | 4.5 | Checksums + full input validation + deterministic fuzz harness; encryption/supply-chain pinning pending |
 | I. Documentation & evidence | 5 | 5.0 | Full doc set + relay docs + repro bundles + public API/runbook/format reference |
-| **Total** | **100** | **75.5** | **~76% -- alpha-track, durable log + pages + checkpoints + transactions + savepoints/snapshot pins (M3 minimal) + planner pushdown + secondary index + ORDER/LIMIT + clock replacer + typed rows (codec -> schema -> engine persistence -> typed predicates) + fuzz, benchmarks live, both WAL/B-tree packages registry-live** |
+| **Total** | **100** | **77.5** | **~78% -- alpha-track, durable log + pages + checkpoints + REAL fsync (S4) + transactions + savepoints/snapshot pins (M3 minimal) + planner pushdown + secondary index + ORDER/LIMIT + clock replacer + typed rows + fuzz, benchmarks live, both WAL/B-tree packages registry-live** |
 
 Scoreboard changelog:
 - 2026-10-08: bootstrap complete (suite migrated, engine defects fixed, WAL
@@ -337,6 +337,23 @@ Scoreboard changelog:
   the M2.1 second half are now actionable (score moves when they land);
   still pending upstream: P4 `file_lock`, P5 leftovers. No score change:
   75.5.
+- 2026-10-13 (M1.2 S4 + M2.1 second half -- the byte-IO/fsync swap): the
+  O(file) fallbacks are gone. `byte_io` now rides the real primitives
+  (`io.read_at/write_at/append_file_bytes/file_size/truncate_file` + REAL
+  `sync_io.sync_fd` + `fsync_dir`); `wal_file_flush`/`page_file_sync` are
+  real; tail healing is O(1) (`file_last_byte` + `append_line_sync`); every
+  rename publish (WAL truncate, page write/batch, block-store compact) syncs
+  the temp before and the directory after; **v2 byte container is the
+  DEFAULT** (`db_file_open`), v1 stays readable + writable via
+  `db_file_open_cfg(...,1)` and migrates on the next default-open
+  checkpoint. Harness hardening en route: every runner invokes the compiler
+  with a UNIQUE `-o` binary after a DrvFs ETXTBSY race (seven harness pairs
+  patched). Evidence: suite **160/160 x2 Win + x2 WSL** (new default-flip
+  test), db_crash **25/25 x2 both** (real fsync paths), probe_mvcc + fault
+  probe GREEN, fuzz OK both, fresh bench (Win wal_append 2.1k/s, WSL
+  36.8k/s -- fsync-honest). **B 16.0 -> 18.0** (fsync second half +
+  rename durability + O(1) healing; power-loss matrix on real hardware still
+  pending): 75.5 -> **77.5**.
 
 ## A. Correctness & data structures (20)
 
@@ -435,7 +452,10 @@ Scoreboard changelog:
 
 - [ ] Every data path proven by suite x2 + a soak; every durability path by
       the crash harness on Windows AND WSL.
-- [ ] fsync wired (stdlib row) and power-loss matrix run.
+- [x] fsync wired (M1.2 S4: commit acks, checkpoint pre-sync, rename
+      durability via temp sync + `fsync_dir`; fault-gated). Still open:
+      the power-loss matrix on real hardware/power-cut rig.
+- [ ] Power-loss matrix run (power-cut/battery rig; out of current scope).
 - [x] Engine on disk: WAL-before-ack, recovery from real files, checkpoint.
 - [x] Durable page file + replacement policy (clock + pinning).
 - [x] Fuzz/property harness (codec, WAL parser, page log, B-tree vs model).

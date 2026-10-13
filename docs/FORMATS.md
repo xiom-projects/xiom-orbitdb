@@ -69,13 +69,15 @@ empty: the Checkpoint anchor carries the LSN continuity.
 
 ## 3. Page file and page log (`<db path>.snap`, general page stores)
 
-> **v2 container (implemented behind a flag, M1.2):** the snapshot can
-> instead be stored as 4096-byte blocks (`page_format = 2` on
-> `db_file_open_cfg`); reads auto-detect the format by the first byte
-> (`'O'` = v2). The wire format is frozen in
-> [docs/BYTE-PAGE-FORMAT-V2.md](BYTE-PAGE-FORMAT-V2.md); the v1 layout below
-> stays authoritative for the default until the v2 tables land here with
-> the default flip (M1.2 S4).
+The snapshot container has two revisions. **v2 (4096-byte blocks) is the
+DEFAULT for new databases since M1.2 S4 (2026-10-13)**; v1 (text page log)
+stays fully supported: reads auto-detect either format by the first byte
+(`'O'` = 0x4F = v2, anything else = v1), and a v1 file opened through the
+default handle migrates to v2 on its next checkpoint (migration-on-write,
+atomic rename; the temp is synced before the rename and the directory after).
+`db_file_open_cfg(path, order, 1)` pins v1 for writes.
+
+### 3.1 v1 text page log (legacy container)
 
 One page per line:
 
@@ -94,8 +96,36 @@ page_id|len|checksum|b0,b1,...,b(len-1)
   O(1); readers take the latest valid occurrence per id
   (`page_log_read_all`); `page_log_len` counts raw entries for compaction
   decisions; `page_log_heal_tail` terminates a torn trailing line before the
-  next append. Compaction rewrites one version per page via
-  `page_file_write_batch`.
+  next append (O(1) since S4: `file_last_byte` + `append_line_sync`).
+  Compaction rewrites one version per page via `page_file_write_batch`.
+
+### 3.2 v2 block container (default)
+
+Frozen wire format: [docs/BYTE-PAGE-FORMAT-V2.md](BYTE-PAGE-FORMAT-V2.md).
+The file is a sequence of 4096-byte blocks, addressed by block index:
+
+```
+block 0          header slot A
+block 1          header slot B
+block 2..N       page blocks (append order; free blocks are KIND_FREE)
+```
+
+| Field / rule | Value |
+|---|---|
+| Block size | 4096 bytes; 40-byte common header (kind, generation, page id, payload len, payload CRC32C) |
+| Page payload | ≤ 4056 bytes (40-byte header + 4056 = 4096) |
+| Header slot payload | 64 bytes (committed generation, block count, order, ...) |
+| Header commit | written to the INACTIVE slot with the highest generation; the first commit mirrors into both slots (single-torn-slot fallback) |
+| Page visibility | a page is invisible until a header commit with generation ≥ its own lands; readers resolve the newest valid occurrence per page id at ≤ the active generation |
+| Torn safety | CRC per block; torn page blocks are skipped; a torn header slot falls back to the other slot; incremental rewrites repeat the same generation so a crash cannot lose the only version |
+| Compaction | `block_store_compact`: one block per live page at a new generation in a temp, single atomic rename (temp synced before, directory after) |
+| Sync | every commit path (WAL ack, checkpoint anchor, compaction publishes) fsyncs via `sync_io.sync_fd`; rename publishes add `sync_io.fsync_dir` (stdlib waves 115/118) |
+
+**Incremental checkpoint** (both containers): append new versions of only the
+DIRTY nodes, then commit (generation header page / header slot) LAST; an
+uncommitted trailing generation is ignored on load. Compaction is triggered
+on physical growth (entries > node count + 64) and DEFERS while a snapshot
+pin is live (M3; `db_file_compaction_deferrals`).
 
 ## 4. Snapshot / checkpoint codec v1
 

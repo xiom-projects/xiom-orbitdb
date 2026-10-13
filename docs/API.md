@@ -53,7 +53,7 @@ layout: `<path>` = WAL segment, `<path>.snap` = snapshot page log.
 | `db_file_size(db)` | `Int` | Number of keys. |
 | `db_file_last_lsn(db)` | `Int` | Highest WAL LSN assigned (0 = empty). |
 | `db_file_checkpoint(db)` | `Int` | Commit a checkpoint; returns the anchor LSN, or `-1` (snapshot failure, or a transaction is active). |
-| `db_file_set_durability(db, mode)` / `db_file_durability(db)` | `Bool` / `Int` | 0 = normal (ack without a flush; sync at checkpoint only), 1 = immediate (flush at every commit ack; default). With the stdlib fsync stub both are no-ops today; the API is pinned for the swap. |
+| `db_file_set_durability(db, mode)` / `db_file_durability(db)` | `Bool` / `Int` | 0 = normal (ack without a flush; sync at checkpoint only), 1 = immediate (REAL fsync at every commit ack; default, M1.2 S4). |
 | `db_file_set_two_phase(db, on)` / `db_file_two_phase(db)` | `Bool` | Immediate-only: flush the WAL before a checkpoint publishes its snapshot header (redb-style 2PC). |
 | `db_file_failed(db)` | `Bool` | Handle latched after a failed flush/commit; writers refuse until the handle is reopened. |
 | `db_file_flush(db)` | `Bool` | Explicit flush of the WAL path; latches on failure. |
@@ -148,7 +148,7 @@ value, payload, timestamp }`; `WALOpKind` codes 1..10 (see `FORMATS.md`).
 |------|---------|-----------|
 | `wal_file_open(path)` | `WALFile` | Create/open; resume `next_lsn` from the last valid record; heal a torn tail once. |
 | `wal_file_append(w, op, key, value)` / `wal_file_append_tagged(w, op, key, value, payload, timestamp)` | `Int` | Append; new LSN or `-1`. |
-| `wal_file_flush(w)` | `Bool` | Durability seam (no-op until fsync). |
+| `wal_file_flush(w)` | `Bool` | Real fsync of the segment (sync_io.sync_fd; M1.2 S4). |
 | `wal_file_replay(path)` | `Vec[WALRecord]` | Every well-formed record in file order; malformed/torn lines skipped. |
 | `wal_file_len(path)` / `wal_file_last_lsn(path)` | `Int` | Record count / last valid LSN. |
 | `wal_file_truncate(path, from_lsn)` | `Bool` | Keep records with `lsn >= from_lsn` (atomic rewrite; payloads preserved). |
@@ -185,7 +185,7 @@ Statistics fields: `hits`, `misses`, `evictions`, `rejects`.
 | `page_file_write(pf, page)` | `Bool` | Upsert one page; unlisted pages survive; atomic rewrite. |
 | `page_file_write_batch(pf, pages)` | `Bool` | Replace the whole page set; atomic rename. |
 | `page_file_ids(pf)` / `page_file_count(pf)` | `Vec[Int]` / `Int` | Valid page ids / count. |
-| `page_file_sync(pf)` | `Bool` | Durability seam. |
+| `page_file_sync(pf)` | `Bool` | Real fsync of the page file (M1.2 S4). |
 | `page_log_append(pf, page)` | `Bool` | Append one page version (O(1)). |
 | `page_log_read_all(pf)` | `Vec[Page]` | Latest version per id (last valid occurrence wins). |
 | `page_log_len(pf)` | `Int` | Raw well-formed entry count. |
@@ -208,20 +208,22 @@ Pure codec for the 4096-byte block format (M1.2 S1; design
 
 ## Byte-IO shim (`xiom.db.storage.byte_io`)
 
-The seam between the storage layer and `io.*` (the swap point for the stdlib
-fixed-size IO + fsync rows; bus items `REL-20261010-1550-orbitdb-3..-6`).
-Byte convention `Vec[Int]` elements 0..255; fallbacks are whole-file
-read+splice (O(file)) until then, and `byteio_sync` is a documented no-op
-(process-crash safe, not power-loss honest).
+The seam between the storage layer and `io.*`. **Swapped to the real stdlib
+byte primitives in M1.2 S4 (2026-10-13; stdlib waves 115/118):** no O(file)
+fallbacks remain. Byte convention `Vec[Int]` elements 0..255 (converted to
+`Vec[UInt8]` only inside this module). Until the next compiler pin re-vendors
+stdlib/runtime, run with `XIOM_RUNTIME_DIR=<stdlib>/runtime` (scripts/dev-env.*
+sets it).
 
 | Call | Returns | Semantics |
 |------|---------|-----------|
-| `byteio_read_at(path, offset, len)` | `Option[Vec[Int]]` | Byte range; None on IO error or short read. |
-| `byteio_write_at(path, offset, data)` | `Bool` | Splice-write; zero-extends past EOF. |
-| `byteio_append(path, data)` | `Bool` | Write at EOF. |
-| `byteio_file_size(path)` | `Int` | Bytes; 0 when the file is missing, -1 on IO error. |
-| `byteio_truncate(path, len)` | `Bool` | ftruncate semantics (cut, or zero-extend). |
-| `byteio_sync(path)` | `Bool` | Durability seam. |
+| `byteio_read_at(path, offset, len)` | `Option[Vec[Int]]` | `io.read_at`; None on IO error or short read. |
+| `byteio_write_at(path, offset, data)` | `Bool` | `io.write_at`; creates the file, zero-fills past EOF. |
+| `byteio_append(path, data)` | `Bool` | `io.append_file_bytes` (binary append). |
+| `byteio_file_size(path)` | `Int` | `io.file_size`; 0 when the file is missing. |
+| `byteio_truncate(path, len)` | `Bool` | `io.truncate_file` (cut, or zero-extend). |
+| `byteio_sync(path)` | `Bool` | REAL fsync (`sync_io.sync_fd`); skip-with-success when the file is missing; fault-gated (`syncfail` latches the engine handle). |
+| `byteio_sync_dir(path)` | `Bool` | `sync_io.fsync_dir` of the path's parent (rename durability; ungated). |
 
 ## Block store v2 (`xiom.db.storage.block_store`)
 
@@ -240,7 +242,7 @@ fields (`ids` / `blocks` / `gens` directory, `header`, `active_slot`,
 | `block_store_read(bs, page_id)` | `Option[BlockPage]` | Current version for the id. |
 | `block_store_has` / `block_store_count` / `block_store_pages` / `block_store_blocks` | `Bool` / `Int` / `Vec[Int]` / `Int` | Directory queries + file block count. |
 | `block_store_compact(bs, generation)` | `Bool` | One block per live page at a new generation, temp+rename. |
-| `block_store_sync(bs)` | `Bool` | Durability seam. |
+| `block_store_sync(bs)` | `Bool` | REAL fsync of the store file (M1.2 S4). |
 
 ## Tuples (`xiom.db.storage.tuple`)
 

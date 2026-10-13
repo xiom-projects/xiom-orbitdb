@@ -143,6 +143,12 @@ scripts\run.ps1 tests\probes\probe_db_file.xi -TimeoutSec 180
 
 - `-Quiet` on `run.ps1` suppresses program output; use it only when the exit
   code is all you need.
+- **`Text file busy` (os error 26) on WSL/DrvFs:** every runner invocation
+  compiles to a UNIQUE `-o` binary since the S4 harness hardening
+  (2026-10-13) -- `run.{ps1,sh}` and all crash harnesses. If you see this
+  error, some invocation is sharing `a.out`/`a.exe` across quickly sequenced
+  or hard-killed runs; switch it to a per-invocation `-o` path. Never write
+  or delete another process's binary mid-run.
 - `read_file_lines` / `str_split` are **linear** since stdlib wave 96/97 (they
   were quadratic on v0.64.1); 20k-record WAL replay is ~9.9 s. `-N 20000`
   remains the bench reference.

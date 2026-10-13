@@ -261,6 +261,30 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `-1549-packages-7` (tracked). Remaining production-relay items:
   compiler `1945-2` (08/09/10 in batches) + `1358`/`1956` acked. Relays head
   `2d7505c`.
+**Updated:** 2026-10-13 (M1.2 S4 + M2.1 second half LANDED -- the
+  byte-IO/fsync swap): `byte_io` rides the real primitives
+  (`io.read_at/write_at/append_file_bytes/file_size/truncate_file`, REAL
+  `sync_io.sync_fd`, new `byteio_sync_dir` via `fsync_dir`; fault gates
+  unchanged); `wal_file_flush`/`page_file_sync` real; O(1) tail healing
+  (`file_last_byte` + `append_line_sync`); rename durability at every
+  publish (WAL truncate, page write/batch, block-store compact: temp sync +
+  dir sync); **v2 byte container is now the DEFAULT** for `db_file_open`
+  (v1 via `db_file_open_cfg(...,1)`, reads auto-detect, migration-on-write;
+  new 160th suite test locks the flip). dev-env sets
+  `XIOM_RUNTIME_DIR=<stdlib>/runtime` (remove at the re-vendor pin).
+  Evidence: suite **160/160 x2 Win + x2 WSL**, db_crash **25/25 x2 both**,
+  probe_mvcc + fault probe GREEN, fuzz OK both, fresh bench (Win
+  wal_append 2.1k/s, insert 370k/s; WSL wal_append 36.8k/s, insert 769k/s
+  -- fsync-honest). **Harness hardening en route:** a WSL DrvFs ETXTBSY race
+  (shared `a.out` between quickly-killed/sequenced runs) produced a false
+  RED; every runner and all seven crash-harness pairs now compile to a
+  UNIQUE `-o` binary (RUNBOOK gotcha). Readiness **B 16.0 -> 18.0 = 75.5 ->
+  77.5** (power-loss matrix on real hardware still open). Host incident
+  noted: stdlib's `out/dbg125r.exe` ran away to ~26 GB and thrashed the box
+  mid-run; stopped at the owner's flag (bus `REL-20261013-1545-orbitdb`;
+  owner told stdlib directly). `db-benchmarks` cloned to
+  `E:\repos\db-benchmarks` (methodology reference; client-server league --
+  the embedded cross-engine bench vs SQLite/bbolt is the follow-on).
 **Updated:** 2026-10-13 (doorbell 03:00Z -- stdlib bundle COMPLETE): stdlib
   wave 118 (`a0631eb`) landed **P4 real advisory locking**
   (`file_lock/file_unlock/file_try_lock` via fcntl/LockFileEx; the member
