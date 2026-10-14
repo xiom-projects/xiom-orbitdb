@@ -143,6 +143,13 @@ scripts\run.ps1 tests\probes\probe_db_file.xi -TimeoutSec 180
 
 - `-Quiet` on `run.ps1` suppresses program output; use it only when the exit
   code is all you need.
+- **Binary files: never `io.copy_file` / `read_file`+`write_file`** -- they are
+  the TEXT path and truncate at the first NUL (engine finding
+  `REL-20261014-1427-engine`, filed to stdlib; a PE DLL copies as 3 bytes).
+  v2 snapshots and all `.snap`/binary artifacts are BINARY: use OS-level
+  copies (`Copy-Item` / `cp`) for the backup recipe, or byte loops via the
+  `byte_io` primitives. ORBITDB has zero `copy_file` usage today; keep it
+  that way for anything that touches `.snap` until stdlib fixes the pair.
 - **`Text file busy` (os error 26) on WSL/DrvFs:** every runner invocation
   compiles to a UNIQUE `-o` binary since the S4 harness hardening
   (2026-10-13) -- `run.{ps1,sh}` and all crash harnesses. If you see this

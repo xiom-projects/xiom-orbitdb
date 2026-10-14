@@ -261,6 +261,15 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `-1549-packages-7` (tracked). Remaining production-relay items:
   compiler `1945-2` (08/09/10 in batches) + `1358`/`1956` acked. Relays head
   `2d7505c`.
+**Updated:** 2026-10-14 (doorbell 15:00Z + binary-safety guard): queue clear
+  (no new orbitdb-addressed items). One adjacent finding scanned for
+  exposure: **`REL-20261014-1427-engine`** (to stdlib, acked) --
+  `copy_file` / `read_file`+`write_file` are NOT binary-safe (truncate at
+  the first NUL; their SDL3.dll copy became 3 bytes). ORBITDB check:
+  **zero `copy_file` usage repo-wide**; every `read_file`/`write_file` call
+  is on TEXT bodies (v1 page log, WAL rewrite) by design. Guard added to
+  RUNBOOK (never text-path copy `.snap`; use OS copy or byte loops for
+  backups) ahead of any future `backup` CLI. Relays head `b74b49c`.
 **Updated:** 2026-10-13 (bus, engine ledger follow-through): full pass over
   all 38 ledger rows -- **only A09 names orbitdb** (response
   `REL-20261013-1950-orbitdb`); **S03 rides our sibling items**, so a status
