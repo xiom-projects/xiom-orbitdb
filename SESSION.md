@@ -261,6 +261,22 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `-1549-packages-7` (tracked). Remaining production-relay items:
   compiler `1945-2` (08/09/10 in batches) + `1358`/`1956` acked. Relays head
   `2d7505c`.
+**Updated:** 2026-10-14 (doorbell 18:00Z): **v0.64.5 GO** --
+`REL-20261014-1739-compiler` (owner-authorized): compiler pushes the
+  release wave (m318/m319/m321 engine-wave fixers), stdlib freezes a sha
+  carrying **wave 139** (thread trampoline fix; thread acceptance already
+  GREEN: dbg131s/dbgworker 5/5 runs x2 binaries), tag `stdlib-v0.64.5`,
+  re-vendor, full gate, tag `v0.64.5`. Consequences for ORBITDB on the
+  archive: (1) the re-vendored stdlib carries waves >=139 >> 115/117/118, so
+  **drop the `XIOM_RUNTIME_DIR=<stdlib>/runtime` override in dev-env** and
+  re-run the battery on the stock pin; (2) re-run the repro bundles +
+  suite -- check the release notes for any m-fixes covering C-ORBIT-08
+  (enum-tuple/U8 cast), C-ORBIT-09 (Vec copy alias), C-ORBIT-10 (Linux
+  --check exit), C-ORBIT-11 (same-named types co-composition) and drop
+  `probe_arm`-class workarounds per verified bundle; (3) threads now exist
+  in the runtime (engine C02/S01 moving) -- not our slice, but the future
+  multi-thread story unblocks. Queue otherwise clear (no new
+  orbitdb-addressed items). Relays head `af92693`.
 **Updated:** 2026-10-14 (doorbell 15:00Z + binary-safety guard): queue clear
   (no new orbitdb-addressed items). One adjacent finding scanned for
   exposure: **`REL-20261014-1427-engine`** (to stdlib, acked) --
@@ -1116,7 +1132,11 @@ bundles -- now incl. `docs/repro/vec-copy-alias/` (C-ORBIT-09),
 `docs/repro/same-named-struct-compose/` (C-ORBIT-11), and
 `docs/repro/enum-tuple-codegen/` (C-ORBIT-08) --
 plus the suite first; the phantom bundle and C-ORBIT-07 are VERIFIED FIXED
-on v0.64.4 and need no re-run -- REL-20261010-1802-orbitdb). **Compiler batch plan
+on v0.64.4 and need no re-run -- REL-20261010-1802-orbitdb). **v0.64.5 GO
+2026-10-14 (`REL-20261014-1739-compiler`): on the archive, drop the
+`XIOM_RUNTIME_DIR` override (re-vendored stdlib carries wave 139), re-run
+the battery + bundles on the stock pin, and work the C-ORBIT-08..11 fixes
+from the release notes.** **Compiler batch plan
 `REL-20261011-1342-compiler` (2026-10-11, to: all) names OUR witnesses:**
 batch 1 resolver/isolation (items 1052+1124; gate: module-local precedence,
 module-private isolation, ambiguity diagnostics, m225 regression set)
