@@ -276,7 +276,11 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `probe_arm`-class workarounds per verified bundle; (3) threads now exist
   in the runtime (engine C02/S01 moving) -- not our slice, but the future
   multi-thread story unblocks. Queue otherwise clear (no new
-  orbitdb-addressed items). Relays head `af92693`.
+  orbitdb-addressed items). Relays head `af92693`. **21:00Z update: the
+  release-wave PUSH is up (`xiom-lang/xiom` main `1e4a444e`, 90 commits
+  from `91860f11`); stdlib pin prep completed (release-notes/v0.64.5.md,
+  `db2fbe8`) -- only the tag signal + re-vendor + gate remain before the
+  v0.64.5 archive.**
 **Updated:** 2026-10-14 (doorbell 15:00Z + binary-safety guard): queue clear
   (no new orbitdb-addressed items). One adjacent finding scanned for
   exposure: **`REL-20261014-1427-engine`** (to stdlib, acked) --
