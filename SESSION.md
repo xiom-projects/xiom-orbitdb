@@ -261,6 +261,44 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `-1549-packages-7` (tracked). Remaining production-relay items:
   compiler `1945-2` (08/09/10 in batches) + `1358`/`1956` acked. Relays head
   `2d7505c`.
+**Updated:** 2026-10-16 (v0.64.5 re-verification wave COMPLETE -- clean
+  handoff): everything the 2026-10-15 wrap queued is LANDED and green on the
+  STOCK v0.64.5 pin (tree `0911516`; the entry below's "FIRST task" list is
+  DONE). **Battery x2 both platforms:** suite **160/160 x2 Win + x2 WSL**;
+  db_crash **25/25 x3 Win + x2 WSL** (harness fixed -- below); probes mvcc
+  36 / fault-sync 56 / io-primitives 30 checks ALL GREEN x2 both; fuzz x2
+  both (seeds=4 ops/seed=4000); bench fresh under shared-machine load (Win
+  wal_append 1.7k/s, WSL 33.8k/s; insert 513k/333k; replay 109k/4.3k);
+  registry consumer probes x2 platforms: btree digest
+  `850,244,294,903,48,601,650,780,133,311` IDENTICAL package/engine/Win/WSL,
+  wal 18 checks. **Bundle verdicts (official artifacts, x2 platforms):
+  C-ORBIT-08A FIXED (m305; `n=8`/`custom=5` -- the old README expected-line
+  was miscomputed), 08B fixed + masks RETIRED, C-ORBIT-09 FIXED (m302;
+  residual caveats stay -- `node_deep_copy` remains the ownership
+  guarantee), C-ORBIT-11 FIXED (m298; `compose ok` on the stock pin),
+  row `-2` FIXED (m304; `src/engine.xi --check` rc 0), C-ORBIT-10 RETRACTED
+  (rc=1 BOTH platforms; the rc=0 artifact was the `xiom-dbg` DAP adapter --
+  the WSL side of the original matrix ran the wrong binary).** NEW:
+  **C-ORBIT-12** filed (`REL-20261015-2022-orbitdb`): `Result[(Enum, Int),
+  Enum]` still emits two names for one tuple struct (clang hard error; or
+  i64-default + silent misdecode in larger programs); minimal repro in the
+  bundle; the `DbResult[TValue]` position workaround STAYS. **Bus:** 4
+  verdicts verified (1219/1659/1956/-2), `1358` verified + closed
+  (retraction), C-ORBIT-12 + ops note (`REL-20261015-2023-orbitdb`: the
+  fleet swap reset the Windows registry home to 11 packages; btree/wal/
+  vectors reinstalled ADDITIVELY, WSL home untouched) -- pushed `c4e9d74`.
+  **Harness hardening (`0911516`):** crash polls read with delete-sharing
+  (plain `Get-Content` raced the writer's temp+rename truncate and false-RED
+  with `observed=28/30`; the truncate is best-effort by design -- recovery
+  gates on the snapshot `checkpoint_lsn`); put1 retries once with `[WARN]`;
+  `*.tmp` scratch ignored; RUNBOOK updated (env table v0.64.5, 160 tests,
+  NEW gotchas). **Hybrid DEFERRED:** xvector's tree (HEAD `99f879f` + WIP)
+  moved `xiom.vector.types.*` -- probe full fails `unresolved import
+  'xiom.vector.types.dense_vector'`; theirs to settle; last green = their
+  `200cbc7`; re-run at the next wrap. Next session: BENCH-1 -> R1/R2 ->
+  M1.1b (TASK ORDER below). Lane heads: orbitdb `0911516`, relays `d8e99c4`,
+  stdlib `ab9cd07`, compiler `d4fdd7e7`, xvector `99f879f` (+WIP), engine
+  `9493099`, packages `34da39ed`.
 **Updated:** 2026-10-15 (SESSION WRAP -- CLEAN HANDOFF, next session):
   tree clean at `7e860ed` (plus this wrap commit). **v0.64.5 is TAGGED**
   (`refs/tags/v0.64.5` -> `84f761c5`; compiler head d4fdd7e7 "v0.64.5
@@ -1159,16 +1197,17 @@ finishing any task, then python tools/relay.py view --lane orbitdb and
 process items to this lane; never edit another lane's item (open a new one);
 owner relays human gates.
 
-TOOLCHAIN (latest-tracking): **v0.64.5 is TAGGED (`refs/tags/v0.64.5` ->
-84f761c5); adopt it FIRST this session** (install the Windows archive as
-%LOCALAPPDATA%\xiom.new.0645 -- sha256 vs SHA256SUMS, `gh release view
-v0.64.5`; WSL canonical update; re-point dev-env). Until then the pin is
-v0.64.4 (Windows shadow `xiom.new.0644`; WSL canonical) with
-**`XIOM_RUNTIME_DIR=<stdlib>/runtime` TEMPORARILY SET by dev-env -- DROP
-THE OVERRIDE when you adopt v0.64.5** (its re-vendored stdlib carries wave
-139, covering our 115/117/118 needs). stdlib
+TOOLCHAIN (latest-tracking): **v0.64.5 is ADOPTED (2026-10-16)** -- Windows
+shadow `%LOCALAPPDATA%\xiom.new.0645` (`xiom.exe` sha256 02f08578...;
+SHA256SUMS-verified zip bd71e2d3...) + WSL canonical `~/.local/share/xiom`
+(sha256 c4aa877a... == linux tarball); the canonical `%LOCALAPPDATA%\
+xiom.new` ALSO moved to v0.64.5 in the fleet swap (owner/ops-coordinated;
+left untouched by us). **XIOM_RUNTIME_DIR is RETIRED** (the re-vendored
+stdlib carries wave 139); dev-env.* actively unsets any inherited override
+-- the stock pin is authoritative. WATCH for the NEXT archive. stdlib
 E:\xiom-lang\stdlib. Dot-source scripts\dev-env.ps1
-(or scripts/dev-env.sh); run everything via scripts\run.ps1 / run.sh with a
+(or scripts/dev-env.sh) -- both resolve AND report the compiler identity;
+run everything via scripts\run.ps1 / run.sh with a
 -TimeoutSec watchdog and exit-code gate. Native .sh twins must stay LF.
 WSL: the default distro is docker-desktop (no bash) -- run via
 `wsl.exe -d Ubuntu bash -lc '...'`; the VM is shared with other lanes --
@@ -1178,57 +1217,58 @@ probe-logs out of commits (gitignored).
 Release signal: when the production plan's gates pass (P-rc), tell the owner
 explicitly "ORBITDB is ready for public release" -- the owner then sets up
 the public repo/CI/registry and adds ORBITDB to the benchmark suite.
-WATCH each session: any newer COMPILER archive (re-test the repro
-bundles -- now incl. `docs/repro/vec-copy-alias/` (C-ORBIT-09),
-`docs/repro/check-exit-code/` (C-ORBIT-10),
-`docs/repro/same-named-struct-compose/` (C-ORBIT-11), and
-`docs/repro/enum-tuple-codegen/` (C-ORBIT-08) --
-plus the suite first; the phantom bundle and C-ORBIT-07 are VERIFIED FIXED
-on v0.64.4 and need no re-run -- REL-20261010-1802-orbitdb). STATUS
-2026-10-15: **v0.64.5 RELEASED (tagged; legacy v0.64.4 chain was HELD once
-by Cell[Int8]/aes-gcm candidate regressions -- not ours -- then re-cut).**
-On adoption: drop the runtime override, re-run the battery + bundles on the
-stock pin, read `release-notes/v0.64.5.md` + the release-check file for
-m-fixes covering **C-ORBIT-08 PART A** (enum-in-tuple; PART B/U8-cast was
-fixed by m260), **C-ORBIT-09** (Vec copy alias), **C-ORBIT-10** (Linux
-`--check` exit), and row `-2` (standalone --check), and drop workarounds
-per verified bundle. **Compiler batch plan `REL-20261011-1342-compiler`
-names OUR witnesses:** batch 1 resolver/isolation + batch 3 phantom
-imports are BOTH satisfied and closed (v0.64.4; keep the C-ORBIT-07 probe
-green as regression). PULSE's `probe_pkg_orbitdb` results and the stdlib
-rows on the bus are closed. (XVECTOR XV-ORBITDB-01 closed 2026-10-10;
-re-run the hybrid probe when their pin moves.) **Doorbell: scheduled cron
-tasks are SESSION-scoped -- a fresh session MUST re-create the 3h
-`cron_create` xiom-relays doorbell (pull, `view --lane orbitdb`, process,
-verify release rows, docs+commit).** (Note: the relays clone fetches a
-wildcard refspec, so `git pull --ff-only` can print "Cannot fast-forward to
-multiple branches" even when main matches origin -- verify with
-`git rev-parse main origin/main` and use `git merge --ff-only origin/main`.)
+WATCH each session: any newer COMPILER archive (re-test the repro bundles +
+the suite first): `enum-tuple-codegen` (C-ORBIT-08 PARTS A/B FIXED; the
+sub-shape = **C-ORBIT-12 STILL RED -- `repro_enum_tuple_enum_error.xi`; bus
+`REL-20261015-2022-orbitdb`**), `vec-copy-alias` (C-ORBIT-09 FIXED m302;
+residual caveats documented -- `node_deep_copy` stays), `check-exit-code`
+(C-ORBIT-10 RETRACTED -- `--check` rc=1 both platforms; probes stay as
+regression), `same-named-struct-compose` (C-ORBIT-11 FIXED m298); the
+phantom bundle and C-ORBIT-07 are VERIFIED FIXED on v0.64.4 and need no
+re-run -- REL-20261010-1802-orbitdb. **Compiler batch plan
+`REL-20261011-1342-compiler`: batches 1+3 satisfied and closed.** PULSE's
+`probe_pkg_orbitdb` results and the stdlib rows on the bus are closed.
+(XVECTOR XV-ORBITDB-01 closed 2026-10-10; hybrid probe DEFERRED -- xvector
+WIP moved `xiom.vector.types.*`; re-run when their tree settles.)
+**Doorbell: scheduled cron tasks are SESSION-scoped -- a fresh session MUST
+re-create the 3h `cron_create` xiom-relays doorbell (pull, `view --lane
+orbitdb`, process, verify release rows, docs+commit).** (Note: the relays
+clone fetches a wildcard refspec, so `git pull --ff-only` can print "Cannot
+fast-forward to multiple branches" even when main matches origin -- verify
+with `git rev-parse main origin/main` and use `git merge --ff-only
+origin/main`.)
 
-CURRENT STATE: **v0.64.5 TAGGED (adopt FIRST this session; drop the
-XIOM_RUNTIME_DIR override on adoption); pin until then v0.64.4** (Windows
-shadow `xiom.new.0644` sha256 44a41aea...; WSL canonical sha256 d0a43a5c...;
-the Windows canonical `xiom.new` stays v0.64.2 for the fleet -- swap is
-owner/ops-coordinated); **C-ORBIT-06/07 verified fixed + closed; probe_arm
-reverted; C-ORBIT-08 PART A / 09 / 10 / 11 open** (bundles under docs/repro/:
-enum-tuple-codegen, vec-copy-alias, check-exit-code,
-same-named-struct-compose); **M1.2 S4 + M2.1 second half LANDED 2026-10-13**
+CURRENT STATE: **v0.64.5 ADOPTED + FULLY RE-VERIFIED (2026-10-16); the
+XIOM_RUNTIME_DIR override is RETIRED** (Windows shadow `xiom.new.0645` sha
+02f08578...; WSL canonical sha c4aa877a...; the canonical `xiom.new` also
+v0.64.5 after the fleet swap). Bundle verdicts on the official artifacts,
+x2 platforms: **C-ORBIT-08 A/B FIXED (08B masks RETIRED), C-ORBIT-09 FIXED
+(m302; residual caveats stay), C-ORBIT-11 FIXED (m298), row `-2` FIXED
+(m304), C-ORBIT-10 RETRACTED (rc=1 both -- `xiom-dbg` was the rc=0
+artifact); NEW C-ORBIT-12 OPEN** (`Result[(Enum, Int), Enum]`; bus
+`REL-20261015-2022-orbitdb`; repro
+`docs/repro/enum-tuple-codegen/repro_enum_tuple_enum_error.xi`).
+**C-ORBIT-06/07 verified fixed + closed; probe_arm reverted.** **M1.2 S4 + M2.1 second half LANDED 2026-10-13**
 (real byte-IO + fsync + rename durability + O(1) heal; **v2 byte container
 is the DEFAULT** -- `db_file_open` writes v2, v1 pinned via
 `db_file_open_cfg(path, order, 1)`, reads auto-detect, migration-on-write;
-FORMATS section 3 carries the v1/v2 tables; runtime override in dev-env
-until the v0.64.5 re-vendor); suite **160/160 x2 Win + WSL**; db_crash five
+FORMATS section 3 carries the v1/v2 tables; stock pin, no runtime override);
+suite **160/160 x2 Win + WSL**; db_crash five
 scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn
-discarded, committed txn recovered) **25/25 x2 Win + WSL ON THE SWAPPED
-PRIMITIVES**, each recovery followed by qverify (25 checks);
+discarded, committed txn recovered) **25/25 x3 Win + x2 WSL on the FIXED
+harness (delete-sharing polls + one-retry put1, `0911516`)**, each recovery
+followed by qverify (25 checks);
 `tests/probes/probe_mvcc.xi` 36 checks + `probe_fault_sync.xi` 56 checks
-(syncfail now fails a REAL fsync) + `probe_io_primitives.xi` 24 checks, all
+(syncfail now fails a REAL fsync) + `probe_io_primitives.xi` 30 checks, all
 GREEN x2 both; fuzz (`scripts/fuzz.{ps1,sh}`, seeds=4 ops/seed=4000, sections
-a-l) x2 both; policy soak 2000 keys / 9 checkpoints x2 both; bench fresh (Win
-wal_append 2.1k/s, WSL 36.8k/s; insert 370k/769k ops/s); hybrid ORBITDB <->
+a-l) x2 both; policy soak 2000 keys / 9 checkpoints x2 both; bench fresh
+under shared-machine load (Win wal_append 1.7k/s, WSL 33.8k/s; insert
+513k/333k ops/s); hybrid ORBITDB <->
 XVECTOR probe (36 checks) + `scripts/hybrid_crash_test.{ps1,sh}` x2 both --
-re-run LIVE when xvector's tree builds (last green = their HEAD `200cbc7`);
-**M3.1 snapshot pins + savepoints DONE 2026-10-11** (`docs/MVCC.md`); M5
+**DEFERRED 2026-10-16: xvector's WIP (HEAD 99f879f) moved
+`xiom.vector.types.*` -- probe full fails `unresolved import`; re-run when
+their tree settles (last green = their HEAD `200cbc7`);** **M3.1 snapshot
+pins + savepoints DONE 2026-10-11** (`docs/MVCC.md`); M5
 typed values END-TO-END DONE 2026-10-11 (codec -> schema -> engine ->
 typed predicates; CLI putrow/getrow/qrow); xiom.btree 0.1.1 two-way
 consumer pass DONE 2026-10-12 (C-ORBIT-11 blocks co-composition -- keep the
@@ -1271,35 +1311,30 @@ safety is still the optimistic guard (file_lock adoption pending);
 fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-1. **v0.64.5 RE-VERIFICATION BATTERY (FIRST)** -- v0.64.5 is ADOPTED
-   (owner `275547e`; dev-env pinned; runtime override DROPPED; suite 160/160
-   x2 Win + x2 WSL already green on the stock pin; C-ORBIT-08B masks
-   retired). Remaining: db_crash x2 both + probes (mvcc/fault/io-primitives)
-   x2 both + fuzz both + bench refresh; re-run the repro bundles vs
-   `release-notes/v0.64.5.md` (**C-ORBIT-08A** position workaround STAYS,
-   **C-ORBIT-12** new: never `Result[(Enum, Int), Enum]`; 09; 10; row -2)
-   and drop workarounds per verified bundle; fill the v0.64.5 release-check
-   rows + bus transitions.
-2. **BENCH-1**: embedded cross-engine bench vs SQLite (`synchronous=FULL`
+1. **BENCH-1**: embedded cross-engine bench vs SQLite (`synchronous=FULL`
    for fsync fairness) + bbolt's own bench (Go installed) on identical
    YCSB-ish ops; db-benchmarks (client-server league) stays a methodology
    reference at `E:\repos\db-benchmarks`.
-3. **R1/R2 refactor (owner directive)**: spike multi-file `module`
+2. **R1/R2 refactor (owner directive)**: spike multi-file `module`
    support; if yes, move-only engine split (engine_core / btree /
    snapshot+pins / txn / db) with suite x2 both at every step, zero
    consumer changes; then the suite split + summing runner.
-4. **M1.1b pager** (lazy node load + bounded cache + deferred-free
+3. **M1.1b pager** (lazy node load + bounded cache + deferred-free
    allocator over `read_at`/`write_at`) -- the last big architectural
    piece; feeds on M3's `db_file_min_pinned_lsn`.
-5. **Hybrid guard**: re-run `probe_hybrid full` + `hybrid_crash_test` x2
-   both when xvector's tree builds (last green = their HEAD `200cbc7`) and
-   at every wrap.
-6. Hygiene: SESSION/STATE/readiness at every wrap; doorbell; signed
+4. **Hybrid guard**: re-run `probe_hybrid full` + `hybrid_crash_test` x2
+   both when xvector's tree settles (DEFERRED 2026-10-16: their WIP moved
+   `xiom.vector.types.*`; last green = their HEAD `200cbc7`) and at every
+   wrap.
+5. Hygiene: SESSION/STATE/readiness at every wrap; doorbell; signed
    commits; registry P-rc recipe + engine A09 adapter verb-list when asked.
 
 DONE one-liners: M5 typed values end-to-end (2026-10-11); M3.1 snapshot
 pins + savepoints (2026-10-11); **M1.2 S4 + M2.1 second half (2026-10-13:
 real byte-IO + fsync + rename durability, v2 default; suite 160 x2 both)**;
+**v0.64.5 adoption + re-verification wave (2026-10-16: full battery +
+bundle verdicts; 08A/09/11/row-2 verified, 08B masks retired, 10 retracted,
+C-ORBIT-12 filed; harness hardening `0911516`)**;
 xiom.btree 0.1.1 two-way pass (2026-10-12); C-ORBIT-06/07 verified+closed
 on v0.64.4.
 
@@ -1319,9 +1354,9 @@ fix verifies; see COMPILER-FINDINGS):
 - Binary files: never `io.copy_file` / `read_file`+`write_file` (TEXT path;
   truncates at the first NUL -- engine finding `REL-20261014-1427`); `.snap`
   backups use OS copy or `byte_io` byte loops.
-- Runtime override lifecycle: dev-env SETS
-  `XIOM_RUNTIME_DIR=<stdlib>/runtime` for the S4 primitives; DROP it when
-  v0.64.5 is adopted, then re-run the battery on the stock pin.
+- Runtime: the STOCK v0.64.5 pin is authoritative; `XIOM_RUNTIME_DIR` is
+  RETIRED -- dev-env.* unsets any inherited override (the re-vendored stdlib
+  carries wave 139 >> 115/117/118).
 - Never put an enum in a tuple (C-ORBIT-08A: `Result[(Enum, Int)]`
   miscompiles -- crash or silently skipped match arms; return the enum alone
   and pass positions separately; and **C-ORBIT-12**: `Result[(Enum, Int),
@@ -1329,11 +1364,13 @@ fix verifies; see COMPILER-FINDINGS):
   enum inside a tuple). C-ORBIT-08B ([N]UInt8 element `as Int`
   sign-extension) is **FIXED on v0.64.5 (m260; 248x3) -- our masks were
   retired; plain casts are correct now**.
-- Copied Vec/struct handles SHARE storage: element assignment (`v[i] = x`)
-  through a copy writes through to the source, while push/pop copy-on-write
-  (C-ORBIT-09; bundle `docs/repro/vec-copy-alias/`). Clone-then-mutate code
-  must build owned copies explicitly (`node_deep_copy` in `src/engine.xi` is
-  the reference); never rely on assignment for a deep copy.
+- Copied Vec/struct handles: m302 (v0.64.5) deep-copies the SIMPLE binding
+  shapes (`var c = src;` / Index / Field RHS) -- the flat/arena alias probes
+  are FIXED -- but push() args, by-value call args, for-loop element
+  bindings and whole-struct copies with Vec FIELDS still share (C-ORBIT-09;
+  bundle `docs/repro/vec-copy-alias/`). Clone-then-mutate code must build
+  owned copies explicitly (`node_deep_copy` in `src/engine.xi` stays as the
+  ownership guarantee); never rely on assignment for a deep copy.
 - Typed rows (M5): payload bytes are 0..255 and must fit
   `db_file_typed_payload_max(order)` (1978/1308/973 at orders 3/4/5) --
   both enforced by `db_file_put_typed`; typed writes are
