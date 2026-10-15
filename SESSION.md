@@ -267,7 +267,8 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   DONE). **Battery x2 both platforms:** suite **160/160 x2 Win + x2 WSL**;
   db_crash **25/25 x3 Win + x2 WSL** (harness fixed -- below); probes mvcc
   36 / fault-sync 56 / io-primitives 30 checks ALL GREEN x2 both; fuzz x2
-  both (seeds=4 ops/seed=4000); bench fresh under shared-machine load (Win
+  both (seeds=4 ops/seed=4000); soak 2000 keys / 9 checkpoints OK x2 both;
+  bench fresh under shared-machine load (Win
   wal_append 1.7k/s, WSL 33.8k/s; insert 513k/333k; replay 109k/4.3k);
   registry consumer probes x2 platforms: btree digest
   `850,244,294,903,48,601,650,780,133,311` IDENTICAL package/engine/Win/WSL,
