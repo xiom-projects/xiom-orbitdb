@@ -265,17 +265,20 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   tree clean at `7e860ed` (plus this wrap commit). **v0.64.5 is TAGGED**
   (`refs/tags/v0.64.5` -> `84f761c5`; compiler head d4fdd7e7 "v0.64.5
   RELEASED block (tag/run/assets)"; stdlib ea1c312 "v0.64.5 released and
-  pinned"). **The Windows shadow `%LOCALAPPDATA%\xiom.new.0645` is ALREADY
-  INSTALLED and checksum-verified** (zip sha256 `bd71e2d3...` == the
-  published SHA256SUMS; `--version` smoke = v0.64.5; release published
-  19:18Z; `engine-v0.64.5.md` check file landed -- engine's own rows). The
-  fresh session's FIRST task is the adoption cycle (see the paste prompt's
-  TASK ORDER item 1): re-point dev-env to `xiom.new.0645` + the WSL
-  canonical, **DROP the `XIOM_RUNTIME_DIR` override**, re-run suite x2
-  Win+WSL + db_crash x2 both + probes + fuzz, re-run the repro bundles
-  against `release-notes/v0.64.5.md` (C-ORBIT-08/09/10/11 status; drop
-  workarounds per verified bundle), fill the release-check rows / bus
-  transitions.
+  pinned"). **v0.64.5 ADOPTED by the owner (`275547e`, 2026-10-15): dev-env
+  pins the official artifacts (Win shadow `xiom.new.0645` sha 02f08578...;
+  WSL canonical c4aa877a...) and the `XIOM_RUNTIME_DIR` override is
+  DROPPED** (re-vendored stdlib wave 139; stock pin authoritative again).
+  **C-ORBIT-08B verified fixed (m260; 248x3) -- masks retired in
+  `tuple2_push_f64_le` + `byte_io u8_to_bytes`; suite 160/160 x2 Win + x2
+  WSL already green on the stock pin.** C-ORBIT-08A position workaround
+  STAYS; dropping it surfaced **C-ORBIT-12** (`Result[(Enum, Int), Enum]`
+  emits two names for one tuple struct -- minimal repro committed to the
+  enum-tuple bundle). The fresh session's FIRST task is now the remaining
+  re-verification battery: db_crash x2 both + probes (mvcc/fault/io-
+  primitives) x2 both + fuzz both + bench refresh; re-run the repro bundles
+  (C-ORBIT-08A, 09, 10, row -2) vs `release-notes/v0.64.5.md`; fill the
+  release-check rows / bus transitions; then BENCH-1/R1-R2/M1.1b.
   **State at this wrap:** M1.2 S4 + M2.1 second half LANDED 2026-10-13 (real
   byte-IO + fsync + rename durability; v2 byte container DEFAULT: `7e860ed`
   tree; suite 160/160 x2 Win+WSL; db_crash 25/25 x2 both on the swapped
@@ -1268,15 +1271,15 @@ safety is still the optimistic guard (file_lock adoption pending);
 fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-1. **v0.64.5 ADOPTION + RE-VERIFICATION CYCLE (FIRST)** -- the Windows
-   shadow `xiom.new.0645` is ALREADY INSTALLED + checksum-verified
-   (2026-10-15; zip sha256 `bd71e2d3...`): re-point dev-env(.ps1/.sh) to it
-   + the WSL canonical, **DROP the `XIOM_RUNTIME_DIR` override**, then:
-   suite x2 Win+WSL, db_crash x2 both, probes (mvcc/fault/io-primitives) x2
-   both, fuzz both, bench refresh; re-run the repro bundles vs
-   `release-notes/v0.64.5.md` (C-ORBIT-08 PART A, 09, 10, row -2) and drop
-   workarounds per verified bundle; fill the v0.64.5 release-check rows +
-   bus transitions.
+1. **v0.64.5 RE-VERIFICATION BATTERY (FIRST)** -- v0.64.5 is ADOPTED
+   (owner `275547e`; dev-env pinned; runtime override DROPPED; suite 160/160
+   x2 Win + x2 WSL already green on the stock pin; C-ORBIT-08B masks
+   retired). Remaining: db_crash x2 both + probes (mvcc/fault/io-primitives)
+   x2 both + fuzz both + bench refresh; re-run the repro bundles vs
+   `release-notes/v0.64.5.md` (**C-ORBIT-08A** position workaround STAYS,
+   **C-ORBIT-12** new: never `Result[(Enum, Int), Enum]`; 09; 10; row -2)
+   and drop workarounds per verified bundle; fill the v0.64.5 release-check
+   rows + bus transitions.
 2. **BENCH-1**: embedded cross-engine bench vs SQLite (`synchronous=FULL`
    for fsync fairness) + bbolt's own bench (Go installed) on identical
    YCSB-ish ops; db-benchmarks (client-server league) stays a methodology
@@ -1321,9 +1324,11 @@ fix verifies; see COMPILER-FINDINGS):
   v0.64.5 is adopted, then re-run the battery on the stock pin.
 - Never put an enum in a tuple (C-ORBIT-08A: `Result[(Enum, Int)]`
   miscompiles -- crash or silently skipped match arms; return the enum alone
-  and pass positions separately). Mask fixed-size array byte reads
-  (C-ORBIT-08B: `[N]UInt8` element `as Int` sign-extends; use
-  `(b[i] as Int) & 0xFF`; `Vec[UInt8]` casts are correct).
+  and pass positions separately; and **C-ORBIT-12**: `Result[(Enum, Int),
+  Enum]` emits TWO names for one tuple struct -- same rule, never put an
+  enum inside a tuple). C-ORBIT-08B ([N]UInt8 element `as Int`
+  sign-extension) is **FIXED on v0.64.5 (m260; 248x3) -- our masks were
+  retired; plain casts are correct now**.
 - Copied Vec/struct handles SHARE storage: element assignment (`v[i] = x`)
   through a copy writes through to the source, while push/pop copy-on-write
   (C-ORBIT-09; bundle `docs/repro/vec-copy-alias/`). Clone-then-mutate code
