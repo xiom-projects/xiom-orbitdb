@@ -265,16 +265,17 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   tree clean at `7e860ed` (plus this wrap commit). **v0.64.5 is TAGGED**
   (`refs/tags/v0.64.5` -> `84f761c5`; compiler head d4fdd7e7 "v0.64.5
   RELEASED block (tag/run/assets)"; stdlib ea1c312 "v0.64.5 released and
-  pinned"). On THIS machine no `xiom.new.0645` install and no v0.64.5
-  release-check file yet -- **the fresh session's FIRST task is the v0.64.5
-  re-verification cycle** (see the paste prompt's TASK ORDER item 1):
-  install the Windows archive as `%LOCALAPPDATA%\xiom.new.0645` (sha256 vs
-  SHA256SUMS; `gh release view v0.64.5` for assets) + WSL, **DROP the
-  `XIOM_RUNTIME_DIR` override from dev-env** (the re-vendored stdlib carries
-  wave 139 >> 115/117/118), re-run suite x2 Win+WSL + db_crash x2 both +
-  probes + fuzz, re-run the repro bundles against
-  `release-notes/v0.64.5.md` (C-ORBIT-08/09/10/11 status; drop workarounds
-  per verified bundle), fill the release-check rows / bus transitions.
+  pinned"). **The Windows shadow `%LOCALAPPDATA%\xiom.new.0645` is ALREADY
+  INSTALLED and checksum-verified** (zip sha256 `bd71e2d3...` == the
+  published SHA256SUMS; `--version` smoke = v0.64.5; release published
+  19:18Z; `engine-v0.64.5.md` check file landed -- engine's own rows). The
+  fresh session's FIRST task is the adoption cycle (see the paste prompt's
+  TASK ORDER item 1): re-point dev-env to `xiom.new.0645` + the WSL
+  canonical, **DROP the `XIOM_RUNTIME_DIR` override**, re-run suite x2
+  Win+WSL + db_crash x2 both + probes + fuzz, re-run the repro bundles
+  against `release-notes/v0.64.5.md` (C-ORBIT-08/09/10/11 status; drop
+  workarounds per verified bundle), fill the release-check rows / bus
+  transitions.
   **State at this wrap:** M1.2 S4 + M2.1 second half LANDED 2026-10-13 (real
   byte-IO + fsync + rename durability; v2 byte container DEFAULT: `7e860ed`
   tree; suite 160/160 x2 Win+WSL; db_crash 25/25 x2 both on the swapped
@@ -1267,14 +1268,15 @@ safety is still the optimistic guard (file_lock adoption pending);
 fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-1. **v0.64.5 ADOPTION + RE-VERIFICATION CYCLE (FIRST)** -- install the
-   archive (Windows shadow `%LOCALAPPDATA%\xiom.new.0645`, sha256 vs
-   SHA256SUMS, `gh release view v0.64.5`; WSL canonical; re-point dev-env),
-   **DROP the `XIOM_RUNTIME_DIR` override**, then: suite x2 Win+WSL,
-   db_crash x2 both, probes (mvcc/fault/io-primitives) x2 both, fuzz both,
-   bench refresh; re-run the repro bundles vs `release-notes/v0.64.5.md`
-   (C-ORBIT-08 PART A, 09, 10, row -2) and drop workarounds per verified
-   bundle; fill the v0.64.5 release-check rows + bus transitions.
+1. **v0.64.5 ADOPTION + RE-VERIFICATION CYCLE (FIRST)** -- the Windows
+   shadow `xiom.new.0645` is ALREADY INSTALLED + checksum-verified
+   (2026-10-15; zip sha256 `bd71e2d3...`): re-point dev-env(.ps1/.sh) to it
+   + the WSL canonical, **DROP the `XIOM_RUNTIME_DIR` override**, then:
+   suite x2 Win+WSL, db_crash x2 both, probes (mvcc/fault/io-primitives) x2
+   both, fuzz both, bench refresh; re-run the repro bundles vs
+   `release-notes/v0.64.5.md` (C-ORBIT-08 PART A, 09, 10, row -2) and drop
+   workarounds per verified bundle; fill the v0.64.5 release-check rows +
+   bus transitions.
 2. **BENCH-1**: embedded cross-engine bench vs SQLite (`synchronous=FULL`
    for fsync fairness) + bbolt's own bench (Go installed) on identical
    YCSB-ish ops; db-benchmarks (client-server league) stays a methodology
