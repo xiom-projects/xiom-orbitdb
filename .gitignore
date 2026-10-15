@@ -39,6 +39,7 @@ deps/
 *.wal
 *.kv
 orbitdb-*.store
+*.tmp
 /tmp/
 
 # --- VS Code / editors ------------------------------------------------------

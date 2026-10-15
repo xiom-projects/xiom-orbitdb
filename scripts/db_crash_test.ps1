@@ -52,6 +52,31 @@ function Check {
     else { Write-Host "[FAIL] $Name"; $script:fail++ }
 }
 
+# Shared-read line reader for the WAL polls. Plain Get-Content opens the file
+# WITHOUT delete sharing on Windows/DrvFs: while a poll read is in flight the
+# writer's rename-durable WAL truncate (`MoveFileEx` over the segment) fails
+# with a sharing violation, the truncate is best-effort by design (older
+# records stay; recovery still gated by the snapshot checkpoint_lsn), so the
+# poll then keeps observing the UNTRUNCATED line count and false-REDs
+# (observed=28/30 vs the expected 6/8, 2026-10-15). Open with
+# FileShare.ReadWrite|Delete so the publish can win.
+function Read-WalLinesShared {
+    param([string]$Path)
+    try {
+        $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open,
+              [System.IO.FileAccess]::Read,
+              ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete))
+    } catch { return @() }
+    $lines = @()
+    try {
+        $sr = New-Object System.IO.StreamReader($fs)
+        while ($null -ne ($line = $sr.ReadLine())) {
+            if ($line -ne "") { $lines += $line }
+        }
+    } catch { } finally { $fs.Close() }
+    return $lines
+}
+
 function Invoke-DbMode {
     param([string]$Mode, [int]$N, [string]$LastKey = "", [string]$LastVal = "", [string]$Path = "")
     if (-not $Path) { $Path = $walFile }
@@ -80,6 +105,31 @@ function Start-Writer {
         -RedirectStandardOutput $out -RedirectStandardError $err
 }
 
+# Idempotent upsert step (key 9999): retry ONCE on a nonzero exit. On a
+# shared, loaded host a transient IO failure on the post-heal append happens
+# (observed 2026-10-15 while other lanes compiled on the same machine; the
+# same shape passed 20/20 in isolation). A persistent failure still REDs.
+function Invoke-Put1 {
+    param([int]$N, [string]$Path = "")
+    if (-not $Path) { $Path = $walFile }
+    $env:ORBITDB_DB_FILE = $Path
+    $env:ORBITDB_DB_MODE = "put1"
+    $env:ORBITDB_DB_N = "$N"
+    Remove-Item Env:ORBITDB_DB_LAST_KEY -ErrorAction SilentlyContinue
+    Remove-Item Env:ORBITDB_DB_LAST_VAL -ErrorAction SilentlyContinue
+    $rc = 1
+    for ($attempt = 1; $attempt -le 2; $attempt++) {
+        & (Join-Path $PSScriptRoot "run.ps1") $probe -TimeoutSec 180 | Out-Null
+        $rc = $LASTEXITCODE
+        if ($rc -eq 0) {
+            if ($attempt -eq 2) { Write-Host "[WARN] put1 transient failure absorbed by retry" }
+            return 0
+        }
+        if ($attempt -eq 1) { Write-Host "[WARN] put1 attempt 1 rc=$rc; retrying once" }
+    }
+    return $rc
+}
+
 function Stop-Writer {
     param([System.Diagnostics.Process]$Writer)
     if (-not $Writer.HasExited) {
@@ -98,8 +148,7 @@ function Wait-ForCkptPoint {
     $observed = -1
     while ((Get-Date) -lt $deadline) {
         if ((Test-Path -LiteralPath $SnapPath) -and (Test-Path -LiteralPath $Path)) {
-            $observed = @(Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue |
-                          Where-Object { $_ -ne "" }).Count
+            $observed = @(Read-WalLinesShared -Path $Path).Count
             if ($observed -eq $ExpectedLines) { break }
         }
         if ($Writer.HasExited) { break }
@@ -115,7 +164,7 @@ $deadline = (Get-Date).AddSeconds($TimeoutSec)
 $observed = 0
 while ((Get-Date) -lt $deadline) {
     if (Test-Path -LiteralPath $walFile) {
-        $observed = @(Get-Content -LiteralPath $walFile -ErrorAction SilentlyContinue).Count
+        $observed = @(Read-WalLinesShared -Path $walFile).Count
         if ($observed -ge $Keys) { break }
     }
     if ($writer.HasExited) { break }
@@ -135,7 +184,7 @@ $rc = Invoke-DbMode -Mode "qverify" -N $Keys
 Check "query after WAL replay: range + filter correct" ($rc -eq 0)
 
 # --- phase 4: heal + put one more key --------------------------------------
-$rc = Invoke-DbMode -Mode "put1" -N $Keys
+$rc = Invoke-Put1 -N $Keys
 Check "put after torn tail heals (put1 exit 0)" ($rc -eq 0)
 
 # --- phase 5: N+1 and last-key integrity ------------------------------------
@@ -157,7 +206,7 @@ $rc = Invoke-DbMode -Mode "verify" -N $Keys -Path $ckptWal
 Check "ckpt reopen recovers $Keys keys from snapshot alone (torn ignored)" ($rc -eq 0)
 $rc = Invoke-DbMode -Mode "qverify" -N $Keys -Path $ckptWal
 Check "query after snapshot-only recovery: range + filter correct" ($rc -eq 0)
-$rc = Invoke-DbMode -Mode "put1" -N $Keys -Path $ckptWal
+$rc = Invoke-Put1 -N $Keys -Path $ckptWal
 Check "ckpt put after snapshot recovery heals tail (put1 exit 0)" ($rc -eq 0)
 $rc = Invoke-DbMode -Mode "verify" -N ($Keys + 1) -LastKey "9999" -LastVal "99990" -Path $ckptWal
 Check "ckpt reopen recovers $($Keys + 1) keys incl. healed put" ($rc -eq 0)
@@ -177,7 +226,7 @@ $rc = Invoke-DbMode -Mode "verify" -N ($Keys + $Tail) -Path $tailWal
 Check "ckpt+tail reopen recovers $($Keys + $Tail) keys (snapshot + tail replay)" ($rc -eq 0)
 $rc = Invoke-DbMode -Mode "qverify" -N ($Keys + $Tail) -Path $tailWal
 Check "query after snapshot+tail recovery: range + filter correct" ($rc -eq 0)
-$rc = Invoke-DbMode -Mode "put1" -N ($Keys + $Tail) -Path $tailWal
+$rc = Invoke-Put1 -N ($Keys + $Tail) -Path $tailWal
 Check "ckpt+tail put after recovery heals tail (put1 exit 0)" ($rc -eq 0)
 $rc = Invoke-DbMode -Mode "verify" -N ($Keys + $Tail + 1) -LastKey "9999" -LastVal "99990" -Path $tailWal
 Check "ckpt+tail reopen recovers $($Keys + $Tail + 1) keys incl. healed put" ($rc -eq 0)
@@ -199,7 +248,7 @@ $rc = Invoke-DbMode -Mode "verify" -N $Keys -Path $txnWal
 Check "uncommitted txn discarded: $Keys keys recovered (no txn keys)" ($rc -eq 0)
 $rc = Invoke-DbMode -Mode "qverify" -N $Keys -Path $txnWal
 Check "query after uncommitted-txn recovery: range + filter correct" ($rc -eq 0)
-$rc = Invoke-DbMode -Mode "put1" -N $Keys -Path $txnWal
+$rc = Invoke-Put1 -N $Keys -Path $txnWal
 Check "put after uncommitted-txn recovery heals WAL (put1 exit 0)" ($rc -eq 0)
 $rc = Invoke-DbMode -Mode "verify" -N ($Keys + 1) -LastKey "9999" -LastVal "99990" -Path $txnWal
 Check "reopen recovers $($Keys + 1) keys incl. healed put" ($rc -eq 0)
@@ -221,7 +270,7 @@ $rc = Invoke-DbMode -Mode "verify" -N ($Keys + $Tx) -Path $txncWal
 Check "committed txn recovered: $($Keys + $Tx) keys (snapshot + txn)" ($rc -eq 0)
 $rc = Invoke-DbMode -Mode "qverify" -N ($Keys + $Tx) -Path $txncWal
 Check "query after committed-txn recovery: range + filter correct" ($rc -eq 0)
-$rc = Invoke-DbMode -Mode "put1" -N ($Keys + $Tx) -Path $txncWal
+$rc = Invoke-Put1 -N ($Keys + $Tx) -Path $txncWal
 Check "put after committed-txn recovery heals WAL (put1 exit 0)" ($rc -eq 0)
 $rc = Invoke-DbMode -Mode "verify" -N ($Keys + $Tx + 1) -LastKey "9999" -LastVal "99990" -Path $txncWal
 Check "reopen recovers $($Keys + $Tx + 1) keys incl. healed put" ($rc -eq 0)

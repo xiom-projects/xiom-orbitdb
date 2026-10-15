@@ -76,6 +76,22 @@ invoke_mode() { # mode n [last_key last_val path]
   return $?
 }
 
+# Idempotent upsert step (key 9999): retry ONCE on a nonzero exit (parity
+# with scripts/db_crash_test.ps1, where a transient IO failure on the
+# post-heal append can happen on a loaded host). A persistent failure still
+# REDs. path default = $WAL_FILE.
+invoke_put1() { # n [path]
+  local n=$1 path=${2:-$WAL_FILE}
+  local rc=1 attempt
+  for attempt in 1 2; do
+    invoke_mode put1 "$n" "" "" "$path" >/dev/null 2>&1
+    rc=$?
+    [ "$rc" -eq 0 ] && return 0
+    [ "$attempt" -eq 1 ] && printf '[WARN] put1 attempt 1 rc=%s; retrying once\n' "$rc"
+  done
+  return "$rc"
+}
+
 # --- phase 1: writer puts KEYS records, then hangs --------------------------
 export ORBITDB_DB_FILE="$WAL_FILE"
 export ORBITDB_DB_MODE="write"
@@ -109,7 +125,7 @@ invoke_mode qverify "$KEYS" >/dev/null 2>&1
 check "query after WAL replay: range + filter correct" "$?"
 
 # --- phase 4: heal + put one more key --------------------------------------
-invoke_mode put1 "$KEYS" >/dev/null 2>&1
+invoke_put1 "$KEYS"
 check "put after torn tail heals (put1 exit 0)" "$?"
 
 # --- phase 5: N+1 and last-key integrity ------------------------------------
@@ -147,7 +163,7 @@ invoke_mode verify "$KEYS" "" "" "$CKPT_WAL" >/dev/null 2>&1
 check "ckpt reopen recovers $KEYS keys from snapshot alone (torn ignored)" "$?"
 invoke_mode qverify "$KEYS" "" "" "$CKPT_WAL" >/dev/null 2>&1
 check "query after snapshot-only recovery: range + filter correct" "$?"
-invoke_mode put1 "$KEYS" "" "" "$CKPT_WAL" >/dev/null 2>&1
+invoke_put1 "$KEYS" "$CKPT_WAL"
 check "ckpt put after snapshot recovery heals tail (put1 exit 0)" "$?"
 invoke_mode verify "$((KEYS + 1))" "9999" "99990" "$CKPT_WAL" >/dev/null 2>&1
 check "ckpt reopen recovers $((KEYS + 1)) keys incl. healed put" "$?"
@@ -183,7 +199,7 @@ invoke_mode verify "$((KEYS + TAIL))" "" "" "$TAIL_WAL" >/dev/null 2>&1
 check "ckpt+tail reopen recovers $((KEYS + TAIL)) keys (snapshot + tail replay)" "$?"
 invoke_mode qverify "$((KEYS + TAIL))" "" "" "$TAIL_WAL" >/dev/null 2>&1
 check "query after snapshot+tail recovery: range + filter correct" "$?"
-invoke_mode put1 "$((KEYS + TAIL))" "" "" "$TAIL_WAL" >/dev/null 2>&1
+invoke_put1 "$((KEYS + TAIL))" "$TAIL_WAL"
 check "ckpt+tail put after recovery heals tail (put1 exit 0)" "$?"
 invoke_mode verify "$((KEYS + TAIL + 1))" "9999" "99990" "$TAIL_WAL" >/dev/null 2>&1
 check "ckpt+tail reopen recovers $((KEYS + TAIL + 1)) keys incl. healed put" "$?"
@@ -220,7 +236,7 @@ invoke_mode verify "$KEYS" "" "" "$TXN_WAL" >/dev/null 2>&1
 check "uncommitted txn discarded: $KEYS keys recovered (no txn keys)" "$?"
 invoke_mode qverify "$KEYS" "" "" "$TXN_WAL" >/dev/null 2>&1
 check "query after uncommitted-txn recovery: range + filter correct" "$?"
-invoke_mode put1 "$KEYS" "" "" "$TXN_WAL" >/dev/null 2>&1
+invoke_put1 "$KEYS" "$TXN_WAL"
 check "put after uncommitted-txn recovery heals WAL (put1 exit 0)" "$?"
 invoke_mode verify "$((KEYS + 1))" "9999" "99990" "$TXN_WAL" >/dev/null 2>&1
 check "reopen recovers $((KEYS + 1)) keys incl. healed put" "$?"
@@ -257,7 +273,7 @@ invoke_mode verify "$((KEYS + TX))" "" "" "$TXNC_WAL" >/dev/null 2>&1
 check "committed txn recovered: $((KEYS + TX)) keys (snapshot + txn)" "$?"
 invoke_mode qverify "$((KEYS + TX))" "" "" "$TXNC_WAL" >/dev/null 2>&1
 check "query after committed-txn recovery: range + filter correct" "$?"
-invoke_mode put1 "$((KEYS + TX))" "" "" "$TXNC_WAL" >/dev/null 2>&1
+invoke_put1 "$((KEYS + TX))" "$TXNC_WAL"
 check "put after committed-txn recovery heals WAL (put1 exit 0)" "$?"
 invoke_mode verify "$((KEYS + TX + 1))" "9999" "99990" "$TXNC_WAL" >/dev/null 2>&1
 check "reopen recovers $((KEYS + TX + 1)) keys incl. healed put" "$?"

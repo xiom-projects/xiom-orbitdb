@@ -9,9 +9,16 @@
 | Item | Windows | WSL (Ubuntu) |
 |------|---------|--------------|
 | Toolchain | `scripts\dev-env.ps1` (resolves `XIOM_COMPILER`) | `scripts/dev-env.sh` (`~/.local/bin/xiom`) |
-| Compiler | v0.64.1 (`%LOCALAPPDATA%\xiom.new\bin\xiom.exe`) | v0.64.1 |
+| Compiler | v0.64.5 (`%LOCALAPPDATA%\xiom.new.0645\bin\xiom.exe`, sha256 `02f0857887e14e48...`) | v0.64.5 (canonical `~/.local/share/xiom`, sha256 `c4aa877a8a4c219f...`) |
 | Stdlib | `$env:XIOM_STDLIB` = `E:\xiom-lang\stdlib` | `/mnt/e/xiom-lang/stdlib` |
 | Runner | `scripts\run.ps1 FILE -TimeoutSec N` | `scripts/run.sh FILE --timeout-sec N` |
+
+Both dev-env twins resolve the compiler EXPLICITLY (Windows: the lane shadow
+pin; WSL: canonical first-on-PATH with an install-path fallback) and print
+version + resolving path -- gate on that line when a run plays "wrong binary".
+`XIOM_RUNTIME_DIR` is NOT used since the v0.64.5 adoption (2026-10-15): the
+re-vendored stdlib carries wave 139; `dev-env.*` actively unsets any inherited
+override so the stock pin is authoritative.
 
 WSL note: the default distro on this machine is `docker-desktop` (no bash);
 always target Ubuntu explicitly:
@@ -27,7 +34,7 @@ Shell scripts and `.xi` files must stay LF; `.ps1` files are CRLF
 
 | Purpose | Command | Notes |
 |---------|---------|-------|
-| Conformance suite | `scripts/run.ps1 tests\test_conformance.xi -TimeoutSec 300` | 152 tests; expect `152/152` and exit 0. |
+| Conformance suite | `scripts/run.ps1 tests\test_conformance.xi -TimeoutSec 300` | 160 tests; expect `160/160` and exit 0. |
 | WAL crash harness | `scripts\crash_test.ps1 -Events 20 -TimeoutSec 90` | writer -> hard kill -> torn tail -> reopen -> verify -> heal -> verify+1. |
 | Page crash harness | `scripts\page_crash_test.ps1 -Pages 20 -TimeoutSec 120` | Use 120s: the writer's first compile can exceed 90s under load. |
 | DB crash harness | `scripts\db_crash_test.ps1 -Keys 20 -Tail 3 -Tx 5 -TimeoutSec 90` | Five scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn, committed txn); 25 checks. Prefix `ORBITDB_DB_FORMAT=v2` (env) to run the whole matrix with v2 byte-block snapshots (same 25 checks; GREEN x2 both platforms). |
@@ -64,7 +71,7 @@ killed); harnesses print `GREEN`/`RED` and exit 0/1.
 | `tests/probes/probe_fault_sync.xi` | `ORBITDB_FAULT_DB`, `ORBITDB_FAULT_CKPT_DB`, `ORBITDB_FAULT_BLOCK` (paths only) | M2.1+M5.3 durability/fault battery (56 checks): put/delete/typed-put syncfail latch + reopen recovery, checkpoint 2PC pre-sync failure (snapshot file size unchanged, WAL untruncated, tail replayed), block-store partial writes (torn page append/update, torn header slot fallback). |
 | | `ORBITDB_FAULT_AT` / `ORBITDB_FAULT_MODE` (`kill`/`partial`/`skip`/`syncfail`) / `ORBITDB_FAULT_TAIL` | **Test-only** fault layer (`src/storage/fault.xi`, wired into the `byte_io` gates): fires on the Nth write-ish op (or sync for `syncfail`), one fire per arming; `fault_reset()` + removing the env re-arms. Never set in production. |
 | `tests/probes/probe_mvcc.xi` | `ORBITDB_MVCC_DIR` (scratch dir, default `probe-logs`) | M3 snapshot-pin + savepoint battery (36 checks): three interleaved pins over 600 churn ops + two checkpoints vs per-pin models; compaction deferral under a pin (page log grows past node_count + 64, shrinks after release) with generation bookkeeping; savepoint matrix across reopen "crashes"; typed payload pins. Run: `scripts\run.ps1 tests\probes\probe_mvcc.xi -TimeoutSec 300`. |
-| `tests/probes/probe_io_primitives.xi` | `ORBITDB_IO_PRIM_DIR` (scratch dir, default `probe-logs`) | Stdlib wave-115 durability/byte-IO verification (14 checks): real fsync via `sync_io.sync_fd`, held append handle (`open_append`/`write_all`/`close_fd`), `io.truncate_file`, `io.read_at`/`write_at`/`append_file_bytes` round-trips, `sync_io.fsync_dir`. **Run against the lane toolchain until the re-vendor pin:** `XIOM_STDLIB=<stdlib>` + `XIOM_RUNTIME_DIR=<stdlib>/runtime` with the v0.64.4 compiler (`scripts\run.ps1` clears the var, so invoke the compiler directly; WSL: env-prefix the same two vars on `~/.local/bin/xiom --run`). GREEN x2 Win + x2 WSL on wave 115. |
+| `tests/probes/probe_io_primitives.xi` | `ORBITDB_IO_PRIM_DIR` (scratch dir, default `probe-logs`) | Stdlib wave-115 durability/byte-IO verification (30 checks): real fsync via `sync_io.sync_fd`, held append handle (`open_append`/`write_all`/`close_fd`), `io.truncate_file`, `io.read_at`/`write_at`/`append_file_bytes` round-trips, `sync_io.fsync_dir`, `file_last_byte`/`ends_with_newline`, `append_line_sync` torn-tail repair. **Stock pin since v0.64.5** (the wave 115/117/118 primitives are in the bundled runtime; no `XIOM_RUNTIME_DIR` needed). GREEN x2 Win + x2 WSL on the v0.64.5 re-verify. |
 
 Standard soak (policy checkpoints every 250 records):
 
@@ -171,11 +178,32 @@ scripts\run.ps1 tests\probes\probe_db_file.xi -TimeoutSec 180
   stdlib module reached through the hijacked call, no file name in the
   message.
 - Copying a Vec (or a struct containing Vecs) by assignment does NOT give an
-  owned copy: element assignment (`v[i] = x`) through the copy writes through
-  to the source buffer, while push/pop copy-on-write (C-ORBIT-09; bundle
-  `docs/repro/vec-copy-alias/`). "Clone then mutate in place" code must build
-  an owned copy explicitly (fresh vectors + push loops; see `node_deep_copy`
-  in `src/engine.xi` -- the M3 COW shadows corrupted pinned views before it).
+  owned copy on v0.64.3: element assignment (`v[i] = x`) through the copy
+  writes through to the source buffer, while push/pop copy-on-write
+  (C-ORBIT-09; bundle `docs/repro/vec-copy-alias/`). **v0.64.5 (m302) fixed
+  the SIMPLE binding shapes** (RHS = Ident/Index/Field deep-copies at the
+  binding), but push() args, by-value call args, for-loop element bindings
+  and whole-struct copies with Vec FIELDS still share. "Clone then mutate in
+  place" code must build an owned copy explicitly (fresh vectors + push
+  loops; see `node_deep_copy` in `src/engine.xi` -- the M3 COW shadows
+  corrupted pinned views before it; it STAYS as the ownership guarantee).
+- **WAL size-polls must open with DELETE sharing on Windows/DrvFs:** the
+  crash harness polls line counts while the writer publishes its truncate;
+  a read handle without `FileShare.Delete` makes the writer's temp+rename
+  truncate fail transiently (best-effort by design -- see next bullet), and
+  the poll then sees the UNTRUNCATED count and false-REDs
+  (`observed=28/30` vs expected 6/8; hit 2026-10-15). `db_crash_test.ps1`
+  uses `Read-WalLinesShared` for every poll; plain `Get-Content` is wrong
+  here.
+- **Truncate publish is best-effort and benign when it fails:** the
+  checkpoint truncate is temp+rename; recovery of an untruncated segment is
+  still correct because `db_file_open` skips pre-snapshot records via the
+  snapshot's `checkpoint_lsn` gate. A leftover `*.wal.tmp` after contention
+  or an interrupted run is expected debris (`*.tmp` is gitignored); a
+  transient rename failure under load is not data loss. The `put1` step of
+  both crash harnesses retries ONCE (idempotent key-9999 upsert) and prints
+  `[WARN] put1 ...` when the retry absorbed a transient IO failure; a
+  persistent failure still REDs.
 - Snapshot pins are handle-local and in-memory: a reopen starts with none.
   While a pin is live, node versions accumulate in the arena (no GC until
   M1.1b) and checkpoint compaction defers (`db_file_compaction_deferrals`
