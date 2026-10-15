@@ -257,7 +257,7 @@ fields (`ids` / `blocks` / `gens` directory, `header`, `active_slot`,
 | `TValue` (`VNull`/`VInt`/`VFloat`/`VText`/`VBlob`) | enum | M5 typed-value model; construct as `TValue.VInt(5)` etc., inspect via the accessors below (consumers should not pattern-match: m225/C-ORBIT-07 hygiene). |
 | `tuple2_encode_row_checked(id, values)` | `DbResult[Vec[Int]]` | Codec v2 row; `Err(ConstraintViolation)` above 255 fields / u32 lengths / non-byte blob elements. |
 | `tuple2_decode_row(buf)` | `DbResult[TypedRow]` | Strict v2 decode (whole-buffer byte check, exact length, `VInt` id field); rejects v1 bytes. |
-| `tuple2_read_value(buf, at)` | `DbResult[TValue]` | One tagged value; consumed length is `tuple2_value_len(v)`. |
+| `tuple2_read_value(buf, at)` | `DbResult[TValue]` | One tagged value; consumed length is `tuple2_value_len(v)`. The position-tuple shape `(TValue, Int)` stays retired: with an enum error type both are enums and v0.64.5 still miscompiles (C-ORBIT-12; bundle `docs/repro/enum-tuple-codegen/repro_enum_tuple_enum_error.xi`). |
 | `tuple2_value_len(v)` / `tuple2_encoded_len(values)` / `tuple2_fits_page(values, page_size)` | `Int` / `Int` / `Bool` | Size helpers (page budget gate). |
 | `tuple2_kind` / `tuple2_is_null` / `tuple2_int_value` / `tuple2_float_value` / `tuple2_text_value` / `tuple2_blob_value` | `Int` / `Bool` / `Option[...]` | Accessors (kind tag + per-kind extraction). |
 | `tuple2_compare(a, b)` | `Int` | Total order for typed predicates: Null < numeric (Int/Float compared numerically; `VInt(1)` equals `VFloat(1.0)`) < Text (bytewise) < Blob (element-wise); NaN sorts first and equals itself. `0` is equality. |

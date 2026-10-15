@@ -8,22 +8,22 @@
 # file the finding, note the last known-good version in SESSION.md as a
 # ROLLBACK OPTION, and keep moving on other slices.
 #
-# As of 2026-10-12 (compiler v0.64.4 release):
-#   compiler  v0.64.4  %LOCALAPPDATA%\xiom.new.0644\bin\xiom.exe
-#     (shadow install of the v0.64.4 release, sha256 44a41aea... verified
-#     against SHA256SUMS; the canonical %LOCALAPPDATA%\xiom.new is still
-#     v0.64.2 and is left untouched -- other lanes share it. Canonical swap
-#     is owner/ops-coordinated; this lane pins explicitly.)
+# As of 2026-10-15 (compiler v0.64.5 release):
+#   compiler  v0.64.5  %LOCALAPPDATA%\xiom.new.0645\bin\xiom.exe
+#     (shadow install of the v0.64.5 release, sha256 02f0857887e14e48... --
+#     extracted from xiom-0.64.5-windows-x64.zip, sha256 bd71e2d357b7a721...
+#     verified against the release SHA256SUMS; the canonical
+#     %LOCALAPPDATA%\xiom.new is still v0.64.2 and is left untouched --
+#     other lanes share it. Canonical swap is owner/ops-coordinated; this
+#     lane pins explicitly.)
 #   stdlib    E:\xiom-lang\stdlib (stdlib-lane checkout = latest lane work)
 #   packages  %LOCALAPPDATA%\xiom\packages (registry, signature-verified)
 #
-# XIOM_RUNTIME_DIR: retired on v0.64.0 in general, BUT temporarily re-enabled
-# for this lane since 2026-10-13 (M1.2 S4): the stdlib durability/byte-IO
-# primitives (waves 115/117/118: fsync, read_at/write_at, append_line_sync,
-# file_lock, ...) live in the LANE runtime and only reach consumers at the
-# next compiler pin that re-vendors stdlib/runtime. Until then the engine
-# links against the lane runtime. REMOVE this override when the next pin
-# re-vendors (re-check: `xiom --version` bump carrying stdlib >= wave 115).
+# XIOM_RUNTIME_DIR: the 2026-10-13 lane-runtime override (M1.2 S4: waves
+# 115/117/118 durability/byte-IO primitives) is DROPPED as of 2026-10-15:
+# the v0.64.5 archive re-vendors stdlib/runtime carrying wave 139 (>> 115),
+# so the stock pin is the authoritative runtime again. The script actively
+# unsets any stale XIOM_RUNTIME_DIR inherited from the shell environment.
 #
 # PATH warning: a stale staging dir (xiom.new-<date>) shadows xiom.new in
 # PATH -- always set XIOM_COMPILER explicitly instead of relying on `xiom`.
@@ -35,14 +35,15 @@
 
 $ErrorActionPreference = "Stop"
 
-$env:XIOM_COMPILER = Join-Path $env:LOCALAPPDATA "xiom.new.0644\bin\xiom.exe"
+$env:XIOM_COMPILER = Join-Path $env:LOCALAPPDATA "xiom.new.0645\bin\xiom.exe"
 $env:XIOM_STDLIB   = "E:\xiom-lang\stdlib"
-$env:XIOM_RUNTIME_DIR = "E:\xiom-lang\stdlib\runtime"   # lane runtime (S4 override)
+# Stock runtime (v0.64.5 re-vendor carries wave 139): never inherit a stale
+# lane-runtime override from the surrounding shell.
+Remove-Item Env:XIOM_RUNTIME_DIR -ErrorAction SilentlyContinue
 
 $missing = @()
 if (-not (Test-Path -LiteralPath $env:XIOM_COMPILER)) { $missing += "XIOM_COMPILER ($env:XIOM_COMPILER)" }
 if (-not (Test-Path -LiteralPath $env:XIOM_STDLIB))   { $missing += "XIOM_STDLIB   ($env:XIOM_STDLIB)" }
-if (-not (Test-Path -LiteralPath $env:XIOM_RUNTIME_DIR)) { $missing += "XIOM_RUNTIME_DIR ($env:XIOM_RUNTIME_DIR)" }
 
 if ($missing.Count -gt 0) {
     Write-Warning "dev-env: missing toolchain paths:"
@@ -53,4 +54,4 @@ if ($missing.Count -gt 0) {
 $ver = (& $env:XIOM_COMPILER --version 2>&1 | Select-Object -First 1)
 Write-Host "dev-env: $ver"
 Write-Host "dev-env: XIOM_STDLIB = $env:XIOM_STDLIB"
-Write-Host "dev-env: XIOM_RUNTIME_DIR = $env:XIOM_RUNTIME_DIR (S4 lane-runtime override; remove at the next re-vendor pin)"
+Write-Host "dev-env: XIOM_RUNTIME_DIR = <unset> (stock v0.64.5 runtime; override retired 2026-10-15)"

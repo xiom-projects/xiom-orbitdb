@@ -38,6 +38,51 @@ C-ORBIT-08 PART B fixed (m260) / PART A open; C-ORBIT-09 still red;
 row `-2` still open. Verdicts on
 `release-checks/compiler-compiler-v0.64.4.md` (bus).
 
+**Status 2026-10-15 (v0.64.5 re-verification wave):** ORBITDB adopted
+v0.64.5 (Windows shadow `xiom.new.0645` `02f0857887e14e48...`; WSL canonical
+`c4aa877a8a4c219f...` == linux tarball) and DROPPED the
+`XIOM_RUNTIME_DIR` lane override (the re-vendored stdlib carries wave 139 >>
+115/117/118). Bundle matrix re-ran on the STOCK pin, x2 Win + x2 WSL:
+- C-ORBIT-08 PART A: **FIXED for the filed shape** (m305) --
+  `repro_enum_tuple` prints `n=8` / `custom=5` / `done`, exit 0 both
+  platforms (the README's old "expected n=5" line was a miscomputed
+  expectation; slot 1 is `n + 3`). PART B stays fixed (m260): the
+  `& 0xFF` mask was RETIRED in `tuple2_push_f64_le`. **NEW sub-shape filed
+  as C-ORBIT-12** (bus `REL-20261015-2055-orbitdb`): `Result[(Enum, Int),
+  Enum]` -- tuple with an enum element whose Result ERROR type is ALSO an
+  enum -- still emits two names for one tuple struct
+  (`Tuple__<mod>.<Val>__Int` vs `Tuple__<Val>__Int`) -> clang hard error;
+  reduced to a self-contained 2-variant repro
+  (`docs/repro/enum-tuple-codegen/repro_enum_tuple_enum_error.xi`; the
+  Int-error control compiles/runs). The `DbResult[TValue]` position
+  workaround therefore STAYS until that bundle is green.
+- C-ORBIT-09: **FIXED for the probe shapes** (m302) -- `probe_alias` prints
+  `flat elem-assign: src[0]=1 copy[0]=99` and `arena elem-assign:
+  src[0]=1 copy[0]=1` on both platforms; controls unchanged. Residual
+  caveats recorded by the compiler (by-value call args, `push()` args,
+  for-loop element bindings, whole-struct copies with Vec FIELDS still
+  share): ORBITDB keeps `node_deep_copy` as the copy-on-write ownership
+  guarantee (now design insurance, not a bug workaround).
+- C-ORBIT-10: **RETRACTED -- not a compiler defect.** On the official
+  v0.64.5 artifacts `--check` exits rc=1 for both probes on Windows AND
+  WSL (canonical paths, verified sha256). rc=0 reproduces ONLY with
+  `xiom-dbg` (DAP adapter; ignores `--check`; sha256 `8060704c...`) -- the
+  WSL side of the original matrix had executed the wrong binary. Harness
+  hardened (both dev-env twins resolve the compiler explicitly and report
+  version/path); the bundle stays as exit-code regression probes.
+- C-ORBIT-11: **FIXED** (m298) -- `probe_compose_collision` prints
+  `compose ok`, rc 0 on both platforms ON THE STOCK PIN (the v0.64.5
+  re-vendor removed the lane-stdlib dependency for byte-IO).
+- Row `REL-20261010-1550-orbitdb-2` (standalone `--check src/engine.xi`):
+  **FIXED** (m304) -- rc 0, `Type check PASSED` on both platforms.
+- Suite **160/160 x2 Win + x2 WSL** on the final tree (after restoring the
+  C-ORBIT-12 position workaround and retiring the 08B masks); db_crash /
+  probes / fuzz / bench ride this wrap's battery (SESSION.md).
+- Registry consumer pass: `probe_pkg_btree` / `probe_pkg_wal` re-run x2
+  platforms; `xiom.btree`/`xiom.wal`/`xiom.vectors` reinstalled additively
+  into the Windows registry home (the ops fleet swap had reset it; WSL
+  home untouched).
+
 **Status 2026-10-11: C-ORBIT-07 filed (OPEN on v0.64.3)** -- a consumer-defined
 function silently hijacks an unqualified call to a module-PRIVATE same-named
 helper inside an imported module (the ORBITDB M2.1 fault probe's `arm` ran
@@ -469,10 +514,19 @@ applied then; every one is resolved on v0.64.2 (see the re-test above).
   Secondary: include the source file in contract-violation messages
   (currently `line:col` only).
 
-## C-ORBIT-08 -- enum-in-tuple miscompile + `[N]UInt8` element cast sign-extension (OPEN, filed 2026-10-11)
+## C-ORBIT-08 -- enum-in-tuple miscompile + `[N]UInt8` element cast sign-extension (v0.64.5: PART A fixed for the filed shape / PART B fixed; sub-shape split to C-ORBIT-12)
+
+**Verdict 2026-10-15 (v0.64.5, both platforms):** PART A GREEN for the filed
+shape (m305: `repro_enum_tuple` -> `n=8`/`custom=5`/`done`, exit 0; note the
+terminal-1 value is `n + 3`, the old README expected-line was miscomputed).
+PART B GREEN (m260; the `& 0xFF` mask retired in `tuple2_push_f64_le`).
+**A sub-shape remains RED** (enum-in-tuple + enum ERROR type; both are enums)
+-> reduced + filed as **C-ORBIT-12** (`repro_enum_tuple_enum_error.xi`), so
+the `DbResult[TValue]` position workaround stays.
 
 - **Bundle:** `docs/repro/enum-tuple-codegen/` (`repro_enum_tuple.xi`,
-  `repro_u8_cast.xi`, README with exact outputs on both platforms).
+  `repro_u8_cast.xi`, `repro_enum_tuple_enum_error.xi`, README with exact
+  outputs on both platforms).
 - **Part A (enum in a tuple -- HARD failure):** `Result[(Color, Int), Int]`
   compiles with the warning `unknown type 'Tuple__Color__Int' -- defaulting
   to i64. This may produce incorrect code.` and then: Windows exit code
@@ -486,8 +540,9 @@ applied then; every one is resolved on v0.64.2 (see the re-test above).
   `[8]UInt8` element read with `as Int` SIGN-EXTENDS high bytes (0xF8 ->
   -8) on both platforms; `Vec[UInt8]` element reads are correct (248) --
   so `byte_io`/block-store readers are unaffected. The storage byte
-  convention is 0..255: code reading through fixed-size arrays must mask
-  (`(b[i] as Int) & 0xFF`, applied in `tuple2_push_f64_le`).
+  convention is 0..255: code reading through fixed-size arrays had to mask
+  (`(b[i] as Int) & 0xFF`; applied in `tuple2_push_f64_le`, RETIRED
+  2026-10-15 after the m260 fix re-verified on v0.64.5).
 - **Impact:** any program moving enums through tuples (a natural API shape)
   or reading bytes out of fixed-size arrays (a natural codec shape) gets
   crashes or silently wrong values with no type error.
@@ -495,7 +550,32 @@ applied then; every one is resolved on v0.64.2 (see the re-test above).
   escape hatch), and zero-extend `UInt8 -> Int` casts for fixed-size array
   element reads.
 
-## C-ORBIT-09 -- element assignment through a copied Vec handle writes through to the source (OPEN, filed 2026-10-11)
+## C-ORBIT-12 -- enum-in-tuple with an enum ERROR type still miscompiles (OPEN, filed 2026-10-15)
+
+- **Bundle:** `docs/repro/enum-tuple-codegen/repro_enum_tuple_enum_error.xi`
+  (minimal: two variants suffice; no Str/Vec/Float payloads needed).
+- **Symptom (v0.64.5, both platforms):** `Result[(Val, Int), Err]` with BOTH
+  `Val` and `Err` enums emits two names for one tuple struct --
+  `%struct.Tuple__<mod>.<Val>__Int` (module-qualified element key) and
+  `%struct.Tuple__<Val>__Int` (bare) -- and clang hard-fails:
+  `error: '%tmp17' defined with type '%struct.Tuple__<mod>.<Val>__Int ...'
+  but expected '%struct.Tuple__<Val>__Int ...'`, rc 1, no binary.
+- **Control:** the identical shape with an INT error type
+  (`Result[(Val, Int), Int]`) compiles and runs correctly (sum=110, exit 0).
+  Inside larger programs the shared shape also degrades to the old
+  `unknown type 'Tuple__TValue__Int' -- defaulting to i64` warning + silent
+  misdecode (ORBITDB's typed-value suite failed 6 tests when the position
+  workaround was provisionally dropped: decode returned `Err`).
+- **Impact:** the `DbResult[(TValue, Int)]` position-tuple shape stays
+  retired in `src/storage/tuple.xi` (workaround: return the value alone,
+  advance via `tuple2_value_len(v)`); m305 fixed the ctor-call/Int-error
+  family but not this one.
+- **Suggested fix:** m305's tuple-element namers must canonicalize the
+  enum's key IDENTICALLY on the definition and the use side (the
+  module-qualified rename for injected/identity-collision types leaks into
+  only one of the two namers when the Result error arm is an enum).
+
+## C-ORBIT-09 -- element assignment through a copied Vec handle writes through to the source (FIXED on v0.64.5 by m302; residual caveats documented)
 
 - **Bundle:** `docs/repro/vec-copy-alias/` (`probe_alias.xi`,
   `probe_clean.xi`, README with exact outputs).
@@ -517,24 +597,30 @@ applied then; every one is resolved on v0.64.2 (see the re-test above).
   check as push/pop (or deep-copy on assignment), and consider a diagnostic
   when writing through a shared handle.
 
-## C-ORBIT-10 -- Linux `xiom --check` exits 0 even when it reports errors (OPEN, filed 2026-10-12)
+## C-ORBIT-10 -- RETRACTED: `xiom --check` exit codes are correct on Linux (not a compiler defect; closed 2026-10-15)
 
-- **Bundle:** `docs/repro/check-exit-code/` (`probe_type.xi`,
-  `probe_syntax.xi`, README with the matrix).
-- **Symptom:** official v0.64.4 Linux artifact
-  (`xiom-0.64.4-linux-x64.tar.gz` `bin/xiom`, sha256 `d0a43a5c...`) prints
-  the diagnostics + `error: compilation failed` but exits **0** for both a
-  T001 type error and a P001 syntax error; the Windows artifact
-  (`44a41aea...`) exits 1 for the same files. Clean files exit 0 on both.
-- **Impact:** every Linux/WSL gate that branches on `--check`'s exit status
-  false-passes (CI gates, release-check scripts, tree-is-green loops).
-- **Workaround:** gate on output text (`compilation failed` / `error[`) or
-  use the Windows shadow for authoritative checks.
-- **Suggested fix:** propagate the error exit status on the check path of
-  the Linux build (the Windows behavior is the reference; `xiom run`
-  already propagates nonzero program exits).
+**Original report (v0.64.4 wave, for history):** "the Linux build's
+`--check` exits 0 even when it reports errors; the Windows build exits 1."
+The compiler lane's triage (2026-10-13) already found the documented Linux
+artifact exits rc=1 across 20+ invocation variants and localized rc=0 to
+`xiom-dbg`; ORBITDB's v0.64.5 re-run confirmed that verdict on the official
+artifacts.
 
-## C-ORBIT-11 -- same-named types across modules break consumers at codegen (OPEN, filed 2026-10-12)
+**Verdict 2026-10-15 (v0.64.5, official artifacts):** `--check` exits `rc 1`
+for both probes on Windows AND WSL (canonical paths, sha256-verified
+binaries). `rc=0` reproduces ONLY with `xiom-dbg` (the DAP debug adapter;
+ignores `--check`, prints "GDB/MI backend", sha256 `8060704c...`): the WSL
+side of the original v0.64.4 matrix had executed the wrong binary. Lane
+harness hardened (dev-env twins resolve + report the compiler explicitly);
+bundle kept as exit-code regression probes; README rewritten. See
+`docs/repro/check-exit-code/README.md`.
+
+## C-ORBIT-11 -- same-named types across modules break consumers at codegen (FIXED on v0.64.5 by m298; compose ok both platforms)
+
+**Verdict 2026-10-15:** `tests/pkg/probe_compose_collision.xi` prints
+`compose ok`, rc 0 on both platforms ON THE STOCK PIN (no lane-stdlib
+dependency after the v0.64.5 re-vendor). The two-program digest pattern
+stays as interop testing design; co-composition is no longer blocked.
 
 - **Bundle:** `docs/repro/same-named-struct-compose/` (real repro:
   `tests/pkg/probe_compose_collision.xi`; a minimal two-struct pair is

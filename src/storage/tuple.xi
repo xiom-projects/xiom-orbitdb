@@ -256,9 +256,10 @@ fn tuple2_push_f64_le(out: &mut Vec[Int], f: Float64)
     *fp = f;
     var i = 0;
     while i < 8 {
-      // Mask: `b[i] as Int` on the fixed UInt8 array sign-extends high
-      // bytes on v0.64.3 (0xF8 -> -8); the storage byte convention is 0..255.
-      out.push((b[i] as Int) & 0xFF);
+      // Direct fixed-array UInt8->Int cast: zero-extension verified on
+      // v0.64.5 (m260; repro docs/repro/enum-tuple-codegen PART B, 248 x2
+      // platforms). The old `& 0xFF` workaround is retired.
+      out.push(b[i] as Int);
       i = i + 1;
     }
   }
@@ -348,9 +349,17 @@ fn tuple2_push_value(out: &mut Vec[Int], v: TValue) {
 
 // Decode one tagged value at `at`. Returns only the value: the consumed
 // length is `tuple2_value_len(v)`, so callers advance by at +
-// tuple2_value_len(v). (A `(TValue, Int)` tuple return miscompiles on
-// v0.64.3 -- the `Tuple__TValue__Int` unknown-type codegen warning --
-// so no position tuple is returned.)
+// tuple2_value_len(v).
+//
+// WORKAROUND, STILL REQUIRED on v0.64.5 (re-verified 2026-10-15): the
+// `(TValue, Int)` position-tuple shape miscompiles when the Result's ERROR
+// type is an enum too (DbError); m305 fixed only the Int-error shape. The
+// remaining defect is reduced to a self-contained bundle:
+// `docs/repro/enum-tuple-codegen/repro_enum_tuple_enum_error.xi` (tuple name
+// emitted as both `Tuple__<mod>.<Val>__Int` and `Tuple__<Val>__Int` ->
+// clang hard error, or i64-default + silent misdecode inside larger
+// programs). Filed on the bus as C-ORBIT-12; drop this workaround only when
+// that bundle turns green on a released archive.
 pub fn tuple2_read_value(buf: &Vec[Int], at: Int) -> DbResult[TValue] {
   if at < 0 { return Err(DbError.Corruption); }
   if at >= buf.len() { return Err(DbError.Corruption); }

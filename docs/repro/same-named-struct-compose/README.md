@@ -25,6 +25,17 @@ on the ENGINE's `BTreeNode`, not on the package's -- against the FOREIGN
 hard C001 (correct to refuse), but the trigger is only the name collision:
 there is no unresolved function in either module when compiled alone.
 
+## v0.64.5 verdict (2026-10-15): FIXED (m298, `c18e550e`)
+
+On the official v0.64.5 artifacts (Windows shadow `xiom.new.0645`
+`02f08578...`; WSL canonical `c4aa877a...`), on the STOCK pin (no runtime
+override; the re-vendored stdlib carries wave 139):
+`scripts\run.ps1 tests\pkg\probe_compose_collision.xi -TimeoutSec 180` ->
+prints `compose ok`, exit 0 -- on BOTH platforms (was C001 rc 1 on v0.64.4).
+The two-program digest pattern (`probe_pkg_btree.xi` +
+`probe_pkg_btree_engine.xi`) remains as the interop-testing design, but
+co-composition no longer needs to be avoided in consumer programs.
+
 ## Files
 
 - `../../tests/pkg/probe_compose_collision.xi` -- the REAL repro (needs the

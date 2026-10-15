@@ -36,6 +36,31 @@ scripts\run.ps1 docs\repro\vec-copy-alias\probe_clean.xi
   exit code: 0
 ```
 
+## v0.64.5 verdict (2026-10-15): FIXED for these shapes (m302, `8c298c91`)
+
+Official artifacts (Windows shadow `xiom.new.0645` `02f08578...`; WSL
+canonical `c4aa877a...` == linux tarball), both platforms identical:
+
+```
+scripts\run.ps1 docs\repro\vec-copy-alias\probe_alias.xi
+  flat elem-assign: src[0]=1 copy[0]=99        # FIXED (was src[0]=99)
+  flat push: src.len=2 copy.len=3
+  arena elem-assign: src[0]=1 copy[0]=1        # FIXED (was 99/99)
+  arena pop: src.len=2 store-copy.len=2 local.len=1
+  exit code: 0
+
+scripts\run.ps1 docs\repro\vec-copy-alias\probe_clean.xi
+  owned elem-assign: src[0]=1 copy[0]=99       # control, unchanged
+```
+
+m302 deep-copies Vec bindings whose RHS aliases (Ident / Index / Field
+spellings; cap = max(len, 1)). DOCUMENTED RESIDUAL CAVEATS (from the
+compiler's fix note): by-value call args, `push()` args, for-loop element
+bindings and whole-struct copies with Vec FIELDS still share storage.
+ORBITDB therefore KEEPS `node_deep_copy` (src/engine.xi) as the strong
+ownership guarantee for the MVCC copy-on-write shadow -- it is now design
+insurance, not a workaround for the binding shape.
+
 ## Mechanism
 
 Vec handles are reference-like: assigning a Vec (or a struct containing Vecs)

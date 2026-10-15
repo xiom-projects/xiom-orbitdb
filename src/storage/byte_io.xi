@@ -10,14 +10,18 @@
 // the sync seam is a REAL fsync (sync_io.sync_fd), plus `byteio_sync_dir`
 // for rename durability (sync_io.fsync_dir; wave 118). Byte convention:
 // Vec[Int] with elements 0..255 everywhere in the storage layer; the
-// conversion to Vec[UInt8] happens only here (C-ORBIT-08B masking).
+// conversion to Vec[UInt8] happens only here (Vec casts were always
+// zero-extending; the C-ORBIT-08B fixed-array mask workaround was retired
+// on v0.64.5 -- m260).
 //
 // Fault gates are EXACTLY where they were -- one gate call per public op,
 // kind 0 = write-ish, kind 1 = sync -- so the fault probe's arming counts
 // are unchanged (modes: 1 skip, 2 partial/torn, 3 fail; kill exits).
 //
-// Consumer note: until the next compiler pin re-vendors stdlib/runtime, run
-// with XIOM_RUNTIME_DIR=<stdlib>/runtime (scripts/dev-env.* sets it).
+// Runtime note: v0.64.5 (adopted 2026-10-15) re-vendors stdlib/runtime with
+// wave 139 >> the 115/117/118 primitives this file rides, so the stock pin
+// needs NO XIOM_RUNTIME_DIR override (the S4 lane-runtime override is
+// retired; scripts/dev-env.* unsets it).
 //
 // Design: docs/BYTE-PAGE-FORMAT-V2.md section 4.
 
@@ -39,12 +43,13 @@ fn bytes_to_u8(data: &Vec[Int]) -> Vec[UInt8] {
   return out;
 }
 
-// Vec[UInt8] -> Vec[Int] with zero-extension (C-ORBIT-08B discipline).
+// Vec[UInt8] -> Vec[Int] with zero-extension (Vec element casts are
+// zero-extending by contract; plain cast suffices).
 fn u8_to_bytes(b: &Vec[UInt8]) -> Vec[Int] {
   var out = Vec[Int].new();
   var i = 0;
   while i < b.len() {
-    out.push((b[i] as Int) & 0xFF);
+    out.push(b[i] as Int);
     i = i + 1;
   }
   return out;

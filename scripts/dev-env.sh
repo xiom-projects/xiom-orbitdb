@@ -10,20 +10,20 @@
 # LATEST compiler / stdlib / packages to harden the ecosystem by real-world
 # use. Record exact versions and lane hashes in SESSION.md at every wrap.
 #
-# As of 2026-10-12: compiler v0.64.4 (mirrors scripts/dev-env.ps1, which pins
-# the Windows shadow install %LOCALAPPDATA%\xiom.new.0644; WSL canonical
-# ~/.local/bin/xiom reports v0.64.4 on install root ~/.local/share/xiom):
+# As of 2026-10-15: compiler v0.64.5 (mirrors scripts/dev-env.ps1, which
+# pins the Windows shadow install %LOCALAPPDATA%\xiom.new.0645; WSL canonical
+# ~/.local/bin/xiom reports v0.64.5 on install root ~/.local/share/xiom,
+# sha256 c4aa877a8a4c219f... == xiom-0.64.5-linux-x64.tar.gz bin/xiom):
 #   compiler  xiom (Linux install, canonical layout ~/.local/share/xiom)
 #   stdlib    $XIOM_STDLIB if set; else the WSL-mounted lane checkout
 #             /mnt/e/xiom-lang/stdlib when present; else the compiler's
 #             bundled lib/xiom tree (release-artifact behavior)
 #   packages  <xiom_home>/packages (xiom pkg install; WSL layout ~/xiom)
 #
-# XIOM_RUNTIME_DIR is retired on v0.64.0 in general, BUT temporarily
-# re-enabled for this lane since 2026-10-13 (M1.2 S4): the stdlib
-# durability/byte-IO primitives (waves 115/117/118) live in the lane runtime
-# and only reach consumers at the next compiler pin that re-vendors
-# stdlib/runtime. Remove this override at that pin.
+# XIOM_RUNTIME_DIR: the 2026-10-13 lane-runtime override (M1.2 S4) is
+# DROPPED as of 2026-10-15 -- the v0.64.5 archive re-vendors stdlib/runtime
+# carrying wave 139 (>> the 115/117/118 primitives the S4 slice adopted).
+# Any inherited override is actively unset; the stock pin is authoritative.
 #
 # Safe to source repeatedly; never exits the caller on warnings.
 # ============================================================================
@@ -40,13 +40,9 @@ if [ -z "${XIOM_COMPILER:-}" ]; then
 fi
 [ -n "${XIOM_COMPILER:-}" ] && export XIOM_COMPILER
 
-# --- lane-runtime override (temporary, S4) ----------------------------------
-if [ -d /mnt/e/xiom-lang/stdlib/runtime ]; then
-  XIOM_RUNTIME_DIR=/mnt/e/xiom-lang/stdlib/runtime
-elif [ -d "${XIOM_STDLIB:-}/runtime" ]; then
-  XIOM_RUNTIME_DIR="$XIOM_STDLIB/runtime"
-fi
-[ -n "${XIOM_RUNTIME_DIR:-}" ] && export XIOM_RUNTIME_DIR
+# --- stock runtime (v0.64.5 re-vendor carries wave 139) ---------------------
+# The 2026-10-13 lane-runtime override is retired; never inherit a stale one.
+unset XIOM_RUNTIME_DIR
 
 # --- stdlib -----------------------------------------------------------------
 if [ -z "${XIOM_STDLIB:-}" ] && [ -d /mnt/e/xiom-lang/stdlib ]; then
@@ -65,5 +61,5 @@ _ver="$("$XIOM_COMPILER" --version 2>&1 | head -n 1)"
 printf 'dev-env: %s\n' "$_ver"
 printf 'dev-env: XIOM_COMPILER = %s\n' "$XIOM_COMPILER"
 printf 'dev-env: XIOM_STDLIB   = %s\n' "${XIOM_STDLIB:-<unset: compiler bundled stdlib>}"
-printf 'dev-env: XIOM_RUNTIME_DIR = %s (S4 lane-runtime override; remove at the next re-vendor pin)\n' "${XIOM_RUNTIME_DIR:-<unset>}"
+printf 'dev-env: XIOM_RUNTIME_DIR = <unset> (stock v0.64.5 runtime; override retired 2026-10-15)\n'
 unset _ver
