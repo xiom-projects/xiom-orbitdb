@@ -280,7 +280,13 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   release-wave PUSH is up (`xiom-lang/xiom` main `1e4a444e`, 90 commits
   from `91860f11`); stdlib pin prep completed (release-notes/v0.64.5.md,
   `db2fbe8`) -- only the tag signal + re-vendor + gate remain before the
-  v0.64.5 archive.**
+  v0.64.5 archive.** **00:00Z (Oct 15) update: v0.64.5 is HELD** -- the
+  dry-run candidate failed two deterministic release-gate smokes
+  (`Cell[Int8]` set/get readback garbage; `aes_encrypt_gcm` tuple lengths
+  read 0xFFFFFFFF then AV; 5/5 vs 5/5-green on v0.64.4; stdlib tag not cut
+  -- `REL-20261014-2123-stdlib` to compiler, suspect batches m314-m319).
+  Neither touches ORBITDB (no Cell / no crypto use); the re-verification
+  cycle waits for the NEXT candidate archive; our WATCH note stands.
 **Updated:** 2026-10-14 (doorbell 15:00Z + binary-safety guard): queue clear
   (no new orbitdb-addressed items). One adjacent finding scanned for
   exposure: **`REL-20261014-1427-engine`** (to stdlib, acked) --
