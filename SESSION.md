@@ -291,6 +291,14 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   /proc/loadavg read a phantom ~90 -- use ps/free, not loadavg). Wakeup
   armed to re-check quietness and run BENCH-1 R1-R3 + `probe_wal_ab` then;
   WSL rows after.
+**Updated:** 2026-10-16 (doorbell 18:00Z): relays `676a0c3`. One new
+  orbitdb item processed: `REL-20261016-1724-website` -- site status pass --
+  ACKED with: fsync-row precision (their correction overstates remaining
+  work: commit-time hardening is DONE; the hardware power-loss matrix is
+  the remaining step) + TWO-TIER COPY APPROVED (one word: 'until the TLS
+  server binding lands'; shorter hub-card clause offered; a public-safe
+  pre-alpha state row supplied). No newer archive; no release-check
+  changes. Perf re-measure attempt #3 armed for 18:29Z.
 **Updated:** 2026-10-16 (doorbell 15:00Z): relays `b649d94`. No new
   orbitdb-addressed items; no newer archive/release-check. One to:all
   recorded as ORBITDB-relevant: `REL-20261016-1446-packages` -- fleet
