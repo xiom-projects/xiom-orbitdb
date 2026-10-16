@@ -319,6 +319,16 @@ the v0.64.6 verdicts.
   /proc/loadavg read a phantom ~90 -- use ps/free, not loadavg). Wakeup
   armed to re-check quietness and run BENCH-1 R1-R3 + `probe_wal_ab` then;
   WSL rows after.
+**Updated:** 2026-10-17 (PAUSE -- owner away until tomorrow): the owner
+  paused the session at 23:19Z. BOTH recurring watches are now STOPPED (a
+  change from the entry below): the perf wakeup retry is cancelled (the
+  absolute rows were already deferred to the v0.64.6 adoption battery) AND
+  the 3h doorbell cron was intentionally deleted -- on resume, RE-CREATE it
+  (`cron_create`, pull -> `view --lane orbitdb` -> process -> scoped
+  commit/push) and start the adoption half of task-order item 1: dev-env.*
+  re-point to v0.64.6 + suite x2 both + crash/probes + the C-ORBIT-12
+  workaround-drop check + the perf rows. Tree clean at pause; our last
+  relays push `e32c0e3`; nothing in flight anywhere.
 **Updated:** 2026-10-17 (perf wakeup -- verified the parallel session's
   v0.64.6 work; wakeup chain ENDS): C-ORBIT-12 is **verified + CLOSED** on
   the released archive (repro `sum=110` x2 platforms + control + u8 +
