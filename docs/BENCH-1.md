@@ -147,12 +147,18 @@ its load/update asymmetry.
    durable ack. Correctness re-verified: suite 160/160 x2, fault probe
    56/56 x2, io-primitives 30/30 x2, db_crash 25/25 x2 (Windows), plus a
    byte-equivalence probe (negatives/zero/i64 extremes byte-identical to
-   the old writer). **Perf number: PENDING A QUIET HOST** -- the shared
-   machine sat at CPU 100% during the re-run window (in-process A/B noise
-   ~10x; the first clean interleaved pair at N=800 read 1.6x in favor of
-   the new shape, old 1621ms vs new 989ms). Re-run rows R1-R3 plus
-   `tests/probes/probe_wal_ab.xi` (interleaved old-vs-new, env
-   `ORBITDB_AB_N`/`ORBITDB_AB_ROUNDS`) when the host is quiet.
+   the old writer). **Relative A/B measured 2026-10-16 20:35Z** under
+   sustained shared-host load (Windows CPU ~90%, WSL load ~130, all day):
+   `probe_wal_ab.xi`, 10 interleaved old-vs-new pairs at N=2000 --
+   **median old/new ratio 1.26x (mean 1.31x; min 1.04x, max 1.79x), 10/10
+   pairs in favor** of the held-handle shape (interleaving makes the RATIO
+   load-robust; the absolute rows below still need a quiet host). The txn
+   fd path is not exercised by this probe -- its win (one open per
+   transaction) should be larger still. **Absolute BENCH-1 rows: PENDING A
+   QUIET HOST** (re-measure attempts at 16:29Z/18:29Z/20:29Z all saw CPU
+   >= 90% / WSL load 92-129; rescheduled). Re-run rows R1-R3 plus
+   `tests/probes/probe_wal_ab.xi` (env `ORBITDB_AB_N`/`ORBITDB_AB_ROUNDS`)
+   when the host is quiet.
 2. **Group commit semantics**: after finding 1's fix, re-measure R2 -- it
    should move from ~885/s toward the fsync-amortized ceiling; the fd path
    removes the per-record opens that dominated it. (Numbers pending.)

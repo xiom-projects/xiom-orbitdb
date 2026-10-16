@@ -291,6 +291,15 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   /proc/loadavg read a phantom ~90 -- use ps/free, not loadavg). Wakeup
   armed to re-check quietness and run BENCH-1 R1-R3 + `probe_wal_ab` then;
   WSL rows after.
+**Updated:** 2026-10-16 (perf A/B under sustained load -- relative number
+  landed): `probe_wal_ab.xi` 10 interleaved old-vs-new pairs (N=2000) at
+  20:35Z (CPU ~90%, WSL load ~130): **median ratio 1.26x, mean 1.31x
+  (min 1.04, max 1.79), 10/10 pairs favor the held-handle shape** -- the
+  interleaved ratio is load-robust. Recorded in `docs/BENCH-1.md` finding
+  1. Absolute BENCH-1 rows still await a quiet host (attempts #2-#4 all
+  saw CPU >= 90% / WSL load 92-129; next check 22:29Z). v0.64.6 not
+  released yet (compiler m344/m345 fix wave in flight). Relays `395bc40`,
+  lane clean (all items acked).
 **Updated:** 2026-10-16 (doorbell 18:00Z): relays `676a0c3`. One new
   orbitdb item processed: `REL-20261016-1724-website` -- site status pass --
   ACKED with: fsync-row precision (their correction overstates remaining
