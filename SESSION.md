@@ -261,6 +261,16 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `-1549-packages-7` (tracked). Remaining production-relay items:
   compiler `1945-2` (08/09/10 in batches) + `1358`/`1956` acked. Relays head
   `2d7505c`.
+**Updated:** 2026-10-16 (owner directive addendum -- release coordination):
+  **Satellite publication** = when the tier is ready to publish on the
+  registry, ORBITDB opens a relay item to the **packages lane** for
+  publishing coordination (packaging assist: scope/recipe/canary; ops owns
+  the allowlist gate). **Station releases** = GitHub Actions pipeline, set
+  up by **ops** (this lane provides the build/test/soak contracts + the
+  pinned-toolchain recipe; registry involvement limited to a future station
+  client package). Recorded in `docs/TWO-TIER-ARCHITECTURE.md` sections 5-6,
+  the two-tier checklist release-engineering section, PRODUCTION-PLAN
+  section 15, and the task-order hygiene line below.
 **Updated:** 2026-10-16 (owner directive -- two-tier plan commissioned): the
   product line is formally planned: **orbitdb-satellite** (embedded; today's
   engine under a product label -- package/module names unchanged, no rename)
@@ -1367,6 +1377,10 @@ TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
    wrap.
 6. Hygiene: SESSION/STATE/readiness at every wrap; doorbell; signed
    commits; registry P-rc recipe + engine A09 adapter verb-list when asked.
+   **Publication coordination (owner directives 2026-10-16):** when the
+   Satellite is ready to publish, open the packages-lane relay item
+   (packaging assist); Station releases ride a GitHub Actions pipeline
+   authored with ops (we supply the build/soak contracts).
 
 DONE one-liners: M5 typed values end-to-end (2026-10-11); M3.1 snapshot
 pins + savepoints (2026-10-11); **M1.2 S4 + M2.1 second half (2026-10-13:

@@ -31,7 +31,10 @@
       at release time (module/package names unchanged: `xiom.db.*`,
       `xiom.orbitdb`)
 - [ ] Registry P-rc recipe + `xiom.orbitdb` scope ask when the P-rc gates
-      pass (owner/ops coordination; production checklist owns this)
+      pass (production checklist owns the gate; owner green-light first)
+- [ ] **At publication: open the relay item to the packages lane** for
+      publishing coordination (packaging assist: scope ask, P-rc recipe,
+      canary; ops owns the allowlist gate) -- owner directive 2026-10-16
 - [ ] CLI shipped as the satellite front door (`apps/orbitdb_cli.xi` ->
       `out/orbitdb.exe`; WSL twin)
 
@@ -125,6 +128,14 @@
 - [ ] **ST8 PG-wire facade** -- accept PostgreSQL's wire protocol for free
       tooling; validate against `xiom.postgres` and stock clients; only if
       the value justifies the surface
+
+## Release engineering (both tiers; owner directives 2026-10-16)
+
+- [ ] **Satellite publication**: relay item to the packages lane at
+      publication time (packaging coordination; ops allowlist gate)
+- [ ] **Station releases**: GitHub Actions pipeline authored WITH ops --
+      this lane delivers the build/battery/soak contracts + pinned-toolchain
+      recipe; ops owns the pipeline
 
 ## Cross-cutting rules (non-negotiable for every station step)
 

@@ -316,3 +316,9 @@ range sharding, ops, scale league.
   generation-committed checkpoint + v2 blocks give snapshot bootstrap, and
   the hybrid-composition pattern gives the build shape now (registry
   package later).
+- **Release coordination (owner directives 2026-10-16):** Satellite
+  publication on the registry is coordinated via a relay item to the
+  **packages lane** when the tier is ready (packaging assist; ops owns the
+  allowlist gate). **Station releases ship through a GitHub Actions
+  pipeline set up by ops** (this lane provides the build/test/soak
+  contracts + pinned-toolchain recipe).

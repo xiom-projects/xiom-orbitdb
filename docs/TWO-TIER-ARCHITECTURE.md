@@ -136,8 +136,11 @@ The Satellite is the current release path -- nothing here forks it:
    `docs/PRODUCTION-PLAN.md` + `docs/checklists/production-release.md`.
 2. **Product labeling at release**: README/SPEC/API gain the
    "ORBITDB Satellite" tier label; module/package names unchanged.
-3. **Registry packaging (P-rc)**: `xiom.orbitdb` scope + P-rc recipe when
-   the gates pass; the CLI ships as the satellite front door.
+3. **Registry packaging (P-rc)**: when the gates pass and the owner
+   green-lights publication, open a **relay item to the packages lane** for
+   publishing coordination (packaging assist: scope ask, P-rc recipe,
+   canary; ops owns the allowlist gate) -- owner directive 2026-10-16. The
+   CLI ships as the satellite front door.
 4. **Satellite-only stays simple**: no network code, no server deps, zero
    dependency core preserved.
 
@@ -183,6 +186,12 @@ The Satellite is the current release path -- nothing here forks it:
 Optional, evaluated only after ST7: **ST8 -- PG-wire facade** (accept
 PostgreSQL's wire protocol for free tooling/drivers, riding the existing
 client-side knowledge). Not a v1 commitment.
+
+**Station release engineering (owner directive 2026-10-16):** Station
+releases ship through a **GitHub Actions pipeline authored with ops** --
+this lane provides the build/test/soak contracts and the pinned-toolchain
+recipe; ops owns the pipeline. Registry involvement for the Station is
+limited to its future client package (if and when one is published).
 
 ## 7. Interfaces and contracts
 
