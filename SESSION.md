@@ -319,6 +319,24 @@ the v0.64.6 verdicts.
   /proc/loadavg read a phantom ~90 -- use ps/free, not loadavg). Wakeup
   armed to re-check quietness and run BENCH-1 R1-R3 + `probe_wal_ab` then;
   WSL rows after.
+**Updated:** 2026-10-17 (perf wakeup -- verified the parallel session's
+  v0.64.6 work; wakeup chain ENDS): C-ORBIT-12 is **verified + CLOSED** on
+  the released archive (repro `sum=110` x2 platforms + control + u8 +
+  09/11 regressions green; item closed, check-file rows filed by the
+  concurrent lane session). Fleet state: **WSL canonical = v0.64.6**;
+  Windows archive extracted at `%LOCALAPPDATA%\xiom.new-20261016-233955`
+  (`xiom.exe` sha256 `0ff5c5c471498d8c...`, reports v0.64.6; naming is
+  DATE-SUFFIXED this time, not `xiom.new.0646`); the **lane pin
+  (`scripts/dev-env.*`) is still v0.64.5** -- re-pointing + the adoption
+  battery (suite x2, crash, probes, then the workaround-drop check + perf
+  rows) is the owner session's remaining half of task-order item 1/2.
+  Win home clobbered by the v0.64.6 swap AGAIN (3rd occurrence; btree/wal
+  reinstalled additively; ops FYI `REL-20261016-2120-orbitdb` needs a
+  reread as "snapshot-before-swap" is the standing ask). **Perf absolute
+  rows: DEFERRED to the adoption battery on the v0.64.6 pin** (running
+  them on 0645 now would be superseded immediately; the relative A/B
+  1.26x median is already on record). **No further perf wakeups -- this
+  chain ends; the doorbell cron remains the only recurring watch.**
 **Updated:** 2026-10-16 (doorbell 21:00Z -- **v0.64.6 RELEASED**): relays
   `2291513`. `REL-20261016-2034-compiler` (to:all, high): v0.64.6 published
   20:33Z (run 38962236697 GREEN; stdlib pin `b81430ba`; **m336 canonical
@@ -1592,16 +1610,16 @@ fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
 1. **v0.64.6 ADOPTION + FULL RE-VERIFY (FIRST; owner-gated like v0.64.5)**:
-   install the windows shadow `%LOCALAPPDATA%\xiom.new.0646` (sha256 vs
-   SHA256SUMS) + WSL canonical; re-point dev-env; suite x2 both FIRST;
-   then the C-ORBIT-12 repro
-   (`docs/repro/enum-tuple-codegen/repro_enum_tuple_enum_error.xi`; expect
-   `sum=110`, exit 0) + the silent-mode t3..t9 bisect + the 08A/09/11
-   regression bundles + row `-2`; verdicts on
-   `release-checks/compiler-compiler-v0.64.6.md` (our C-ORBIT-12 row +
-   note the 1945 family); **if the wide shape is green, RETIRE the
-   `DbResult[(TValue, Int)]` position workaround** (suite+fuzz =
-   acceptance).
+   the C-ORBIT-12 re-verify half is DONE (closed 2026-10-16; WSL canonical
+   already v0.64.6; Windows archive extracted at
+   `%LOCALAPPDATA%\xiom.new-20261016-233955`, sha `0ff5c5c4...` --
+   DATE-SUFFIX naming, not `xiom.new.0646`). REMAINING: re-point
+   `scripts/dev-env.*` to that path; suite x2 both FIRST; then the
+   08A/09/11 regression bundles + row `-2` (the C-ORBIT-12 repro is
+   already green x2); verdicts/notes on
+   `release-checks/compiler-compiler-v0.64.6.md` (the 1945 family row);
+   **if the wide shape holds, RETIRE the `DbResult[(TValue, Int)]`
+   position workaround** (suite+fuzz = acceptance).
 2. **Perf absolute rows -- fold into the same battery (post-adoption pin)**:
    BENCH-1 R1-R3 + `probe_wal_ab.xi` full rounds; update `docs/BENCH-1.md`
    R1-R3 tables + findings 1/2 (the RELATIVE A/B already landed: median
