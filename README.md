@@ -3,23 +3,48 @@ Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 SPDX-License-Identifier: MIT OR Apache-2.0
 -->
 
-# xiom-db
+# XIOM ORBITDB -- Satellite + Station
 
-> Embedded database engine for XIOM -- layered architecture: B-Tree index, WAL, query engine, crash recovery. Built on the `xiom-core` durable-systems substrate.
+> The XIOM two-tier database line. **Satellite** (tier 1) is the embedded database engine in this repository -- B-Tree index, WAL, query engine, crash recovery; useful as a library or through its CLI. **Station** (tier 2) is the planned PostgreSQL-class server tier: same repo, consumes the engine as a library, never a fork. Formerly `xiom-db`; module names stay `xiom.db.*`.
 
 [![XIOM](https://img.shields.io/badge/XIOM-v0.22.1-blue)](https://github.com/XIOM-lang/XIOM.git )
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
 
 ## Overview
 
-xiom-db is an embedded database engine in pure XIOM. It provides a B-Tree storage index, a write-ahead log (WAL) for crash recovery, and a query engine with filtering / pagination -- all with contract-guaranteed integrity. As of `0.2.0` the package is organized as a **layered architecture** and depends on `xiom-core` for shared IDs, errors, config, contracts, and metrics.
+ORBITDB is an embedded database engine in pure XIOM. It provides a B-Tree storage index, a write-ahead log (WAL) for crash recovery, and a query engine with filtering / pagination -- all with contract-guaranteed integrity. The package is organized as a **layered architecture** with a zero-dependency core (pure XIOM + stdlib; no registry package dependencies).
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the module tree and ownership rules, [ROADMAP.md](ROADMAP.md) for the phased plan, and [`docs/`](docs/) for subsystem deep-dives. Start with [API.md](docs/API.md) (public API reference), [RUNBOOK.md](docs/RUNBOOK.md) (commands, recovery, gotchas), [FORMATS.md](docs/FORMATS.md) (versioned on-disk formats), [ISOLATION.md](docs/ISOLATION.md) (single-writer / multi-handle model), and [MVCC.md](docs/MVCC.md) (M3 minimal subset: snapshot pins + savepoints). The production strategy is [PRODUCTION-PLAN.md](docs/PRODUCTION-PLAN.md) with the execution checklist in [docs/checklists/production-release.md](docs/checklists/production-release.md).
 
+## Two-tier product line: Satellite + Station
+
+One engine, two products, one repository (**orbitdb-satellite** -- tier 1, embedded -- and **orbitdb-station** -- tier 2, server). Strategy: [docs/TWO-TIER-ARCHITECTURE.md](docs/TWO-TIER-ARCHITECTURE.md); execution: [docs/checklists/two-tier.md](docs/checklists/two-tier.md).
+
+| | Tier 1 -- Embedded | Tier 2 -- Server |
+|---|---|---|
+| Codename | **Satellite** | **Station** |
+| Analogue | SQLite | PostgreSQL |
+| Shape | library compiled into the consumer; registry package; single-node | separate program (same repo, `station/`): wire protocol, sessions, replication, sharding |
+| Source | this repo's `src/` (engine; modules `xiom.db.*`) | planned `station/`; consumes the engine as a library -- never a fork |
+| Status | shipping pre-1.0; registry publication at the P-rc gate | planned; work starts only after G-START |
+
+**Codenames, not renames** (packages-lane convention, 2026-10-16): registry IDs stay functional `xiom.*` names; the codename identifies the product tier. Module/package names are stable (`xiom.db.*`, `xiom.orbitdb`); the codename is a deployment/product label. Registry artifacts carry **Satellite**; **Station** releases are standalone (GitHub Actions pipeline with ops; registry involvement limited to a future station client package).
+
+### Satellite (tier 1) -- use it today
+
+- **Usage**: embed the engine in an XIOM program (public facade `xiom.db.api.database`, or the lower-level `xiom.db.engine`), or drive the interactive shell (`apps/orbitdb_cli.xi` -- `put/get/del/range/count/ckpt/recover/putrow/getrow/qrow/bench/kill`).
+- **Features today**: durable WAL (real fsync at commit acks); crash recovery (torn-tail tolerant: snapshot + tail replay, uncommitted txn windows dropped); `v2` byte container default; typed rows end-to-end + typed predicates; secondary value index + ORDER/LIMIT; transactions with savepoints; in-process snapshot pins (M3 minimal subset); zero-dependency core.
+- **Gate to 1.0 / publication**: M1.1b pager (lazy node load + bounded cache), M3 remainder (cross-process `file_lock` MVCC), R1/R2 module split; then the P-rc release signal and the packages-lane publication coordination.
+
+### Station (tier 2) -- planned
+
+- **Shape**: **ORBITWIRE v1** wire protocol (length-prefixed frames; handshake + auth slot; prepare/execute/fetch over typed rows), sessions, single-writer commit path, replication via WAL shipping + snapshot bootstrap, range sharding (one engine database per shard; the shard catalog is itself an engine DB), ops (auth, backup/restore drills, metrics).
+- **Not in v1**: full SQL, cross-shard transactions, auto-sharding / auto-failover, multi-master. Optional post-ST7 evaluation only: a PG-wire facade (interop riding the `xiom.postgres` wire knowledge).
+- **Milestones**: ST0 prerequisites (G-START) -> ST1 protocol spike -> ST2 single-node core -> ST3 concurrency -> ST4 replication -> ST5 sharding -> ST6 ops -> ST7 cross-engine league; exit criteria in [docs/TWO-TIER-ARCHITECTURE.md](docs/TWO-TIER-ARCHITECTURE.md) section 6. The embedded release always outranks Station work.
+
 ## Installation
-```bash
-xiom install xiom-db
-```
+
+The **Satellite** registry package is not published yet -- publication is gated on P-rc and coordinates through the packages lane. Until then, build from source (see **Try it** below); module imports stay `xiom.db.*` either way.
 
 ## Quick Start (public facade)
 ```xiom
@@ -138,7 +163,7 @@ src/
 |---------|--------|
 | Layered architecture | [OK] Complete (0.2.0) |
 | B-Tree (insert/search/delete/range) | [OK] Complete |
-| WAL (write-ahead log) | [OK] Durable disk segment + recovery (no fsync yet) |
+| WAL (write-ahead log) | [OK] Durable disk segment + recovery; real fsync at commit acks (S4); held-handle write path (2026-10-16) |
 | Crash recovery (WAL replay) | [OK] Durable: snapshot + tail replay, torn-tail tolerant |
 | Query engine (filter/limit/offset) | [OK] Complete |
 | Public Database facade | [OK] Complete |
@@ -155,6 +180,6 @@ See [ROADMAP.md](ROADMAP.md) for the honest, phased plan.
 xiom --run myprogram.xi
 ```
 
-## Dependencies: `xiom-core`, `xiom-std`
+## Dependencies: none in the engine (pure XIOM + stdlib; zero registry deps)
 ## Links: [xiom-lang](https://github.com/xiom-lang) | [XIOM](https://github.com/XIOM-lang/XIOM.git )
 ## License: MIT OR Apache-2.0
