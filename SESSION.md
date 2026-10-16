@@ -261,6 +261,20 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `-1549-packages-7` (tracked). Remaining production-relay items:
   compiler `1945-2` (08/09/10 in batches) + `1358`/`1956` acked. Relays head
   `2d7505c`.
+**Updated:** 2026-10-16 (doorbell 11:00Z): relays `f221fd3`. No new
+  orbitdb-addressed items; `REL-20261015-2202-pulse-5` (to:all, PULSE
+  top-tier directive) reviewed -- the asks went to stdlib/compiler/packages/
+  ops, nothing ORBITDB-actionable, no reply required. **Release-check
+  `compiler-compiler-v0.64.5` appeared (cut 2026-10-15T21:03Z) and now
+  carries verdicts for BOTH orbitdb rows: `1945-orbitdb-2` VERIFIED+CLOSED
+  (08A/08B/09/10/row-2 all settled on the official artifacts x2 platforms;
+  DONE criterion met -- bundle READMEs flipped), `2022-orbitdb`
+  (C-ORBIT-12) STILL RED with the reduced repro + int-error control.** When
+  a fix lands, re-run `docs/repro/enum-tuple-codegen/repro_enum_tuple_enum_error.xi`
+  + the 08A/09/11 regression bundles at the next archive. (Hygiene note: the
+  shared relays clone had concurrent writers -- our release-check cell edits
+  rode the playground lane's scoped commit `3b52e59`; content verified on
+  origin, no re-commit needed.)
 **Updated:** 2026-10-16 (v0.64.5 re-verification wave COMPLETE -- clean
   handoff): everything the 2026-10-15 wrap queued is LANDED and green on the
   STOCK v0.64.5 pin (tree `0911516`; the entry below's "FIRST task" list is
