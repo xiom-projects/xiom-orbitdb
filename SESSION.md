@@ -261,6 +261,22 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `-1549-packages-7` (tracked). Remaining production-relay items:
   compiler `1945-2` (08/09/10 in batches) + `1358`/`1956` acked. Relays head
   `2d7505c`.
+**Updated:** 2026-10-16 (owner directive -- two-tier plan commissioned): the
+  product line is formally planned: **orbitdb-satellite** (embedded; today's
+  engine under a product label -- package/module names unchanged, no rename)
+  + **orbitdb-station** (PostgreSQL-class server tier, same repo under
+  `station/`, consuming the engine as a library, never a fork). Artifacts:
+  `docs/TWO-TIER-ARCHITECTURE.md` (vision/naming, repo layout, mermaid
+  target architecture, ST0-ST7 milestones with exit criteria, risks),
+  `docs/checklists/two-tier.md` (gated step-by-step; **G-START = M1.1b +
+  M3 remainder + R1/R2 split + threads decision**), PRODUCTION-PLAN section
+  15 (plan-of-record pointer; 1.0 non-goals line updated). Station work does
+  NOT start before G-START; the embedded release path outranks it. Substrate
+  fits: WAL = ordered oplog (log shipping), generation checkpoints + v2
+  blocks + migration = snapshot bootstrap/transfer, hybrid composition =
+  build shape now / registry package later; **ORBITWIRE v1** protocol
+  planned with `xiom.postgres` as the interop reference; PG-wire facade =
+  optional post-ST7 evaluation only.
 **Updated:** 2026-10-16 (doorbell 11:00Z): relays `f221fd3`. No new
   orbitdb-addressed items; `REL-20261015-2202-pulse-5` (to:all, PULSE
   top-tier directive) reviewed -- the asks went to stdlib/compiler/packages/
@@ -1336,12 +1352,20 @@ TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
    consumer changes; then the suite split + summing runner.
 3. **M1.1b pager** (lazy node load + bounded cache + deferred-free
    allocator over `read_at`/`write_at`) -- the last big architectural
-   piece; feeds on M3's `db_file_min_pinned_lsn`.
-4. **Hybrid guard**: re-run `probe_hybrid full` + `hybrid_crash_test` x2
+   piece; feeds on M3's `db_file_min_pinned_lsn` AND is the keystone of the
+   two-tier plan (`docs/TWO-TIER-ARCHITECTURE.md`).
+4. **Station track (PLANNED, GATED -- `docs/checklists/two-tier.md`)**:
+   satellite = today's release path; station (`station/`, ORBITWIRE v1,
+   sessions, replication via WAL shipping, range sharding) may start only
+   after **G-START = M1.1b + M3 remainder (file_lock/cross-process pins) +
+   R1/R2 split + threads decision**; ST1 protocol spike -> ST2 single-node
+   core -> ST3 concurrency -> ST4 replication -> ST5 sharding -> ST6 ops ->
+   ST7 league; optional ST8 PG-wire facade. Embedded release outranks it.
+5. **Hybrid guard**: re-run `probe_hybrid full` + `hybrid_crash_test` x2
    both when xvector's tree settles (DEFERRED 2026-10-16: their WIP moved
    `xiom.vector.types.*`; last green = their HEAD `200cbc7`) and at every
    wrap.
-5. Hygiene: SESSION/STATE/readiness at every wrap; doorbell; signed
+6. Hygiene: SESSION/STATE/readiness at every wrap; doorbell; signed
    commits; registry P-rc recipe + engine A09 adapter verb-list when asked.
 
 DONE one-liners: M5 typed values end-to-end (2026-10-11); M3.1 snapshot

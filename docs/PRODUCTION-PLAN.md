@@ -19,7 +19,10 @@ One sentence: **ORBITDB is what SQLite is to C -- but for XIOM.**
 
 Non-goals for 1.0: network server mode, replication/sharding, full SQL-92,
 analytics columnar engine, cloud control plane. The core is an embeddable,
-single-node, ACID engine; a server/daemon can be layered later.
+single-node, ACID engine; the server/daemon is layered later -- now planned
+as the **Station** tier on top of the **Satellite** engine
+(`docs/TWO-TIER-ARCHITECTURE.md`, owner directive 2026-10-16; 1.0 remains
+the embedded Satellite).
 
 ## 2. Target profile
 
@@ -292,3 +295,24 @@ relay lanes swept at every wrap.
 5. Relay the handshakes: XVECTOR request (`docs/XVECTOR-INTEGRATION.md`;
    relay archived under `docs/relay-archive/`) to the xvector lane; PULSE
    responses (`docs/PULSE-INTEGRATION.md`) back to the pulse lane.
+
+## 15. Two-tier track -- Satellite (embedded) + Station (server)
+
+Owner directive 2026-10-16: the two-tier product line is PLANNED and on the
+record. **Satellite** = the embedded product this plan races to (1.0; release
+signal in section 12) -- today's engine, package, and CLI under a product
+label. **Station** = the PostgreSQL-class server tier in the same repo
+(`station/`), consuming the engine as a library, never a fork: ORBITWIRE v1
+protocol, sessions, single-node core, concurrency, WAL-shipping replication,
+range sharding, ops, scale league.
+
+- Strategy + architecture: `docs/TWO-TIER-ARCHITECTURE.md`.
+- Execution checklist (gated): `docs/checklists/two-tier.md`.
+- **Gate G-START:** Station work may not begin until M1.1b (pager), the M3
+  remainder (multi-process locks + version GC), the R1/R2 module split, and
+  the threads decision are all landed -- the embedded release path always
+  outranks station work.
+- Substrate fit: the WAL is already an ordered oplog (log shipping), the
+  generation-committed checkpoint + v2 blocks give snapshot bootstrap, and
+  the hybrid-composition pattern gives the build shape now (registry
+  package later).
