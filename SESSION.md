@@ -263,7 +263,9 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `2d7505c`.
 **Updated:** 2026-10-16 (doorbell + stdlib check, same-day continuation; perf
   re-measure still pending): the 3h relay doorbell is RE-CREATED
-  (session-scoped; `0 */3 * * *`). Bus pulled: main == origin `6c3352d`; the
+  (session-scoped; `0 */3 * * *`; first fire 15:00Z). Bus pulled:
+  `6c3352d` -> doorbell pushed `a1a1e53`; our `REL-20261016-1223-orbitdb`
+  (TCP_NODELAY heads-up) VERIFIED + CLOSED after the compile check below; the
   three fresh `to: all` packages notes reviewed -- codenames convention
   (Beacon/Satellite/mote vs Station/lattice; matches our two-tier docs;
   registry ids unchanged; codename stamped at the next version touch),
@@ -276,7 +278,13 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   WSL consumer compile on the checkout (`XIOM_STDLIB=/mnt/e/xiom-lang/stdlib`,
   stock v0.64.5 compiler, probe_crc32c) is GREEN 2026-10-16 --
   `BENCH_STOCK_STDLIB=1` is no longer REQUIRED (kept as the stock-baseline
-  option; docs/BENCH-1.md + bench_cross.sh comment updated). **Perf
+  option; docs/BENCH-1.md + bench_cross.sh comment updated). **v0.64.6 WATCH
+  armed:** the compiler lane is preparing the v0.64.6 cut (stdlib pin ask
+  `b649d94`); `release-checks/compiler-compiler-v0.64.6.md` is open and OUR
+  row is C-ORBIT-12 (`REL-20261015-2022-orbitdb`; m336 integrated, repro
+  sum=110 + control green on the integrated build, **archive re-verify
+  pending** -- run the repro + the 08A/09/11 regression bundles when the
+  archive lands, then set the verdict row). **Perf
   re-measure STILL PENDING:** the host carried other-lane compiles the whole
   window (engine toolchain probes, compiler stdlib smokes, four `xiom.exe`
   workers; VS Code + docker/qemu); the WSL VM itself was idle (its

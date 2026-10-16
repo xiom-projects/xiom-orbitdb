@@ -19,8 +19,10 @@ cd "$REPO_ROOT"
 
 # BENCH-1 baseline: the STOCK release pin (bundled stdlib/runtime) is the
 # right baseline for cross-engine numbers. Set BENCH_STOCK_STDLIB=1 to drop
-# the lane-checkout stdlib (needed when the stdlib lane's WIP breaks Linux
-# compilation of their checkout, e.g. the 2026-10-16 TCP_NODELAY include).
+# the lane-checkout stdlib. The 2026-10-16 Linux-compile WIP in the checkout
+# (TCP_NODELAY include) is FIXED -- a451349, in 6c96bbb; a consumer compile
+# on the checkout was verified green 2026-10-16 -- so the switch is the
+# stock-baseline option, no longer a requirement.
 if [ "${BENCH_STOCK_STDLIB:-0}" = "1" ]; then
   unset XIOM_STDLIB
 fi

@@ -178,9 +178,12 @@ BENCH_STOCK_STDLIB=1 bash scripts/bench_cross.sh -n 10000 --sync 1
 ```
 
 `BENCH_STOCK_STDLIB=1` drops the lane-checkout stdlib and uses the released
-archive's bundled stdlib/runtime -- the right baseline for BENCH-1 (and
-required while the stdlib lane's checkout carries a Linux-compile WIP,
-2026-10-16 TCP_NODELAY include). Future rounds: WSL R2/R4 + a quiet-host
+archive's bundled stdlib/runtime -- the stock-pin baseline for BENCH-1 rows
+comparable with the captured numbers. The 2026-10-16 block on it is CLEARED:
+the stdlib checkout's Linux-compile WIP (TCP_NODELAY include) is fixed at
+`a451349` (in `6c96bbb`; stdlib acked `REL-20261016-1223-orbitdb`) and a
+consumer compile on the checkout was verified GREEN 2026-10-16, so the switch
+is no longer required. Future rounds: WSL R2/R4 + a quiet-host
 recalibration; then the shared harness is the basis for ST7's station
 league.
 
