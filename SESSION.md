@@ -278,19 +278,42 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   WSL consumer compile on the checkout (`XIOM_STDLIB=/mnt/e/xiom-lang/stdlib`,
   stock v0.64.5 compiler, probe_crc32c) is GREEN 2026-10-16 --
   `BENCH_STOCK_STDLIB=1` is no longer REQUIRED (kept as the stock-baseline
-  option; docs/BENCH-1.md + bench_cross.sh comment updated). **v0.64.6 WATCH
-  armed:** the compiler lane is preparing the v0.64.6 cut (stdlib pin ask
-  `b649d94`); `release-checks/compiler-compiler-v0.64.6.md` is open and OUR
-  row is C-ORBIT-12 (`REL-20261015-2022-orbitdb`; m336 integrated, repro
-  sum=110 + control green on the integrated build, **archive re-verify
-  pending** -- run the repro + the 08A/09/11 regression bundles when the
-  archive lands, then set the verdict row). **Perf
+  option; docs/BENCH-1.md + bench_cross.sh comment updated). **v0.64.6
+  RELEASED 2026-10-16T20:33Z** (`REL-20261016-2034-compiler`, assets live,
+  stdlib pin `b81430ba`; `release-checks/compiler-compiler-v0.64.6.md` open
+  with OUR row: C-ORBIT-12 (`REL-20261015-2022-orbitdb`; **m336 = canonical
+  tuple naming in every position** -- enum-in-tuple + inline from_utf8 --
+  integrated, repro sum=110 + control green on the integrated build,
+  **archive re-verify pending**). The release item names our lane's re-run
+  explicitly: the enum-tuple repro + the silent-mode t3..t9 bisect. Re-run
+  scope when adopted: suite x2 both FIRST, then the C-ORBIT-12 repro + the
+  t3..t9 bisect + the 08A/09/11 regression bundles + row `-2`, then set
+  the verdict row; if m336 closes the wide shape, retire the
+  `DbResult[(TValue, Int)]` position workaround with suite+fuzz as the
+  acceptance. **Adoption is owner-gated -- queued as the next session's
+  FIRST item; no archive battery in the watch-only window.** **Perf
   re-measure STILL PENDING:** the host carried other-lane compiles the whole
   window (engine toolchain probes, compiler stdlib smokes, four `xiom.exe`
   workers; VS Code + docker/qemu); the WSL VM itself was idle (its
   /proc/loadavg read a phantom ~90 -- use ps/free, not loadavg). Wakeup
   armed to re-check quietness and run BENCH-1 R1-R3 + `probe_wal_ab` then;
   WSL rows after.
+**Updated:** 2026-10-16 (doorbell 21:00Z -- **v0.64.6 RELEASED**): relays
+  `2291513`. `REL-20261016-2034-compiler` (to:all, high): v0.64.6 published
+  20:33Z (run 38962236697 GREEN; stdlib pin `b81430ba`; **m336 canonical
+  tuple naming in every position = the C-ORBIT-12 family fix**); the item
+  names ORBITDB's re-run explicitly (enum-tuple repro + t3..t9 bisect).
+  Our release-check row: m336 integrated, repro+control green on the
+  integrated build, **archive re-verify pending**. Protocol note: to:all
+  items cannot be acked by us (only the reporter lane/owner) -- the SESSION
+  record + the verdict rows are our tracking. **Adoption queued FIRST for
+  the next owner session** (owner-gated, v0.64.5 flow): shadow `xiom.new.
+  0646` + WSL canonical, suite x2 both, then C-ORBIT-12 repro + t3..t9 +
+  08A/09/11 bundles + row `-2`, then verdicts on `compiler-compiler-v0.64.6`
+  (+ the 1945 family row); workaround retirement contingent on the wide
+  shape passing. Also noted: the concurrent session's correction that WSL
+  /proc/loadavg reads phantom (~90) -- check `ps`/`free` instead for the
+  perf attempt #5 at 22:31Z.
 **Updated:** 2026-10-16 (perf A/B under sustained load -- relative number
   landed): `probe_wal_ab.xi` 10 interleaved old-vs-new pairs (N=2000) at
   20:35Z (CPU ~90%, WSL load ~130): **median ratio 1.26x, mean 1.31x
@@ -1538,34 +1561,43 @@ safety is still the optimistic guard (file_lock adoption pending);
 fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-1. **Perf re-measure FIRST (quiet host)**: BENCH-1 R1-R3 +
-   `tests/probes/probe_wal_ab.xi` (full rounds); update
-   `docs/BENCH-1.md` findings 1/2 with the numbers + raw log names; WSL
-   R1/R3 (+ R2/R4) if the VM is sane (ps/free -- its loadavg reads
-   phantom-high on an idle VM). Check host quietness first
-   (Win CPU <= 40%) -- if loaded, retry at the next check. **The slice itself is landed + fully verified (suite/fault/
-   crash x2 both) -- this item is ONLY the number.** Re-create the 3h
+1. **v0.64.6 ADOPTION + FULL RE-VERIFY (FIRST; owner-gated like v0.64.5)**:
+   install the windows shadow `%LOCALAPPDATA%\xiom.new.0646` (sha256 vs
+   SHA256SUMS) + WSL canonical; re-point dev-env; suite x2 both FIRST;
+   then the C-ORBIT-12 repro
+   (`docs/repro/enum-tuple-codegen/repro_enum_tuple_enum_error.xi`; expect
+   `sum=110`, exit 0) + the silent-mode t3..t9 bisect + the 08A/09/11
+   regression bundles + row `-2`; verdicts on
+   `release-checks/compiler-compiler-v0.64.6.md` (our C-ORBIT-12 row +
+   note the 1945 family); **if the wide shape is green, RETIRE the
+   `DbResult[(TValue, Int)]` position workaround** (suite+fuzz =
+   acceptance).
+2. **Perf absolute rows -- fold into the same battery (post-adoption pin)**:
+   BENCH-1 R1-R3 + `probe_wal_ab.xi` full rounds; update `docs/BENCH-1.md`
+   R1-R3 tables + findings 1/2 (the RELATIVE A/B already landed: median
+   1.26x, 10/10 pairs). Quietness: use `ps`/`free` on WSL (its loadavg
+   reads phantom ~90); Win CPU via Get-CimInstance. Re-create the 3h
    relay doorbell (`cron_create`) -- session-scoped state.
-2. **R1/R2 refactor (owner directive)**: spike multi-file `module`
+3. **R1/R2 refactor (owner directive)**: spike multi-file `module`
    support; if yes, move-only engine split (engine_core / btree /
    snapshot+pins / txn / db) with suite x2 both at every step, zero
    consumer changes; then the suite split + summing runner.
-3. **M1.1b pager** (lazy node load + bounded cache + deferred-free
+4. **M1.1b pager** (lazy node load + bounded cache + deferred-free
    allocator over `read_at`/`write_at`) -- the last big architectural
    piece; feeds on M3's `db_file_min_pinned_lsn` AND is the keystone of the
    two-tier plan (`docs/TWO-TIER-ARCHITECTURE.md`).
-4. **Station track (PLANNED, GATED -- `docs/checklists/two-tier.md`)**:
+5. **Station track (PLANNED, GATED -- `docs/checklists/two-tier.md`)**:
    satellite = today's release path; station (`station/`, ORBITWIRE v1,
    sessions, replication via WAL shipping, range sharding) may start only
    after **G-START = M1.1b + M3 remainder (file_lock/cross-process pins) +
    R1/R2 split + threads decision**; ST1 protocol spike -> ST2 single-node
    core -> ST3 concurrency -> ST4 replication -> ST5 sharding -> ST6 ops ->
    ST7 league; optional ST8 PG-wire facade. Embedded release outranks it.
-5. **Hybrid guard**: re-run `probe_hybrid full` + `hybrid_crash_test` x2
+6. **Hybrid guard**: re-run `probe_hybrid full` + `hybrid_crash_test` x2
    both when xvector's tree settles (DEFERRED 2026-10-16: their WIP moved
    `xiom.vector.types.*`; last green = their HEAD `200cbc7`) and at every
    wrap.
-6. Hygiene: SESSION/STATE/readiness at every wrap; doorbell; signed
+7. Hygiene: SESSION/STATE/readiness at every wrap; doorbell; signed
    commits; registry P-rc recipe + engine A09 adapter verb-list when asked.
    **Publication coordination (owner directives 2026-10-16):** when the
    Satellite is ready to publish, open the packages-lane relay item
