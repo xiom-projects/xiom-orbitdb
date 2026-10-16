@@ -261,6 +261,39 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `-1549-packages-7` (tracked). Remaining production-relay items:
   compiler `1945-2` (08/09/10 in batches) + `1358`/`1956` acked. Relays head
   `2d7505c`.
+**Updated:** 2026-10-16 (SESSION WRAP FOR HANDOFF -- context-budget; clean
+  handoff): tree `b3fef97`; relays `e30cda1`. **Landed this session on top
+  of the earlier v0.64.5 wave + two-tier plan:** (1) **BENCH-1**
+  (`f6a212b`): cross-engine bench harness + first numbers (probe_ycsb.xi,
+  bench/bbolt Go driver v1.4.3, bench_cross.{ps1,sh}, docs/BENCH-1.md;
+  verify parity everywhere; Windows R1-R4 + WSL R1/R3 captured); finding:
+  Windows writes syscall-bound not fsync-bound (611/s durable per-op vs
+  16.6k/s WSL nosync). (2) **WAL held-handle perf slice** (`21ea76a`,
+  docs `b3fef97`): append+sync ONE handle per record
+  (`wal_file_append_sync`/`_tagged_sync`); txn window on ONE held fd
+  (`db_file_txn_*`; checkpoint already refuses mid-txn); `byteio_*_fd`
+  helpers (appends UNGATED -- fault arming counts unchanged); WAL
+  byte-equivalence proven (negatives/zero/i64 extremes byte-identical);
+  `probe_wal_ab.xi` A/B tool. Verification: Win suite 160/160 x2 +
+  fault 56/56 x2 + io 30/30 x2 + crash 25/25 x2; WSL suite 160/160 x2 +
+  probes GREEN x2 + crash 25/25 x2 (stock pin). **PERF RE-MEASURE PENDING:
+  the shared host sat at CPU 100% during the window (A/B noise ~10x; first
+  clean pair 1.6x new) -- run BENCH-1 R1-R3 + probe_wal_ab FIRST next
+  session on a quiet host and update docs/BENCH-1.md findings 1/2.**
+  Doorbells processed: packages-3 acked + fsync-caveat correction (durable
+  no-op caveat stale post-waves-115/118); engine embedded-tier intent acked
+  (package-shape confirmed); **packages-2 = STANDING REGISTRY PIPELINE for
+  Satellite (owner directive 13:21Z): freeze -> coordination item (ids +
+  scope + P-rc notes) -> their carve/validate/suite/ops-scope/allowlist/
+  batched publish/verify; Station stays our standalone releases. Fresher:
+  xiom.ssl LANDED (binding), xiom.otel LIVE (eco 0.1.188), brotli landed /
+  zstd live.** stdlib checkout WIP likely fixed (`<netinet/tcp.h>` now
+  present at `6c96bbb`; verify before dropping `BENCH_STOCK_STDLIB=1`).
+  **SESSION-SCOPED state (dies with this session): the 2h perf wakeup and
+  the 3h relay doorbell cron -- the next session MUST re-create the
+  doorbell and run the re-measure itself.** Lane heads: orbitdb `b3fef97`,
+  relays `e30cda1`, stdlib `6c96bbb`, compiler `c24a6dcc`, xvector
+  `a94cb9b`, engine `0e662bf`, packages `4a69704b`.
 **Updated:** 2026-10-16 (perf slice LANDED -- WAL held-handle writes,
 task-order item 1): `wal_file_append_sync`/`_tagged_sync` (auto-commit: ONE
 held handle per record incl. the durability fsync), `byteio_open_append`/
@@ -1326,7 +1359,11 @@ SHA256SUMS-verified zip bd71e2d3...) + WSL canonical `~/.local/share/xiom`
 xiom.new` ALSO moved to v0.64.5 in the fleet swap (owner/ops-coordinated;
 left untouched by us). **XIOM_RUNTIME_DIR is RETIRED** (the re-vendored
 stdlib carries wave 139); dev-env.* actively unsets any inherited override
--- the stock pin is authoritative. WATCH for the NEXT archive. stdlib
+-- the stock pin is authoritative. WATCH for the NEXT archive. Benchmark
+twin note: `BENCH_STOCK_STDLIB=1` selects the stock pin for WSL bench runs
+(needed while the stdlib checkout carried the Linux-compile WIP; the
+`<netinet/tcp.h>` include is now in at their `6c96bbb` -- verify with a
+quick WSL compile before dropping the switch). stdlib
 E:\xiom-lang\stdlib. Dot-source scripts\dev-env.ps1
 (or scripts/dev-env.sh) -- both resolve AND report the compiler identity;
 run everything via scripts\run.ps1 / run.sh with a
@@ -1347,7 +1384,11 @@ residual caveats documented -- `node_deep_copy` stays), `check-exit-code`
 (C-ORBIT-10 RETRACTED -- `--check` rc=1 both platforms; probes stay as
 regression), `same-named-struct-compose` (C-ORBIT-11 FIXED m298); the
 phantom bundle and C-ORBIT-07 are VERIFIED FIXED on v0.64.4 and need no
-re-run -- REL-20261010-1802-orbitdb. **Compiler batch plan
+re-run -- REL-20261010-1802-orbitdb. **v0.64.5 release-check `compiler-
+compiler-v0.64.5` verdicts FILED 2026-10-16** (1945-orbitdb-2
+verified+closed; the C-ORBIT-12 row = still red with the reduced repro).
+Engine integration intent + the packages standing registry pipeline acked
+(see the wrap entry + `docs/checklists/two-tier.md`). **Compiler batch plan
 `REL-20261011-1342-compiler`: batches 1+3 satisfied and closed.** PULSE's
 `probe_pkg_orbitdb` results and the stdlib rows on the bus are closed.
 (XVECTOR XV-ORBITDB-01 closed 2026-10-10; hybrid probe DEFERRED -- xvector
@@ -1370,7 +1411,11 @@ x2 platforms: **C-ORBIT-08 A/B FIXED (08B masks RETIRED), C-ORBIT-09 FIXED
 artifact); NEW C-ORBIT-12 OPEN** (`Result[(Enum, Int), Enum]`; bus
 `REL-20261015-2022-orbitdb`; repro
 `docs/repro/enum-tuple-codegen/repro_enum_tuple_enum_error.xi`).
-**C-ORBIT-06/07 verified fixed + closed; probe_arm reverted.** **M1.2 S4 + M2.1 second half LANDED 2026-10-13**
+**BENCH-1 + the WAL held-handle perf slice LANDED 2026-10-16** (`f6a212b`
++ `21ea76a`; harness + docs/BENCH-1.md; suite/fault/io/crash x2 on BOTH
+platforms; WAL byte-equivalence proven; perf NUMBERS pending a quiet host
+-- first clean A/B pair 1.6x new). **C-ORBIT-06/07 verified fixed +
+closed; probe_arm reverted.** **M1.2 S4 + M2.1 second half LANDED 2026-10-13**
 (real byte-IO + fsync + rename durability + O(1) heal; **v2 byte container
 is the DEFAULT** -- `db_file_open` writes v2, v1 pinned via
 `db_file_open_cfg(path, order, 1)`, reads auto-detect, migration-on-write;
@@ -1433,11 +1478,14 @@ safety is still the optimistic guard (file_lock adoption pending);
 fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-1. **WAL held-handle perf slice -- LANDED 2026-10-16** (append+sync one
-   handle per record; txn window on one fd; suite/fault/io/crash x2 green).
-   Remaining: **re-measure on a quiet host** (BENCH-1 R1-R3 +
-   `tests/probes/probe_wal_ab.xi`) and the WSL correctness battery of the
-   slice (suite/fault/crash x2 WSL).
+1. **Perf re-measure FIRST (quiet host)**: BENCH-1 R1-R3 +
+   `tests/probes/probe_wal_ab.xi` (full rounds); update
+   `docs/BENCH-1.md` findings 1/2 with the numbers + raw log names; WSL
+   R1/R3 (+ R2/R4) if the VM load is sane. Check host quietness first
+   (Win CPU <= 40%, WSL load <= 15) -- if loaded, do R1/R2 first next
+   check. **The slice itself is landed + fully verified (suite/fault/
+   crash x2 both) -- this item is ONLY the number.** Re-create the 3h
+   relay doorbell (`cron_create`) -- session-scoped state.
 2. **R1/R2 refactor (owner directive)**: spike multi-file `module`
    support; if yes, move-only engine split (engine_core / btree /
    snapshot+pins / txn / db) with suite x2 both at every step, zero
@@ -1469,6 +1517,9 @@ pins + savepoints (2026-10-11); **M1.2 S4 + M2.1 second half (2026-10-13:
 real byte-IO + fsync + rename durability, v2 default; suite 160 x2 both)**;
 **BENCH-1 landed 2026-10-16 (`docs/BENCH-1.md`: ORBITDB vs SQLite vs
 bbolt, verify parity, Win R1-R4 + WSL R1/R3; append-syscall finding)**;
+**WAL held-handle perf slice (2026-10-16: append+sync one handle per
+record, txn window on one fd; verified x2 both; perf numbers pending a
+quiet host)**;
 **v0.64.5 adoption + re-verification wave (2026-10-16: full battery +
 bundle verdicts; 08A/09/11/row-2 verified, 08B masks retired, 10 retracted,
 C-ORBIT-12 filed; harness hardening `0911516`)**;
@@ -1494,6 +1545,16 @@ fix verifies; see COMPILER-FINDINGS):
 - Runtime: the STOCK v0.64.5 pin is authoritative; `XIOM_RUNTIME_DIR` is
   RETIRED -- dev-env.* unsets any inherited override (the re-vendored stdlib
   carries wave 139 >> 115/117/118).
+- WAL write path (perf slice 2026-10-16): auto-commit put/delete/typed =
+  `wal_file_append_sync`/`_tagged_sync` (ONE held handle per record incl.
+  the durability sync; return `-1` = write failed, `-2` = written but sync
+  failed -> state advances + handle latches, matching the old observable
+  semantics); the txn window rides ONE held fd (`db_file_txn_*`, lazily
+  opened, closed on every exit path; checkpoint refuses mid-txn so
+  truncate/rename never races it). WAL appends are UNGATED BY DESIGN
+  (fault-probe arming counts depend on this); only the sync seam fires the
+  kind-1 gate. `tests/probes/probe_wal_ab.xi` A/Bs the shapes;
+  `docs/BENCH-1.md` holds the numbers + caveats.
 - Never put an enum in a tuple (C-ORBIT-08A: `Result[(Enum, Int)]`
   miscompiles -- crash or silently skipped match arms; return the enum alone
   and pass positions separately; and **C-ORBIT-12**: `Result[(Enum, Int),
