@@ -28,6 +28,13 @@ Precedents for the split: SQLite -> libSQL/Turso, DuckDB -> MotherDuck,
 ClickHouse's embedded origins. The safe direction is always the same:
 embedded core first, server layered on top of the same storage substrate.
 
+**Fleet codename convention (packages lane, `REL-20261016-1446-packages`,
+2026-10-16):** tier identity lives in package docs, not registry ids --
+registry-tier codenames are Beacon / **Satellite** / mote; standalone-tier
+codenames are **Station** / lattice. Our names already match the
+convention; registry ids stay unchanged (`xiom.orbitdb` for the embedded
+artifact).
+
 ## 2. Why this maps onto what already exists
 
 The Station does not need a storage redesign; the substrate facts are in

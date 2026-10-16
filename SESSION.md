@@ -261,6 +261,36 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `-1549-packages-7` (tracked). Remaining production-relay items:
   compiler `1945-2` (08/09/10 in batches) + `1358`/`1956` acked. Relays head
   `2d7505c`.
+**Updated:** 2026-10-16 (doorbell + stdlib check, same-day continuation; perf
+  re-measure still pending): the 3h relay doorbell is RE-CREATED
+  (session-scoped; `0 */3 * * *`). Bus pulled: main == origin `6c3352d`; the
+  three fresh `to: all` packages notes reviewed -- codenames convention
+  (Beacon/Satellite/mote vs Station/lattice; matches our two-tier docs;
+  registry ids unchanged; codename stamped at the next version touch),
+  xiom.http 0.1.7 rider (our hybrid dep mirror rides xvector's manifest
+  move), xiom.pulse extraction claim -- none orbitdb-actionable, and
+  `to: all` items are not lane-movable (the bus refuses; owner/all-lane
+  only), so nothing to ack per protocol. **stdlib checkout Linux compile
+  FIXED + VERIFIED:** the TCP_NODELAY WIP (`REL-20261016-1223-orbitdb`; the
+  stdlib ack says resolved) is in at `a451349` (ancestor of `6c96bbb`); a
+  WSL consumer compile on the checkout (`XIOM_STDLIB=/mnt/e/xiom-lang/stdlib`,
+  stock v0.64.5 compiler, probe_crc32c) is GREEN 2026-10-16 --
+  `BENCH_STOCK_STDLIB=1` is no longer REQUIRED (kept as the stock-baseline
+  option; docs/BENCH-1.md + bench_cross.sh comment updated). **Perf
+  re-measure STILL PENDING:** the host carried other-lane compiles the whole
+  window (engine toolchain probes, compiler stdlib smokes, four `xiom.exe`
+  workers; VS Code + docker/qemu); the WSL VM itself was idle (its
+  /proc/loadavg read a phantom ~90 -- use ps/free, not loadavg). Wakeup
+  armed to re-check quietness and run BENCH-1 R1-R3 + `probe_wal_ab` then;
+  WSL rows after.
+**Updated:** 2026-10-16 (doorbell 15:00Z): relays `b649d94`. No new
+  orbitdb-addressed items; no newer archive/release-check. One to:all
+  recorded as ORBITDB-relevant: `REL-20261016-1446-packages` -- fleet
+  codename convention (registry tier = Beacon/**Satellite**/mote;
+  standalone = **Station**/lattice; registry ids unchanged); folded into
+  `docs/TWO-TIER-ARCHITECTURE.md` section 1. (`-1304` xiom.http rider and
+  `-1429` xiom.pulse extraction = noise for this lane.) 2h perf re-measure
+  wakeup still armed (16:29Z).
 **Updated:** 2026-10-16 (SESSION WRAP FOR HANDOFF -- context-budget; clean
   handoff): tree `b3fef97`; relays `e30cda1`. **Landed this session on top
   of the earlier v0.64.5 wave + two-tier plan:** (1) **BENCH-1**
@@ -1361,16 +1391,21 @@ left untouched by us). **XIOM_RUNTIME_DIR is RETIRED** (the re-vendored
 stdlib carries wave 139); dev-env.* actively unsets any inherited override
 -- the stock pin is authoritative. WATCH for the NEXT archive. Benchmark
 twin note: `BENCH_STOCK_STDLIB=1` selects the stock pin for WSL bench runs
-(needed while the stdlib checkout carried the Linux-compile WIP; the
-`<netinet/tcp.h>` include is now in at their `6c96bbb` -- verify with a
-quick WSL compile before dropping the switch). stdlib
+(kept as the stock-baseline option for rows comparable with the captured
+numbers; the Linux-compile WIP that made it REQUIRED is FIXED --
+`<netinet/tcp.h>` at stdlib `a451349`, in `6c96bbb`; a consumer compile on
+the checkout was verified GREEN 2026-10-16, so the switch is no longer a
+requirement). stdlib
 E:\xiom-lang\stdlib. Dot-source scripts\dev-env.ps1
 (or scripts/dev-env.sh) -- both resolve AND report the compiler identity;
 run everything via scripts\run.ps1 / run.sh with a
 -TimeoutSec watchdog and exit-code gate. Native .sh twins must stay LF.
 WSL: the default distro is docker-desktop (no bash) -- run via
-`wsl.exe -d Ubuntu bash -lc '...'`; the VM is shared with other lanes --
-check `ps`/`free` and run at most ONE heavy harness per command.
+`wsl.exe -d Ubuntu bash -lc '...'` (keep the inner command literal -- `$VAR`
+words can get eaten at the wsl.exe handoff; hardcode resolved paths); the VM
+is shared with other lanes -- check `ps`/`free` (the VM's /proc/loadavg reads
+phantom-high under an idle VM -- trust ps/free over loadavg) and run at most
+ONE heavy harness per command.
 Evidence rules: green suites x2, crash harnesses x2, soak long paths, keep
 probe-logs out of commits (gitignored).
 Release signal: when the production plan's gates pass (P-rc), tell the owner
@@ -1481,9 +1516,9 @@ TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
 1. **Perf re-measure FIRST (quiet host)**: BENCH-1 R1-R3 +
    `tests/probes/probe_wal_ab.xi` (full rounds); update
    `docs/BENCH-1.md` findings 1/2 with the numbers + raw log names; WSL
-   R1/R3 (+ R2/R4) if the VM load is sane. Check host quietness first
-   (Win CPU <= 40%, WSL load <= 15) -- if loaded, do R1/R2 first next
-   check. **The slice itself is landed + fully verified (suite/fault/
+   R1/R3 (+ R2/R4) if the VM is sane (ps/free -- its loadavg reads
+   phantom-high on an idle VM). Check host quietness first
+   (Win CPU <= 40%) -- if loaded, retry at the next check. **The slice itself is landed + fully verified (suite/fault/
    crash x2 both) -- this item is ONLY the number.** Re-create the 3h
    relay doorbell (`cron_create`) -- session-scoped state.
 2. **R1/R2 refactor (owner directive)**: spike multi-file `module`
