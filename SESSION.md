@@ -261,6 +261,24 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `-1549-packages-7` (tracked). Remaining production-relay items:
   compiler `1945-2` (08/09/10 in batches) + `1358`/`1956` acked. Relays head
   `2d7505c`.
+**Updated:** 2026-10-16 (BENCH-1 LANDED -- cross-engine bench harness +
+first numbers): `docs/BENCH-1.md` + `tests/probes/probe_ycsb.xi` +
+`scripts/bench_cross.{ps1,sh}` + `bench/bbolt` (Go driver, bbolt v1.4.3;
+cross-built linux binary). ORBITDB vs SQLite 3.54.0 (pinned CLI both
+platforms; `synchronous=FULL` rows) vs bbolt on identical deterministic
+YCSB-ish phases (shared LCG, bitmap-distinct delete accounting) with per-row
+verify parity (all engines report identical counts, both platforms).
+Windows R1-R4 captured: **R1 durable per-op: ORBITDB 611/s, SQLite 1457/s,
+bbolt 579/s; R4 (100-byte typed rows): 464 vs 1356 vs 489**; WSL R1
+(fsync-depressed under load ~50) + R3: **ORBITDB 16.6k/s nosync --
+FINDING: Windows writes are syscall-bound, not fsync-bound; group commit
+amortizes only the sync, not the per-record appends; the held-handle byte_io
+path is the fix -> task-order item 1 (perf slice).** SQLite CLI read/scan
+numbers are driver-bound (documented, not comparable head-on). WSL runs
+default to `BENCH_STOCK_STDLIB=1` (stock pin baseline) -- required while the
+stdlib lane's checkout carries a Linux-compile WIP (TCP_NODELAY include;
+heads-up filed `REL-20261016-1223-orbitdb`). WSL R2/R4 pending on a quieter
+host.
 **Updated:** 2026-10-16 (doorbell 12:00Z): relays `cb1f590`. One new
   orbitdb item processed: `REL-20261016-1150-packages-3` -- packages'
   point-by-point answer to the station wishlist (`-1128-orbitdb-2`) --
@@ -1396,10 +1414,12 @@ safety is still the optimistic guard (file_lock adoption pending);
 fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-1. **BENCH-1**: embedded cross-engine bench vs SQLite (`synchronous=FULL`
-   for fsync fairness) + bbolt's own bench (Go installed) on identical
-   YCSB-ish ops; db-benchmarks (client-server league) stays a methodology
-   reference at `E:\repos\db-benchmarks`.
+1. **WAL batched-append perf slice (BENCH-1 finding)**: route plain-put
+   batches and txn commit windows through the held-handle byte_io path
+   (`open_append` + `write_all` + `sync_fd` + `close_fd`) instead of
+   per-record `io.append_line`; target: Windows write rates move toward the
+   WSL numbers (16.6k/s nosync observed); re-run BENCH-1 R1-R3 x2 both +
+   full battery after.
 2. **R1/R2 refactor (owner directive)**: spike multi-file `module`
    support; if yes, move-only engine split (engine_core / btree /
    snapshot+pins / txn / db) with suite x2 both at every step, zero
@@ -1429,6 +1449,8 @@ TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
 DONE one-liners: M5 typed values end-to-end (2026-10-11); M3.1 snapshot
 pins + savepoints (2026-10-11); **M1.2 S4 + M2.1 second half (2026-10-13:
 real byte-IO + fsync + rename durability, v2 default; suite 160 x2 both)**;
+**BENCH-1 landed 2026-10-16 (`docs/BENCH-1.md`: ORBITDB vs SQLite vs
+bbolt, verify parity, Win R1-R4 + WSL R1/R3; append-syscall finding)**;
 **v0.64.5 adoption + re-verification wave (2026-10-16: full battery +
 bundle verdicts; 08A/09/11/row-2 verified, 08B masks retired, 10 retracted,
 C-ORBIT-12 filed; harness hardening `0911516`)**;

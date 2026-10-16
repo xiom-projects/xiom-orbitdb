@@ -418,7 +418,7 @@ Scoreboard changelog:
 
 | # | Item | Pts | Status | Evidence / gate |
 |---|---|---|---|---|
-| G1 | Benchmarks (insert/search/delete/range; WAL append/replay throughput) | 2 | OK | `scripts/bench.{ps1,sh}` + `probe_bench`; v0.64.1 N=10k: Win btree_insert 1.25M/s, search 3.3M/s, delete 1.67M/s, tuple 714k/s, WAL append 2.9k/s, replay 0.94k/s; WSL native-fs append 26k/s. The filed `str_split`/`read_file_lines` quadratic is fixed in stdlib (linear; 20k-record replay ~9.9 s); re-run the bench on the current pin at G1 refresh |
+| G1 | Benchmarks (insert/search/delete/range; WAL append/replay throughput) | 2 | OK | `scripts/bench.{ps1,sh}` + `probe_bench`; v0.64.1 N=10k: Win btree_insert 1.25M/s, search 3.3M/s, delete 1.67M/s, tuple 714k/s, WAL append 2.9k/s, replay 0.94k/s; WSL native-fs append 26k/s. The filed `str_split`/`read_file_lines` quadratic is fixed in stdlib (linear; 20k-record replay ~9.9 s); re-run the bench on the current pin at G1 refresh. **Cross-engine BENCH-1 (2026-10-16):** `docs/BENCH-1.md` + `scripts/bench_cross.{ps1,sh}` -- ORBITDB vs SQLite 3.54.0 (`synchronous=FULL` rows) vs bbolt v1.4.3 on identical YCSB-ish phases, per-row verify parity; durable per-op writes: ORBITDB 611/s, SQLite 1457/s, bbolt 579/s (Windows, shared host); WSL nosync 16.6k/s; finding: per-record append syscalls dominate Windows writes (batched held-handle WAL append = next perf slice) |
 | G2 | Memory bounds (page budget, WAL segment size policy, cache) | 2 | 1.0 | tuple budget + WAL segment size policy (`db_file_maybe_checkpoint`, bounded replay after truncate) + compaction-bounded snapshot log; page/cache bounds pending |
 | G3 | Scale soak (1M+ keys, long WAL) | 1 | -- | |
 

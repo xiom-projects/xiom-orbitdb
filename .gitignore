@@ -42,6 +42,9 @@ orbitdb-*.store
 *.tmp
 /tmp/
 
+# --- BENCH-1 driver binaries (built locally; see docs/BENCH-1.md) -----------
+bench/bbolt/bin/
+
 # --- VS Code / editors ------------------------------------------------------
 .vscode/
 *.code-workspace
