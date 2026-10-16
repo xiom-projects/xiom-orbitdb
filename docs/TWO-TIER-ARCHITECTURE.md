@@ -225,6 +225,20 @@ limited to its future client package (if and when one is published).
 | Split-brain at promotion | Epoch file + `file_lock` + generation/`checkpoint_lsn` handshake; zero-loss only at synced seams (honest semantics) |
 | Single-active txn in engine | Accepted v1: per-shard serialized commit path (same shape as WAL-serialized servers); cross-shard txn deferred |
 
+**Cross-lane wishlists (filed 2026-10-16, so the dependencies are visible
+early and batched):**
+
+- **stdlib** -- `REL-20261016-1128-orbitdb`: `file_lock` (hard gate for the
+  M3 remainder / G-START), TLS + ALPN server side, TCP session ergonomics
+  (NODELAY, half-close, timeouts, multi-listener accept), CSPRNG + password
+  KDF, monotonic clock. Overlap with `REL-20261015-2202-pulse` is
+  acknowledged there (we defer to PULSE's list for the shared items).
+- **packages** -- `REL-20261016-1128-orbitdb-2`: TLS binding (folded with
+  PULSE's ask), `xiom.postgres` wire-codec kept reusable for ST1 interop +
+  the optional ST8 facade, `xiom.durable` fit check for ST4 log shipping,
+  OTLP gauges, real zstd/brotli; plus the early heads-up that the Satellite
+  publication will open a coordination item (owner directive).
+
 ## 10. Execution checklist
 
 `docs/checklists/two-tier.md` -- the step-by-step, gated checklist for

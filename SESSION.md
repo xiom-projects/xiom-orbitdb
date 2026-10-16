@@ -261,6 +261,18 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `-1549-packages-7` (tracked). Remaining production-relay items:
   compiler `1945-2` (08/09/10 in batches) + `1358`/`1956` acked. Relays head
   `2d7505c`.
+**Updated:** 2026-10-16 (station dependency wishlists filed): to clear the
+  road ahead of G-START, the Station's cross-lane dependencies are on the
+  bus: `REL-20261016-1128-orbitdb` (stdlib: **`file_lock` -- hard gate for
+  the M3 remainder/G-START**; TLS + ALPN server side; TCP session
+  ergonomics -- NODELAY/half-close/timeouts/multi-listener accept; CSPRNG +
+  password KDF; monotonic clock) and `REL-20261016-1128-orbitdb-2`
+  (packages: TLS binding folded with PULSE's ask; `xiom.postgres` wire-codec
+  kept reusable for ST1 interop + optional ST8 facade; `xiom.durable` fit
+  check for ST4; OTLP gauges; real zstd/brotli; + the early heads-up that
+  Satellite publication will open a coordination item). Both reference the
+  pulse-5 lane asks to avoid duplication; the architecture doc's risk
+  section cross-links them. Doorbell handles the acks.
 **Updated:** 2026-10-16 (owner directive addendum -- release coordination):
   **Satellite publication** = when the tier is ready to publish on the
   registry, ORBITDB opens a relay item to the **packages lane** for
