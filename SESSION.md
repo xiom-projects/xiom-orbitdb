@@ -276,8 +276,10 @@ zero/i64 extremes byte-identical to the old writer); new tracked A/B probe
 `tests/probes/probe_wal_ab.xi` (interleaved old-vs-new). **Perf number
 re-measurement PENDING a quiet host** (shared machine at CPU 100% during
 the window: in-process A/B noise ~10x; first clean pair N=800 read 1.6x in
-favor of the new shape). WSL correctness battery of the slice next, then
-BENCH-1 R1-R3 re-run on a quiet host.
+favor of the new shape). WSL battery DONE after the commit: suite 160/160
+x2, probes (mvcc/fault/io) GREEN x2, db_crash 25/25 x2 -- stock pin
+(`BENCH_STOCK_STDLIB=1`; stdlib checkout WIP). Next: BENCH-1 R1-R3 re-run
+on a quiet host (scheduled wakeup; shared machine was at CPU 100%).
 **Updated:** 2026-10-16 (BENCH-1 LANDED -- cross-engine bench harness +
 first numbers): `docs/BENCH-1.md` + `tests/probes/probe_ycsb.xi` +
 `scripts/bench_cross.{ps1,sh}` + `bench/bbolt` (Go driver, bbolt v1.4.3;
