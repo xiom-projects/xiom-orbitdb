@@ -133,17 +133,29 @@ its load/update asymmetry.
 
 1. **Windows write path is syscall-bound, not fsync-bound.** ORBITDB
    durable-per-op 611/s -> nosync 1,136/s (sync costs only ~45%); batch=100
-   buys another ~45% (885/s) because the group commit currently amortizes
-   the *fsync* but still issues one `io.append_line` (open/write/close)
-   per record. On WSL the same engine reaches **16.6k/s** nosync -- the
-   gap is the Windows per-open/close overhead on the append path. Fix
-   candidate (next perf slice): write txn commit windows and plain-put
-   batches through the HELD-HANDLE byte_io path (`open_append` +
-   `write_all` of the window + `sync_fd` + `close_fd`) instead of
-   per-record `append_line`. The primitives already exist (S4).
+   buys another ~45% (885/s) because the group commit amortized only the
+   *fsync* while still issuing one `io.append_line` (open/write/close) per
+   record. On WSL the same engine reaches **16.6k/s** nosync -- the gap is
+   the Windows per-open/close overhead on the append path.
+   **FIX LANDED 2026-10-16 (WAL held-handle writes, engine slice):** the
+   auto-commit paths compose append + durability sync through ONE held
+   handle (`wal_file_append_sync` / `_tagged_sync`), and the transaction
+   window rides ONE held fd (`db_file_txn_*` opens lazily and commit/abort
+   close it; checkpoints already refuse mid-txn, so truncate/rename never
+   races the fd). WAL appends remain UNGATED (fault-probe arming counts
+   unchanged); the sync seam still fires the kind-1 gate exactly once per
+   durable ack. Correctness re-verified: suite 160/160 x2, fault probe
+   56/56 x2, io-primitives 30/30 x2, db_crash 25/25 x2 (Windows), plus a
+   byte-equivalence probe (negatives/zero/i64 extremes byte-identical to
+   the old writer). **Perf number: PENDING A QUIET HOST** -- the shared
+   machine sat at CPU 100% during the re-run window (in-process A/B noise
+   ~10x; the first clean interleaved pair at N=800 read 1.6x in favor of
+   the new shape, old 1621ms vs new 989ms). Re-run rows R1-R3 plus
+   `tests/probes/probe_wal_ab.xi` (interleaved old-vs-new, env
+   `ORBITDB_AB_N`/`ORBITDB_AB_ROUNDS`) when the host is quiet.
 2. **Group commit semantics**: after finding 1's fix, re-measure R2 -- it
-   should move from ~885/s toward the fsync-amortized ceiling; today it
-   under-delivers on Windows and (untested) likely on WSL too.
+   should move from ~885/s toward the fsync-amortized ceiling; the fd path
+   removes the per-record opens that dominated it. (Numbers pending.)
 3. **Reads/scans**: in-process engines are sub-microsecond per point read
    (orbitdb ~0.8-2.3us, bbolt ~0.3-1.5us); the SQLite CLI numbers are
    driver-bound and only meaningful as upper bounds.
@@ -171,3 +183,11 @@ required while the stdlib lane's checkout carries a Linux-compile WIP,
 2026-10-16 TCP_NODELAY include). Future rounds: WSL R2/R4 + a quiet-host
 recalibration; then the shared harness is the basis for ST7's station
 league.
+
+Perf-slice A/B tool (WAL write shape; interleaved, load-noise-immune in
+principle):
+
+```powershell
+. scripts\dev-env.ps1
+& .\scripts\run.ps1 tests\probes\probe_wal_ab.xi        # ORBITDB_AB_N=5000, _ROUNDS=3
+```

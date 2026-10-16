@@ -1859,6 +1859,11 @@ pub type DBFile = {
   // M3 savepoint (single level): active marker + buffer length at capture.
   sp_active: Bool;
   sp_marker: Int;
+  // Held append handle for the transaction window (BENCH-1 perf slice
+  // 2026-10-16): one open per TRANSACTION instead of one per record; -1 when
+  // no transaction holds it. Owned here, closed by commit/abort; a leaked fd
+  // at process exit is harmless (segment appends are appended atomically).
+  wal_fd: Int;
 }
 
 // Apply one replayed record. Maps by op code so cross-module enum patterns
@@ -2000,7 +2005,7 @@ pub fn db_file_open_cfg(path: Str, order: Int, page_format: Int) -> DBFile {
                  wal_bytes: wal_bytes, page_format: page_format,
                  indexes: indexes, durability: 1, two_phase: false,
                  failed: false, snap_generation: snap_gen, sp_active: false,
-                 sp_marker: 0 };
+                 sp_marker: 0, wal_fd: -1 };
 }
 
 // ---------------------------------------------------------------------------
@@ -2089,15 +2094,23 @@ pub fn db_file_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
       is_update = true;
     }
   }
-  let lsn = wal_file_append(&mut db.wal, op, key, value);
-  if lsn < 0 { return false; }
+  // Combined durable append (BENCH-1 perf slice 2026-10-16): ONE held
+  // handle does write + (immediate mode) the gated sync, halving the
+  // Windows open/close pairs per record. -1 write failure; -2 written but
+  // sync failed -- the state updates below still run so the in-memory view
+  // matches the old append-then-commit_sync ordering, and the handle latches
+  // at the end.
+  let lsn = wal_file_append_sync(&mut db.wal, op, key, value, db.durability == 1);
+  if lsn == -1 { return false; }
+  let sync_failed = lsn == -2;
   db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
   if is_update { let _ = btree_delete(&mut db.tree, key); }
   let inserted = btree_insert(&mut db.tree, key, value);
   if inserted { db_file_note_value_change(db, key, existing, value, true); }
   if !inserted { return false; }
-  return db_file_commit_sync(db);
+  if sync_failed { db.failed = true; return false; }
+  return true;
 }
 
 // Max typed-row payload bytes for a btree order: the largest node page
@@ -2153,15 +2166,17 @@ pub fn db_file_put_typed(db: &mut DBFile, key: Int, payload: Vec[Int]) -> Bool {
     tagged.push(payload[i]);
     i = i + 1;
   }
-  let lsn = wal_file_append_tagged(&mut db.wal, op, key, key, tagged, 0);
-  if lsn < 0 { return false; }
+  let lsn = wal_file_append_tagged_sync(&mut db.wal, op, key, key, tagged, 0, db.durability == 1);
+  if lsn == -1 { return false; }
+  let sync_failed = lsn == -2;
   db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
   if is_update { let _ = btree_delete(&mut db.tree, key); }
   let inserted = btree_insert_payload(&mut db.tree, key, key, payload);
   if inserted { db_file_note_value_change(db, key, existing, 0, false); }
   if !inserted { return false; }
-  return db_file_commit_sync(db);
+  if sync_failed { db.failed = true; return false; }
+  return true;
 }
 
 pub fn db_file_delete(db: &mut DBFile, key: Int) -> Bool {
@@ -2175,14 +2190,16 @@ pub fn db_file_delete(db: &mut DBFile, key: Int) -> Bool {
     None => { return false; }
     Some(_) => {}
   }
-  let lsn = wal_file_append(&mut db.wal, WALOpKind.Delete, key, 0);
-  if lsn < 0 { return false; }
+  let lsn = wal_file_append_sync(&mut db.wal, WALOpKind.Delete, key, 0, db.durability == 1);
+  if lsn == -1 { return false; }
+  let sync_failed = lsn == -2;
   db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
   let removed = btree_delete(&mut db.tree, key);
   if removed { db_file_note_value_change(db, key, existing, 0, false); }
   if !removed { return false; }
-  return db_file_commit_sync(db);
+  if sync_failed { db.failed = true; return false; }
+  return true;
 }
 
 pub fn db_file_get(db: &DBFile, key: Int) -> Option[Int] {
@@ -2372,17 +2389,10 @@ pub fn db_file_two_phase(db: &DBFile) -> Bool { return db.two_phase; }
 
 pub fn db_file_failed(db: &DBFile) -> Bool { return db.failed; }
 
-// Ack-time flush for commit paths (immediate mode only); a failed flush
-// latches the handle -- writers refuse until reopen (redb's latch model,
-// docs/REFERENCE-STUDY.md). Fast-tracks when normal.
-fn db_file_commit_sync(db: &mut DBFile) -> Bool {
-  if db.durability != 1 { return true; }
-  if !byteio_sync(db.path) {
-    db.failed = true;
-    return false;
-  }
-  return true;
-}
+// (db_file_commit_sync was retired in the BENCH-1 perf slice 2026-10-16:
+// auto-commit paths now sync inside `wal_file_append_sync` and the txn path
+// syncs its held fd once at commit -- both through the same fault-gated
+// byte_io sync seam, with the same latch-on-failure semantics.)
 
 // ===========================================================================
 // CHECKPOINT / SNAPSHOT (Phase 1/C): persist the B-tree node set into the
@@ -3146,12 +3156,42 @@ pub fn db_file_txn_active(db: &DBFile) -> Bool {
   return db.txn_active;
 }
 
+// Lazy held append handle for the transaction window (BENCH-1 perf slice
+// 2026-10-16): opened on first use, reused by every txn append, closed by
+// commit/abort. One open/close pair per TRANSACTION instead of one per
+// record (docs/BENCH-1.md finding #1). WAL appends stay ungated; the sync
+// seam still fires the kind-1 gate exactly once per durable commit.
+fn db_txn_fd(db: &mut DBFile) -> Int {
+  if db.wal_fd >= 0 { return db.wal_fd; }
+  match byteio_open_append(db.path) {
+    None => { return -1; }
+    Some(fd) => {
+      db.wal_fd = fd;
+      return fd;
+    }
+  }
+}
+
+// Close the held transaction handle (if any). Best-effort; the fd owner is
+// the handle itself, so commit/abort must call this on every exit path.
+fn db_txn_close_fd(db: &mut DBFile) {
+  if db.wal_fd >= 0 {
+    let _ = byteio_close_append(db.wal_fd);
+    db.wal_fd = -1;
+  }
+}
+
 pub fn db_file_txn_begin(db: &mut DBFile) -> Bool {
   if db.txn_active { return false; }
   if !db_file_guard(db) { return false; }
   if db.failed { return false; }
-  let lsn = wal_file_append(&mut db.wal, WALOpKind.BeginTxn, 0, 0);
-  if lsn < 0 { return false; }
+  let fd = db_txn_fd(db);
+  if fd < 0 { return false; }
+  let lsn = wal_file_append_fd(&mut db.wal, fd, WALOpKind.BeginTxn, 0, 0);
+  if lsn < 0 {
+    db_txn_close_fd(db);
+    return false;
+  }
   db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
   db.txn_active = true;
@@ -3166,7 +3206,9 @@ pub fn db_file_txn_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
   if !db.txn_active { return false; }
   if !db_file_guard(db) { return false; }
   if db.failed { return false; }
-  let lsn = wal_file_append(&mut db.wal, WALOpKind.Update, key, value);
+  let fd = db_txn_fd(db);
+  if fd < 0 { return false; }
+  let lsn = wal_file_append_fd(&mut db.wal, fd, WALOpKind.Update, key, value);
   if lsn < 0 { return false; }
   db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
@@ -3180,7 +3222,9 @@ pub fn db_file_txn_delete(db: &mut DBFile, key: Int) -> Bool {
   if !db.txn_active { return false; }
   if !db_file_guard(db) { return false; }
   if db.failed { return false; }
-  let lsn = wal_file_append(&mut db.wal, WALOpKind.Delete, key, 0);
+  let fd = db_txn_fd(db);
+  if fd < 0 { return false; }
+  let lsn = wal_file_append_fd(&mut db.wal, fd, WALOpKind.Delete, key, 0);
   if lsn < 0 { return false; }
   db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
@@ -3190,12 +3234,16 @@ pub fn db_file_txn_delete(db: &mut DBFile, key: Int) -> Bool {
 }
 
 // Commit: append the CommitTxn record FIRST (durability), then apply the
-// buffered ops to the in-memory tree.
+// buffered ops to the in-memory tree. The whole window (Begin + ops +
+// Commit) rides ONE held handle; immediate mode fsyncs it once, through the
+// same gated sync seam as before, and a failed sync latches the handle.
 pub fn db_file_txn_commit(db: &mut DBFile) -> Bool {
   if !db.txn_active { return false; }
   if !db_file_guard(db) { return false; }
   if db.failed { return false; }
-  let lsn = wal_file_append(&mut db.wal, WALOpKind.CommitTxn, 0, 0);
+  let fd = db_txn_fd(db);
+  if fd < 0 { return false; }
+  let lsn = wal_file_append_fd(&mut db.wal, fd, WALOpKind.CommitTxn, 0, 0);
   if lsn < 0 { return false; }
   db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
@@ -3215,7 +3263,13 @@ pub fn db_file_txn_commit(db: &mut DBFile) -> Bool {
   db.txn_ops = Vec[TxOp].new();
   db.sp_active = false;
   db.sp_marker = 0;
-  return db_file_commit_sync(db);
+  var sync_failed = false;
+  if db.durability == 1 {
+    if !byteio_sync_fd(fd) { sync_failed = true; }
+  }
+  db_txn_close_fd(db);
+  if sync_failed { db.failed = true; return false; }
+  return true;
 }
 
 // Abort: append the AbortTxn marker (audit trail) and discard the buffer.
@@ -3223,7 +3277,9 @@ pub fn db_file_txn_abort(db: &mut DBFile) -> Bool {
   if !db.txn_active { return false; }
   if !db_file_guard(db) { return false; }
   if db.failed { return false; }
-  let lsn = wal_file_append(&mut db.wal, WALOpKind.AbortTxn, 0, 0);
+  let fd = db_txn_fd(db);
+  if fd < 0 { return false; }
+  let lsn = wal_file_append_fd(&mut db.wal, fd, WALOpKind.AbortTxn, 0, 0);
   if lsn < 0 { return false; }
   db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
@@ -3231,6 +3287,7 @@ pub fn db_file_txn_abort(db: &mut DBFile) -> Bool {
   db.txn_ops = Vec[TxOp].new();
   db.sp_active = false;
   db.sp_marker = 0;
+  db_txn_close_fd(db);
   return true;
 }
 
@@ -3371,18 +3428,20 @@ pub fn db_file_txn_savepoint_restore(db: &mut DBFile) -> Bool {
   while db.txn_ops.len() > db.sp_marker {
     db.txn_ops.pop();
   }
-  var lsn = wal_file_append(&mut db.wal, WALOpKind.AbortTxn, 0, 0);
+  let fd = db_txn_fd(db);
+  if fd < 0 { return false; }
+  var lsn = wal_file_append_fd(&mut db.wal, fd, WALOpKind.AbortTxn, 0, 0);
   if lsn < 0 { return false; }
-  lsn = wal_file_append(&mut db.wal, WALOpKind.BeginTxn, 0, 0);
+  lsn = wal_file_append_fd(&mut db.wal, fd, WALOpKind.BeginTxn, 0, 0);
   if lsn < 0 { return false; }
   var appended = 2;
   var i = 0;
   while i < db.txn_ops.len() {
     let op = db.txn_ops[i];
     if op.code == 3 {
-      lsn = wal_file_append(&mut db.wal, WALOpKind.Delete, op.key, 0);
+      lsn = wal_file_append_fd(&mut db.wal, fd, WALOpKind.Delete, op.key, 0);
     } else {
-      lsn = wal_file_append(&mut db.wal, WALOpKind.Update, op.key, op.value);
+      lsn = wal_file_append_fd(&mut db.wal, fd, WALOpKind.Update, op.key, op.value);
     }
     if lsn < 0 { return false; }
     appended = appended + 1;

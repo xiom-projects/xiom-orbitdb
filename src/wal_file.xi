@@ -133,6 +133,64 @@ pub fn wal_file_heal_tail(path: Str) -> Bool {
   }
 }
 
+// Append the decimal ASCII form of v (elements 0..255). Never negates the
+// value: XIOM's % keeps the dividend's sign and / truncates toward zero
+// (verified 2026-10-16), so i64 min converts correctly.
+fn wal_push_int_ascii(out: &mut Vec[Int], v: Int) {
+  if v == 0 { out.push(48); return; }
+  if v < 0 { out.push(45); } // '-'
+  var n = v;
+  var buf = Vec[Int].new();
+  while n <= -10 || n >= 10 {
+    var d = n % 10;
+    if d < 0 { d = 0 - d; }
+    buf.push(48 + d);
+    n = n / 10;
+  }
+  var d = n % 10;
+  if d < 0 { d = 0 - d; }
+  buf.push(48 + d);
+  var i = buf.len() - 1;
+  while i >= 0 {
+    out.push(buf[i]);
+    i = i - 1;
+  }
+}
+
+// The exact record line bytes (codec v1) + trailing newline, byte-for-byte
+// equal to what `wal_file_append_line` writes via io.append_line (decimal
+// ints joined by '|', payload comma-separated). Fast path for the held-fd
+// writers (BENCH-1 perf slice): no Str round-trip per record.
+fn wal_file_record_bytes(out: &mut Vec[Int], lsn: Int, op: WALOpKind, key: Int,
+                         value: Int, payload: &Vec[Int], timestamp: Int) {
+  wal_push_int_ascii(out, lsn);
+  out.push(124); // '|'
+  wal_push_int_ascii(out, wal_op_code(op));
+  out.push(124);
+  wal_push_int_ascii(out, key);
+  out.push(124);
+  wal_push_int_ascii(out, value);
+  out.push(124);
+  wal_push_int_ascii(out, timestamp);
+  if payload.len() > 0 {
+    out.push(124);
+    var i = 0;
+    while i < payload.len() {
+      if i > 0 { out.push(44); } // ','
+      wal_push_int_ascii(out, payload[i]);
+      i = i + 1;
+    }
+  }
+  out.push(10); // '\n'
+}
+
+fn wal_file_heal_if_needed(w: &mut WALFile) {
+  if w.heal_needed {
+    let _ = wal_file_heal_tail(w.path);
+    w.heal_needed = false;
+  }
+}
+
 fn wal_file_append_line(w: &mut WALFile, op: WALOpKind, key: Int, value: Int,
                         payload: &Vec[Int], timestamp: Int) -> Int {
   // Torn-tail heal only when the handle knows the previous write left one
@@ -175,6 +233,77 @@ pub fn wal_file_append(w: &mut WALFile, op: WALOpKind, key: Int, value: Int) -> 
 pub fn wal_file_append_tagged(w: &mut WALFile, op: WALOpKind, key: Int, value: Int,
                               payload: Vec[Int], timestamp: Int) -> Int {
   return wal_file_append_line(w, op, key, value, &payload, timestamp);
+}
+
+// Combined durable append (BENCH-1 perf slice 2026-10-16): heal + write the
+// record + (when `sync`) fsync through ONE held append handle -- one
+// open/close pair per record instead of two (append + later byteio_sync).
+// WAL appends were never fault-gated and stay ungated; the sync seam fires
+// the kind-1 gate exactly once when `sync` is true (durability 1), so the
+// fault probe's arming counts are unchanged.
+// Returns the assigned LSN; -1 = write failed (state NOT advanced);
+// -2 = written but the sync failed (state advanced; caller latches).
+pub fn wal_file_append_sync(w: &mut WALFile, op: WALOpKind, key: Int, value: Int,
+                            sync: Bool) -> Int {
+  var empty = Vec[Int].new();
+  return wal_file_append_sync_line(w, op, key, value, &empty, 0, sync);
+}
+
+// Tagged form of `wal_file_append_sync` (payload = subtype + bytes).
+pub fn wal_file_append_tagged_sync(w: &mut WALFile, op: WALOpKind, key: Int, value: Int,
+                                   payload: Vec[Int], timestamp: Int, sync: Bool) -> Int {
+  return wal_file_append_sync_line(w, op, key, value, &payload, timestamp, sync);
+}
+
+fn wal_file_append_sync_line(w: &mut WALFile, op: WALOpKind, key: Int, value: Int,
+                             payload: &Vec[Int], timestamp: Int, sync: Bool) -> Int {
+  wal_file_heal_if_needed(w);
+  let lsn = w.next_lsn;
+  var body = Vec[Int].new();
+  wal_file_record_bytes(&mut body, lsn, op, key, value, payload, timestamp);
+  match byteio_open_append(w.path) {
+    None => { return -1; }
+    Some(fd) => {
+      if !byteio_append_fd(fd, &body) {
+        let _ = byteio_close_append(fd);
+        return -1;
+      }
+      w.next_lsn = w.next_lsn + 1;
+      if sync {
+        let ok = byteio_sync_fd(fd);
+        let _ = byteio_close_append(fd);
+        if !ok { return -2; }
+      } else {
+        let _ = byteio_close_append(fd);
+      }
+      return lsn;
+    }
+  }
+}
+
+// Append through a caller-held append handle (transaction path: ONE open per
+// transaction instead of one per record). UNGATED, like every WAL append;
+// the fd owner closes it and drives the gated sync (byteio_sync_fd).
+// Returns the assigned LSN; -1 = write failed (state NOT advanced).
+pub fn wal_file_append_fd(w: &mut WALFile, fd: Int, op: WALOpKind, key: Int, value: Int) -> Int {
+  var empty = Vec[Int].new();
+  return wal_file_append_fd_line(w, fd, op, key, value, &empty, 0);
+}
+
+pub fn wal_file_append_tagged_fd(w: &mut WALFile, fd: Int, op: WALOpKind, key: Int, value: Int,
+                                 payload: Vec[Int], timestamp: Int) -> Int {
+  return wal_file_append_fd_line(w, fd, op, key, value, &payload, timestamp);
+}
+
+fn wal_file_append_fd_line(w: &mut WALFile, fd: Int, op: WALOpKind, key: Int, value: Int,
+                           payload: &Vec[Int], timestamp: Int) -> Int {
+  wal_file_heal_if_needed(w);
+  let lsn = w.next_lsn;
+  var body = Vec[Int].new();
+  wal_file_record_bytes(&mut body, lsn, op, key, value, payload, timestamp);
+  if !byteio_append_fd(fd, &body) { return -1; }
+  w.next_lsn = w.next_lsn + 1;
+  return lsn;
 }
 
 // Durability seam (M2.1 second half, real since M1.2 S4): fsync the segment

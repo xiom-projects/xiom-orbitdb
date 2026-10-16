@@ -179,6 +179,54 @@ pub fn byteio_sync_dir(path: Str) -> Bool {
   return ok;
 }
 
+// --- held-handle variants (BENCH-1 perf slice, 2026-10-16) ------------------
+// The WAL auto-commit paths opened one append handle per RECORD
+// (io.append_line) and one more per durability sync; on Windows the
+// open/close pairs dominate write cost (docs/BENCH-1.md finding #1). These
+// helpers let the WAL do one open per record (combined durable append) or
+// one open per TRANSACTION (held fd), without touching the fault-gate
+// discipline: WAL appends were NEVER gated (io.append_line) and stay
+// ungated here; only the sync seam is gated (kind 1), exactly as byteio_sync.
+
+// Open a held append handle. Not fault-gated (opening is not a write); the
+// caller owns the fd and must close it (byteio_close_append).
+pub fn byteio_open_append(path: Str) -> Option[Int] {
+  match sync_io.open_append(path) {
+    Ok(fd) => { return Some(fd); }
+    Err(_) => { return None; }
+  }
+}
+
+// Append bytes through a held handle. UNGATED, mirroring the historical
+// io.append_line WAL path (fault arming counts are unchanged by design).
+pub fn byteio_append_fd(fd: Int, data: &Vec[Int]) -> Bool {
+  let b = bytes_to_u8(data);
+  match sync_io.write_all(fd, &b) {
+    Ok(_) => { return true; }
+    Err(_) => { return false; }
+  }
+}
+
+// Durability seam on a held handle. Same gate discipline as byteio_sync
+// (kind 1): syncfail fails it; skip/partial succeed without syncing.
+pub fn byteio_sync_fd(fd: Int) -> Bool {
+  let fa = fault_gate(1);
+  if fa == 3 { return false; }
+  if fa == 1 || fa == 2 { return true; }
+  match sync_io.sync_fd(fd) {
+    Ok(_) => { return true; }
+    Err(_) => { return false; }
+  }
+}
+
+// Close a held append handle (best-effort; not fault-gated).
+pub fn byteio_close_append(fd: Int) -> Bool {
+  match sync_io.close_fd(fd) {
+    Ok(_) => { return true; }
+    Err(_) => { return false; }
+  }
+}
+
 // Parent directory of a path for fsync_dir: text before the last slash or
 // backslash; "." when the path has no separator, "/" for a root-level path.
 fn byteio_dir_of(path: Str) -> Str {
