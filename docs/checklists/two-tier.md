@@ -53,8 +53,11 @@
       over the engine's typed-rows and query APIs
 - [ ] Loopback conformance suite: round-trip all `TValue` kinds incl.
       payload limits (`db_file_typed_payload_max`) + query/ORDER/LIMIT paths
-- [ ] Interop notes against `xiom.postgres`'s wire knowledge (client-side
-      reference; no PG-wire commitment)
+- [ ] Interop with `xiom.postgres.wire` (client-side reference; no PG-wire
+      commitment): surface CONFIRMED reusable + documented 2026-10-16
+      (`REL-20261016-1150-packages-3`; `xiom.postgres.wire` module: frame
+      builders + read primitives + `wire_decode` + SPEC.md tables) -- file
+      the co-run item at protocol freeze (loopback, read-only fixture side)
 - [ ] `docs/FORMATS.md` gains the ORBITWIRE v1 section (versioning policy)
 - [ ] Evidence: station suite x2 Win + x2 WSL; protocol KAT file committed
 
@@ -89,6 +92,13 @@
       documented zero-loss boundary = synced seams only
 - [ ] Replication harness: primary kill -> promote -> verify; lag metric
 - [ ] Evidence: harness x2 both; engine suite still green x2 both
+- [ ] ST4 fit (packages 2026-10-16, `REL-20261016-1150-packages-3`):
+      **LOCAL log leg on `xiom.durable`** -- LSN single-writer, read-from-LSN
+      (`wal_read_from`) as the at-least-once cursor, checkpoint-gated
+      retention, crash-consistent recovery; **our thin ship loop** owns
+      transfer + cursor/acks. Caveat recorded: durable's `wal_flush` is still
+      an honest no-op (no power-loss durability) -- the engine WAL remains
+      the power-loss-honest path; durable carries only the transfer log.
 
 ## ST5 -- sharding (manual catalog, range routing)
 
@@ -106,13 +116,16 @@
 
 - [ ] Minimal auth: users file (salted hashed secrets), AUTH op enforcement,
       local-trust mode documented for loopback/dev
-- [ ] TLS when the ecosystem binding lands (stdlib FFI schannel/OpenSSL per
-      `docs/TLS_DECISION.md`); until then: trusted-network/local only, clearly
-      documented
+- [ ] TLS when `xiom.ssl` (bindings, build STARTED 2026-10-16: client+server
+      contexts, cert/key/chain, ALPN, verify modes; first publish waits on
+      the ops registry scope) -- until then: trusted-network/local only,
+      clearly documented
 - [ ] Backup/restore drills: online snapshot + WAL tail transfer, restore to
       a fresh station, `qverify` after restore
-- [ ] Metrics endpoint (reuse PULSE metrics/otel packages where possible);
-      connection limits + timeouts
+- [ ] Metrics endpoint: `xiom.otel` 0.1.0 green (span/resource + OTLP JSON,
+      parked at the ops scope gate); **gauges = scoped 0.2.0 increment for
+      ST6** (replication lag LSN, sessions, per-shard sizes); connection
+      limits + timeouts
 - [ ] Evidence: ops drill log committed (probe-logs style summaries)
 
 ## ST7 -- scale and league

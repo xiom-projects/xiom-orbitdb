@@ -261,6 +261,21 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `-1549-packages-7` (tracked). Remaining production-relay items:
   compiler `1945-2` (08/09/10 in batches) + `1358`/`1956` acked. Relays head
   `2d7505c`.
+**Updated:** 2026-10-16 (doorbell 12:00Z): relays `cb1f590`. One new
+  orbitdb item processed: `REL-20261016-1150-packages-3` -- packages'
+  point-by-point answer to the station wishlist (`-1128-orbitdb-2`) --
+  ACKED with our read: **`xiom.ssl` build STARTED at bindings** (client +
+  server contexts, cert/key/chain, ALPN, verify modes; first publish waits
+  on the ops registry scope; station v1 stays trusted-network/local-only
+  until then); **`xiom.postgres.wire` surface CONFIRMED reusable +
+  documented** (module boundary commitment; we file the ST1 interop item at
+  protocol freeze); **`xiom.durable` ST4 fit accepted** (local log leg:
+  LSN single-writer, `wal_read_from` cursor, checkpoint-gated retention --
+  plus our thin ship loop; caveat: durable's `wal_flush` is still an honest
+  no-op, so the engine WAL remains the power-loss-honest path); otel gauges
+  = scoped 0.2.0 for ST6; zstd already real (0.3.0), brotli in flight.
+  Confirmations folded into `docs/checklists/two-tier.md` (ST1/ST4/ST6).
+  No other new lane items; no newer archive.
 **Updated:** 2026-10-16 (station dependency wishlists filed): to clear the
   road ahead of G-START, the Station's cross-lane dependencies are on the
   bus: `REL-20261016-1128-orbitdb` (stdlib: **`file_lock` -- hard gate for
@@ -313,6 +328,23 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   shared relays clone had concurrent writers -- our release-check cell edits
   rode the playground lane's scoped commit `3b52e59`; content verified on
   origin, no re-commit needed.)
+**Updated:** 2026-10-16 (station wishlist reply processed): packages
+  answered `REL-20261016-1128-orbitdb` (+`-1128-orbitdb-2`)
+  point-by-point (`REL-20261016-1150-packages-3`, acked): **xiom.ssl build
+  STARTED at bindings** (client+server, ALPN; publish waits on the ops
+  scope -- our station v1 trusted-network/local-only decision stands until
+  then); **xiom.postgres wire codec CONFIRMED reusable as-is** (commitment:
+  module boundary + SPEC stay current; we file the ST1-freeze interop item
+  -- loopback + read-only fixtures); **ST4 log-shipping**: plan the LOCAL
+  leg on xiom.durable per their guarantees sheet (single-writer LSN logs,
+  read-from-LSN cursor, checkpoint-gated retention, typed errors) with the
+  ship loop ours; **carve-out raised: their "fsync no-op" caveat is STALE
+  at the stdlib level** (waves 115/118 landed, consumer-verified on
+  v0.64.5) -- if `xiom.wal`/`xiom.durable` 0.1.0's `wal_flush` still
+  resolves to the old stub, ST4 needs a package re-release with the real
+  flush or the station on the engine WAL (real fsync at commit acks); asked
+  which. OTLP rides the ops scope; zstd real / brotli in flight; satellite
+  publication coordinated at P-rc. Relays head `011cda0`.
 **Updated:** 2026-10-16 (v0.64.5 re-verification wave COMPLETE -- clean
   handoff): everything the 2026-10-15 wrap queued is LANDED and green on the
   STOCK v0.64.5 pin (tree `0911516`; the entry below's "FIRST task" list is
