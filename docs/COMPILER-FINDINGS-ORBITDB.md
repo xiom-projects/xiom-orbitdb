@@ -83,6 +83,28 @@ v0.64.5 (Windows shadow `xiom.new.0645` `02f0857887e14e48...`; WSL canonical
   into the Windows registry home (the ops fleet swap had reset it; WSL
   home untouched).
 
+**Status 2026-10-16 (v0.64.6 re-verify, PRE-adoption):** v0.64.6 released
+(2026-10-16T20:33Z; stdlib pin `stdlib-v0.64.6` `b81430ba`); the enum-tuple
+re-verify on the official artifacts is GREEN x2 platforms:
+- **C-ORBIT-12 FIXED (m336)** -- `repro_enum_tuple_enum_error.xi` prints
+  `repro C: sum=110 (expected 110)`, rc 0 on the Windows extract
+  (`xiom.new-20261016-233955`, sha256 `0ff5c5c471498d8c...`) AND the WSL
+  canonical (`855bd7cc82c0f24f...`); control `n=8`/`custom=5`/`done`; u8
+  regression 3x `248` (PART B holds). Verified + CLOSED on the bus
+  (`REL-20261015-2022-orbitdb`; verdict row filled in
+  `release-checks/compiler-compiler-v0.64.6.md`). The `DbResult[TValue]`
+  position workaround STAYS until the lane adopts the v0.64.6 pin (the
+  suite-level workaround-drop check runs with the adoption battery).
+- **C-ORBIT-09 probes + C-ORBIT-11 compose:** green x2 on v0.64.6 (outputs
+  unchanged from the v0.64.5 verdicts; `compose ok`).
+- **Ops recurrence** (filed `REL-20261016-2120-orbitdb`): the v0.64.6 fleet
+  swap clobbered the Windows shared registry home AGAIN (`xiom.btree`/`wal`
+  unresolved on BOTH pins during the re-verify window); additive reinstall
+  (`xiom.btree@0.1.1`, `xiom.wal@0.1.0`, checksums verified) restored the
+  probes; WSL home untouched.
+- Adoption (pin swap in `dev-env.*`) is owner-coordinated; until then the
+  Windows pin stays `xiom.new.0645` and the suite stays green there.
+
 **Status 2026-10-11: C-ORBIT-07 filed (OPEN on v0.64.3)** -- a consumer-defined
 function silently hijacks an unqualified call to a module-PRIVATE same-named
 helper inside an imported module (the ORBITDB M2.1 fault probe's `arm` ran
@@ -550,7 +572,7 @@ the `DbResult[TValue]` position workaround stays.
   escape hatch), and zero-extend `UInt8 -> Int` casts for fixed-size array
   element reads.
 
-## C-ORBIT-12 -- enum-in-tuple with an enum ERROR type still miscompiles (OPEN, filed 2026-10-15)
+## C-ORBIT-12 -- enum-in-tuple with an enum ERROR type miscompiled pre-v0.64.6 (FIXED by m336; verified 2026-10-16)
 
 - **Bundle:** `docs/repro/enum-tuple-codegen/repro_enum_tuple_enum_error.xi`
   (minimal: two variants suffice; no Str/Vec/Float payloads needed).
@@ -574,6 +596,13 @@ the `DbResult[TValue]` position workaround stays.
   enum's key IDENTICALLY on the definition and the use side (the
   module-qualified rename for injected/identity-collision types leaks into
   only one of the two namers when the Result error arm is an enum).
+- **Verdict 2026-10-16 (v0.64.6, both platforms): FIXED** (m336: canonical
+  payload namers + bare-key mapping for the string-fed readers; compiler
+  ledger `80ca1862`/`75268b53`, cherry-picked `0009303c`/`312743d0`).
+  `repro_enum_tuple_enum_error.xi` -> `repro C: sum=110 (expected 110)`,
+  rc 0; control + u8 regression green; compiler-side evidence: IR emits ONE
+  spelling, zero unknown-type warnings. Bus item verified + closed; the
+  workaround drop rides the v0.64.6 pin adoption (suite x2 both then).
 
 ## C-ORBIT-09 -- element assignment through a copied Vec handle writes through to the source (FIXED on v0.64.5 by m302; residual caveats documented)
 

@@ -43,6 +43,21 @@ Stock pin (no `XIOM_RUNTIME_DIR` override).
   therefore STAYS** (`tuple2_read_value` returns `DbResult[TValue]` alone;
   callers advance via `tuple2_value_len`).
 
+## v0.64.6 verdict (2026-10-16; official artifacts, pre-adoption)
+
+Windows extract `%LOCALAPPDATA%\xiom.new-20261016-233955` (v0.64.6,
+`xiom.exe` sha256 `0ff5c5c471498d8c...`); WSL canonical
+`~/.local/share/xiom` (v0.64.6, `bin/xiom` sha256 `855bd7cc82c0f24f...`).
+
+- **PART C -- FIXED (m336):** `repro_enum_tuple_enum_error.xi` prints
+  `repro C: sum=110 (expected 110)`, exit 0 on BOTH platforms (was the
+  clang name-mismatch hard error). Control green (`n=8`/`custom=5`/`done`);
+  `repro_u8_cast.xi` 3x `248 (expected 248)` (PART B holds). Bus
+  `REL-20261015-2022-orbitdb` verified + closed; the
+  `release-checks/compiler-compiler-v0.64.6.md` verdict row is filled.
+- The `DbResult[TValue]` position workaround stays in-tree until the
+  v0.64.6 pin adoption (suite-level workaround-drop check then).
+
 ## A. `Result[(Enum, Int)]` miscompiles -- hard crash or silently skipped match arms
 
 `repro_enum_tuple.xi` -- `fn pick(c: Color) -> Result[(Color, Int), Int]`

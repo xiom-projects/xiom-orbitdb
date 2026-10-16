@@ -36,6 +36,15 @@ The two-program digest pattern (`probe_pkg_btree.xi` +
 `probe_pkg_btree_engine.xi`) remains as the interop-testing design, but
 co-composition no longer needs to be avoided in consumer programs.
 
+## v0.64.6 re-check (2026-10-16): `compose ok` x2
+
+`scripts\run.ps1 tests\pkg\probe_compose_collision.xi -TimeoutSec 180` ->
+`compose ok`, rc 0 on both platforms on the v0.64.6 artifacts (Windows
+extract `xiom.new-20261016-233955`; WSL canonical). Note: the v0.64.6 fleet
+swap had dropped `xiom.btree`/`xiom.wal` from the Windows shared registry
+home (unresolved-import T001 on BOTH pins); additive reinstall restored
+resolution -- ops FYI `REL-20261016-2120-orbitdb`.
+
 ## Files
 
 - `../../tests/pkg/probe_compose_collision.xi` -- the REAL repro (needs the

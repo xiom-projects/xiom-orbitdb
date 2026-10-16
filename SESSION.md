@@ -261,6 +261,27 @@ checkpoint flush; suite 121/121 x2 Win + WSL; all crash/fuzz/soak green.
   `-1549-packages-7` (tracked). Remaining production-relay items:
   compiler `1945-2` (08/09/10 in batches) + `1358`/`1956` acked. Relays head
   `2d7505c`.
+**Updated:** 2026-10-16 (doorbell 21:00Z -- v0.64.6 RELEASED + re-verified):
+v0.64.6 shipped (2026-10-16T20:33Z; release run 38962236697; stdlib pin
+`stdlib-v0.64.6` `b81430ba`); the fleet swap already put the WSL canonical
+at v0.64.6 and extracted the Windows archive
+(`%LOCALAPPDATA%\xiom.new-20261016-233955`, sha `0ff5c5c4...`). **The
+orbitdb re-verify action is DONE, x2 platforms:** C-ORBIT-12 FIXED (m336) --
+`repro_enum_tuple_enum_error.xi` prints `repro C: sum=110`, rc 0 (was a
+clang hard error); control n=8/custom=5/done; u8 regression 3x248; the
+C-ORBIT-09 alias probes + C-ORBIT-11 `compose ok` also green on v0.64.6.
+Item `REL-20261015-2022-orbitdb` verified + CLOSED; verdict row filed in
+`release-checks/compiler-compiler-v0.64.6.md`. **Ops recurrence handled:**
+the v0.64.6 swap clobbered the Windows shared registry home AGAIN
+(`xiom.btree`/`wal` unresolved on BOTH pins) -- additive reinstall
+(`xiom.btree@0.1.1`, `xiom.wal@0.1.0`, checksums verified) restored it; ops
+FYI `REL-20261016-2120-orbitdb` (third occurrence of the class;
+snapshot-before-swap is the standing ask). The lane pin (`dev-env.*`) is
+STILL v0.64.5 -- the swap + adoption battery (suite x2, crash, probes; then
+the C-ORBIT-12 workaround drop) is owner-coordinated and queued. Lane
+heads: compiler v0.64.6 released (bus `2291513`), stdlib `6c96bbb` + tag
+`stdlib-v0.64.6`, relays `9c0829f`; repro READMEs + COMPILER-FINDINGS carry
+the v0.64.6 verdicts.
 **Updated:** 2026-10-16 (doorbell + stdlib check, same-day continuation; perf
   re-measure still pending): the 3h relay doorbell is RE-CREATED
   (session-scoped; `0 */3 * * *`; first fire 15:00Z). Bus pulled:
@@ -1430,12 +1451,16 @@ finishing any task, then python tools/relay.py view --lane orbitdb and
 process items to this lane; never edit another lane's item (open a new one);
 owner relays human gates.
 
-TOOLCHAIN (latest-tracking): **v0.64.5 is ADOPTED (2026-10-16)** -- Windows
-shadow `%LOCALAPPDATA%\xiom.new.0645` (`xiom.exe` sha256 02f08578...;
-SHA256SUMS-verified zip bd71e2d3...) + WSL canonical `~/.local/share/xiom`
-(sha256 c4aa877a... == linux tarball); the canonical `%LOCALAPPDATA%\
-xiom.new` ALSO moved to v0.64.5 in the fleet swap (owner/ops-coordinated;
-left untouched by us). **XIOM_RUNTIME_DIR is RETIRED** (the re-vendored
+TOOLCHAIN (latest-tracking): **v0.64.5 lane pin (adopted 2026-10-16);
+v0.64.6 RELEASED 2026-10-16T20:33Z and PRE-VERIFIED** -- the lane pin
+(`dev-env.*` -> Windows shadow `%LOCALAPPDATA%\xiom.new.0645`, `xiom.exe`
+sha256 02f08578...) swaps to v0.64.6 only when owner/ops coordinate it.
+v0.64.6 artifacts are ALREADY LOCAL: **the WSL canonical IS v0.64.6**
+(sha256 855bd7cc82c0f24f...) and the Windows extract
+`xiom.new-20261016-233955` (sha `0ff5c5c4...`) -- the C-ORBIT-12 re-verify +
+the 08A/09/11 bundles are GREEN x2 on them (2026-10-16; the full adoption
+battery still runs at the pin swap). **XIOM_RUNTIME_DIR is RETIRED** (the
+re-vendored
 stdlib carries wave 139); dev-env.* actively unsets any inherited override
 -- the stock pin is authoritative. WATCH for the NEXT archive. Benchmark
 twin note: `BENCH_STOCK_STDLIB=1` selects the stock pin for WSL bench runs
@@ -1460,16 +1485,18 @@ Release signal: when the production plan's gates pass (P-rc), tell the owner
 explicitly "ORBITDB is ready for public release" -- the owner then sets up
 the public repo/CI/registry and adds ORBITDB to the benchmark suite.
 WATCH each session: any newer COMPILER archive (re-test the repro bundles +
-the suite first): `enum-tuple-codegen` (C-ORBIT-08 PARTS A/B FIXED; the
-sub-shape = **C-ORBIT-12 STILL RED -- `repro_enum_tuple_enum_error.xi`; bus
-`REL-20261015-2022-orbitdb`**), `vec-copy-alias` (C-ORBIT-09 FIXED m302;
+the suite first): `enum-tuple-codegen` (C-ORBIT-08 A/B + **C-ORBIT-12 all
+FIXED -- m336; verified + closed 2026-10-16 x2 platforms on the v0.64.6
+artifacts; re-run as regression on later archives; the `DbResult[TValue]`
+position workaround drops at the v0.64.6 pin adoption (suite x2 then)**),
+`vec-copy-alias` (C-ORBIT-09 FIXED m302; re-checked green on v0.64.6;
 residual caveats documented -- `node_deep_copy` stays), `check-exit-code`
 (C-ORBIT-10 RETRACTED -- `--check` rc=1 both platforms; probes stay as
-regression), `same-named-struct-compose` (C-ORBIT-11 FIXED m298); the
-phantom bundle and C-ORBIT-07 are VERIFIED FIXED on v0.64.4 and need no
-re-run -- REL-20261010-1802-orbitdb. **v0.64.5 release-check `compiler-
-compiler-v0.64.5` verdicts FILED 2026-10-16** (1945-orbitdb-2
-verified+closed; the C-ORBIT-12 row = still red with the reduced repro).
+regression), `same-named-struct-compose` (C-ORBIT-11 FIXED m298; `compose
+ok` re-checked on v0.64.6); the phantom bundle and C-ORBIT-07 are VERIFIED
+FIXED on v0.64.4 and need no re-run -- REL-20261010-1802-orbitdb.
+**v0.64.6 release-check `compiler-compiler-v0.64.6` verdicts: our
+C-ORBIT-12 row FILED 2026-10-16 (verified fixed; item closed).**
 Engine integration intent + the packages standing registry pipeline acked
 (see the wrap entry + `docs/checklists/two-tier.md`). **Compiler batch plan
 `REL-20261011-1342-compiler`: batches 1+3 satisfied and closed.** PULSE's
@@ -1484,16 +1511,19 @@ fast-forward to multiple branches" even when main matches origin -- verify
 with `git rev-parse main origin/main` and use `git merge --ff-only
 origin/main`.)
 
-CURRENT STATE: **v0.64.5 ADOPTED + FULLY RE-VERIFIED (2026-10-16); the
-XIOM_RUNTIME_DIR override is RETIRED** (Windows shadow `xiom.new.0645` sha
-02f08578...; WSL canonical sha c4aa877a...; the canonical `xiom.new` also
-v0.64.5 after the fleet swap). Bundle verdicts on the official artifacts,
+CURRENT STATE: **v0.64.5 lane pin; v0.64.6 RELEASED + PRE-VERIFIED
+(2026-10-16); the XIOM_RUNTIME_DIR override is RETIRED** (lane pin: Windows
+shadow `xiom.new.0645` sha 02f08578...; **the WSL canonical is now v0.64.6**
+sha 855bd7cc...; the Windows extract `xiom.new-20261016-233955` sha
+0ff5c5c4... is local -- the pin swap is owner-coordinated). Bundle verdicts
+on the official artifacts,
 x2 platforms: **C-ORBIT-08 A/B FIXED (08B masks RETIRED), C-ORBIT-09 FIXED
 (m302; residual caveats stay), C-ORBIT-11 FIXED (m298), row `-2` FIXED
 (m304), C-ORBIT-10 RETRACTED (rc=1 both -- `xiom-dbg` was the rc=0
-artifact); NEW C-ORBIT-12 OPEN** (`Result[(Enum, Int), Enum]`; bus
-`REL-20261015-2022-orbitdb`; repro
-`docs/repro/enum-tuple-codegen/repro_enum_tuple_enum_error.xi`).
+artifact); C-ORBIT-12 FIXED on v0.64.6 (m336) -- verified + closed
+2026-10-16, x2 platforms** (`Result[(Enum, Int), Enum]`; bus
+`REL-20261015-2022-orbitdb`; the `DbResult[TValue]` workaround drops at the
+pin adoption).
 **BENCH-1 + the WAL held-handle perf slice LANDED 2026-10-16** (`f6a212b`
 + `21ea76a`; harness + docs/BENCH-1.md; suite/fault/io/crash x2 on BOTH
 platforms; WAL byte-equivalence proven; perf NUMBERS pending a quiet host

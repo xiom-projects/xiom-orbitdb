@@ -61,6 +61,13 @@ ORBITDB therefore KEEPS `node_deep_copy` (src/engine.xi) as the strong
 ownership guarantee for the MVCC copy-on-write shadow -- it is now design
 insurance, not a workaround for the binding shape.
 
+## v0.64.6 re-check (2026-10-16): green, outputs unchanged
+
+v0.64.6 artifacts (Windows extract `xiom.new-20261016-233955` sha256
+`0ff5c5c4...`; WSL canonical `855bd7cc...`): `probe_alias` / `probe_clean`
+identical outputs to the v0.64.5 verdict, exit 0 on both platforms.
+Residual caveats unchanged (`node_deep_copy` stays).
+
 ## Mechanism
 
 Vec handles are reference-like: assigning a Vec (or a struct containing Vecs)
