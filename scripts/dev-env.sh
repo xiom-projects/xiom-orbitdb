@@ -10,10 +10,11 @@
 # LATEST compiler / stdlib / packages to harden the ecosystem by real-world
 # use. Record exact versions and lane hashes in SESSION.md at every wrap.
 #
-# As of 2026-10-15: compiler v0.64.5 (mirrors scripts/dev-env.ps1, which
-# pins the Windows shadow install %LOCALAPPDATA%\xiom.new.0645; WSL canonical
-# ~/.local/bin/xiom reports v0.64.5 on install root ~/.local/share/xiom,
-# sha256 c4aa877a8a4c219f... == xiom-0.64.5-linux-x64.tar.gz bin/xiom):
+# As of 2026-10-17 (compiler v0.64.6 adoption): compiler v0.64.6 (mirrors
+# scripts/dev-env.ps1, which pins the Windows extract
+# %LOCALAPPDATA%\xiom.new-20261016-233955; WSL canonical ~/.local/bin/xiom
+# reports v0.64.6 on install root ~/.local/share/xiom,
+# sha256 855bd7cc82c0f24f... == xiom-0.64.6-linux-x64.tar.gz bin/xiom):
 #   compiler  xiom (Linux install, canonical layout ~/.local/share/xiom)
 #   stdlib    $XIOM_STDLIB if set; else the WSL-mounted lane checkout
 #             /mnt/e/xiom-lang/stdlib when present; else the compiler's
@@ -21,7 +22,7 @@
 #   packages  <xiom_home>/packages (xiom pkg install; WSL layout ~/xiom)
 #
 # XIOM_RUNTIME_DIR: the 2026-10-13 lane-runtime override (M1.2 S4) is
-# DROPPED as of 2026-10-15 -- the v0.64.5 archive re-vendors stdlib/runtime
+# DROPPED as of 2026-10-15 -- the v0.64.6 archive re-vendors stdlib/runtime
 # carrying wave 139 (>> the 115/117/118 primitives the S4 slice adopted).
 # Any inherited override is actively unset; the stock pin is authoritative.
 #
@@ -61,5 +62,5 @@ _ver="$("$XIOM_COMPILER" --version 2>&1 | head -n 1)"
 printf 'dev-env: %s\n' "$_ver"
 printf 'dev-env: XIOM_COMPILER = %s\n' "$XIOM_COMPILER"
 printf 'dev-env: XIOM_STDLIB   = %s\n' "${XIOM_STDLIB:-<unset: compiler bundled stdlib>}"
-printf 'dev-env: XIOM_RUNTIME_DIR = <unset> (stock v0.64.5 runtime; override retired 2026-10-15)\n'
+printf 'dev-env: XIOM_RUNTIME_DIR = <unset> (stock v0.64.6 runtime; override retired 2026-10-15)\n'
 unset _ver

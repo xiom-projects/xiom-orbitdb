@@ -85,16 +85,20 @@ v0.64.5 (Windows shadow `xiom.new.0645` `02f0857887e14e48...`; WSL canonical
 
 **Status 2026-10-16 (v0.64.6 re-verify, PRE-adoption):** v0.64.6 released
 (2026-10-16T20:33Z; stdlib pin `stdlib-v0.64.6` `b81430ba`); the enum-tuple
-re-verify on the official artifacts is GREEN x2 platforms:
-- **C-ORBIT-12 FIXED (m336)** -- `repro_enum_tuple_enum_error.xi` prints
-  `repro C: sum=110 (expected 110)`, rc 0 on the Windows extract
+re-verify on the official artifacts is GREEN x2 platforms for the MINIMAL
+shape:
+- **C-ORBIT-12 PARTIAL (corrected 2026-10-17)** -- `repro_enum_tuple_enum_error.xi`
+  prints `repro C: sum=110 (expected 110)`, rc 0 on the Windows extract
   (`xiom.new-20261016-233955`, sha256 `0ff5c5c471498d8c...`) AND the WSL
   canonical (`855bd7cc82c0f24f...`); control `n=8`/`custom=5`/`done`; u8
-  regression 3x `248` (PART B holds). Verified + CLOSED on the bus
-  (`REL-20261015-2022-orbitdb`; verdict row filled in
-  `release-checks/compiler-compiler-v0.64.6.md`). The `DbResult[TValue]`
-  position workaround STAYS until the lane adopts the v0.64.6 pin (the
-  suite-level workaround-drop check runs with the adoption battery).
+  regression 3x `248` (PART B holds). **BUT the adoption-battery
+  workaround drop proves the LARGER-PROGRAM silent-mode shape is STILL
+  RED on v0.64.6**: `unknown type 'Tuple__TValue__Int' -- defaulting to
+  i64` + 6 typed-value suite tests fail (154/160). Workaround RESTORED
+  (160/160); residual filed `REL-20261017-1154-orbitdb` (high); the
+  v0.64.6 and v0.64.7 check rows are corrected to PARTIAL. (The earlier
+  verified+closed on `REL-20261015-2022-orbitdb` covered the minimal repro
+  only.)
 - **C-ORBIT-09 probes + C-ORBIT-11 compose:** green x2 on v0.64.6 (outputs
   unchanged from the v0.64.5 verdicts; `compose ok`).
 - **Ops recurrence** (filed `REL-20261016-2120-orbitdb`): the v0.64.6 fleet
@@ -572,7 +576,7 @@ the `DbResult[TValue]` position workaround stays.
   escape hatch), and zero-extend `UInt8 -> Int` casts for fixed-size array
   element reads.
 
-## C-ORBIT-12 -- enum-in-tuple with an enum ERROR type miscompiled pre-v0.64.6 (FIXED by m336; verified 2026-10-16)
+## C-ORBIT-12 -- enum-in-tuple with an enum ERROR type (minimal repro FIXED by m336; LARGER-PROGRAM residual RED on v0.64.6 -- see verdict)
 
 - **Bundle:** `docs/repro/enum-tuple-codegen/repro_enum_tuple_enum_error.xi`
   (minimal: two variants suffice; no Str/Vec/Float payloads needed).
@@ -596,13 +600,21 @@ the `DbResult[TValue]` position workaround stays.
   enum's key IDENTICALLY on the definition and the use side (the
   module-qualified rename for injected/identity-collision types leaks into
   only one of the two namers when the Result error arm is an enum).
-- **Verdict 2026-10-16 (v0.64.6, both platforms): FIXED** (m336: canonical
-  payload namers + bare-key mapping for the string-fed readers; compiler
-  ledger `80ca1862`/`75268b53`, cherry-picked `0009303c`/`312743d0`).
-  `repro_enum_tuple_enum_error.xi` -> `repro C: sum=110 (expected 110)`,
-  rc 0; control + u8 regression green; compiler-side evidence: IR emits ONE
-  spelling, zero unknown-type warnings. Bus item verified + closed; the
-  workaround drop rides the v0.64.6 pin adoption (suite x2 both then).
+- **Verdict 2026-10-16 (v0.64.6, both platforms): FIXED for the MINIMAL
+  repro** (m336: canonical payload namers + bare-key mapping for the
+  string-fed readers; compiler ledger `80ca1862`/`75268b53`, cherry-picked
+  `0009303c`/`312743d0`). `repro_enum_tuple_enum_error.xi` -> `repro C:
+  sum=110 (expected 110)`, rc 0; control + u8 regression green.
+- **CORRECTION 2026-10-17 (v0.64.6 adoption battery): the LARGER-PROGRAM
+  silent-mode shape is STILL RED.** Dropping the workaround (natural
+  position tuple `DbResult[(TValue, Int)]` in `src/storage/tuple.xi`)
+  emits `unknown type 'Tuple__TValue__Int' -- defaulting to i64` and fails
+  6 typed-value suite tests (154/160: tuple-v2 roundtrip, schema_row
+  roundtrip/rejects/bool-empty, typed-query ops/persistence). Workaround
+  RESTORED (160/160); residual filed `REL-20261017-1154-orbitdb` (high)
+  with the exact evidence; the v0.64.6 + v0.64.7 check rows are corrected
+  to PARTIAL. Acceptance = suite 160/160 WITH the position tuple on the
+  next archive. The m336 fix covers the reduced shape only.
 
 ## C-ORBIT-09 -- element assignment through a copied Vec handle writes through to the source (FIXED on v0.64.5 by m302; residual caveats documented)
 

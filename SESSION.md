@@ -319,6 +319,29 @@ the v0.64.6 verdicts.
   /proc/loadavg read a phantom ~90 -- use ps/free, not loadavg). Wakeup
   armed to re-check quietness and run BENCH-1 R1-R3 + `probe_wal_ab` then;
   WSL rows after.
+**Updated:** 2026-10-17 (reference protocol recorded + v0.64.6 ADOPTION
+  battery, with a corrected verdict): owner directive recorded as
+  NON-NEGOTIABLE (commit `fbc009c`): the cloned battle-tested trees under
+  E:\repos are the design source -- crawl -> `docs/REFERENCE-MATRIX.md`
+  rows (seeded for M1.1b from sqlite/bbolt/redb, file:line verified) ->
+  convert to XIOM -> blockers relay + re-test; no design from memory, no
+  MVPs. Adoption: pin re-pointed (`dev-env.*` -> Windows
+  `xiom.new-20261016-233955` sha `0ff5c5c4...`; WSL canonical sha
+  `855bd7cc...`); battery GREEN -- suite 160/160 x2 Win + x2 WSL, db_crash
+  25/25 x2 (Win + WSL), probes mvcc 36 / fault 56 / io 30 x2, fuzz seeds=4
+  (orders 3/4/5). **C-ORBIT-12 verdict CORRECTED:** the workaround-drop
+  attempt (position tuple in tuple.xi) proves the LARGER-PROGRAM
+  silent-mode shape is STILL RED on v0.64.6 (`unknown type
+  'Tuple__TValue__Int' -- defaulting to i64`; 6 typed-value suite tests
+  fail, 154/160); workaround RESTORED (160/160), residual filed
+  `REL-20261017-1154-orbitdb` (high; v0.64.6 + v0.64.7 check rows
+  corrected; relays `c260c07`). E001 `moved value 'bytes'` warnings
+  (4518:76/77) reproduce x2 platforms with and without the workaround; not
+  in our src -- unmapped combined-line site (likely stdlib), tracked
+  non-blocking. **Absolute BENCH-1 rows still pending** (host carried lane
+  compiles all morning -- gate never quiet; next quiet window / after the
+  v0.64.7 wave). Lane heads: compiler v0.64.6 released + v0.64.7 pre-cut;
+  stdlib `6c96bbb`; relays `c260c07`.
 **Updated:** 2026-10-17 (PAUSE -- owner away until tomorrow): the owner
   paused the session at 23:19Z. BOTH recurring watches are now STOPPED (a
   change from the entry below): the perf wakeup retry is cancelled (the
@@ -1530,10 +1553,13 @@ Release signal: when the production plan's gates pass (P-rc), tell the owner
 explicitly "ORBITDB is ready for public release" -- the owner then sets up
 the public repo/CI/registry and adds ORBITDB to the benchmark suite.
 WATCH each session: any newer COMPILER archive (re-test the repro bundles +
-the suite first): `enum-tuple-codegen` (C-ORBIT-08 A/B + **C-ORBIT-12 all
-FIXED -- m336; verified + closed 2026-10-16 x2 platforms on the v0.64.6
-artifacts; re-run as regression on later archives; the `DbResult[TValue]`
-position workaround drops at the v0.64.6 pin adoption (suite x2 then)**),
+the suite first): `enum-tuple-codegen` (C-ORBIT-08 A/B FIXED; **C-ORBIT-12
+PARTIAL -- m336 fixed only the MINIMAL repro (green x2 on v0.64.6
+2026-10-16); the LARGER-PROGRAM silent-mode shape is STILL RED on v0.64.6
+(position-tuple drop -> `unknown type 'Tuple__TValue__Int' -- defaulting
+to i64`; 6 typed-value suite tests fail, 154/160) -> residual
+`REL-20261017-1154-orbitdb`; the `DbResult[TValue]` workaround STAYS;
+acceptance at the next archive = suite 160/160 WITH the position tuple**),
 `vec-copy-alias` (C-ORBIT-09 FIXED m302; re-checked green on v0.64.6;
 residual caveats documented -- `node_deep_copy` stays), `check-exit-code`
 (C-ORBIT-10 RETRACTED -- `--check` rc=1 both platforms; probes stay as
@@ -1541,7 +1567,8 @@ regression), `same-named-struct-compose` (C-ORBIT-11 FIXED m298; `compose
 ok` re-checked on v0.64.6); the phantom bundle and C-ORBIT-07 are VERIFIED
 FIXED on v0.64.4 and need no re-run -- REL-20261010-1802-orbitdb.
 **v0.64.6 release-check `compiler-compiler-v0.64.6` verdicts: our
-C-ORBIT-12 row FILED 2026-10-16 (verified fixed; item closed).**
+C-ORBIT-12 row CORRECTED 2026-10-17 to PARTIAL (minimal green,
+larger-program RED; residual filed); the v0.64.7 row carries the same.**
 Engine integration intent + the packages standing registry pipeline acked
 (see the wrap entry + `docs/checklists/two-tier.md`). **Compiler batch plan
 `REL-20261011-1342-compiler`: batches 1+3 satisfied and closed.** PULSE's
@@ -1565,10 +1592,12 @@ on the official artifacts,
 x2 platforms: **C-ORBIT-08 A/B FIXED (08B masks RETIRED), C-ORBIT-09 FIXED
 (m302; residual caveats stay), C-ORBIT-11 FIXED (m298), row `-2` FIXED
 (m304), C-ORBIT-10 RETRACTED (rc=1 both -- `xiom-dbg` was the rc=0
-artifact); C-ORBIT-12 FIXED on v0.64.6 (m336) -- verified + closed
-2026-10-16, x2 platforms** (`Result[(Enum, Int), Enum]`; bus
-`REL-20261015-2022-orbitdb`; the `DbResult[TValue]` workaround drops at the
-pin adoption).
+artifact); C-ORBIT-12 PARTIAL -- m336 fixed the MINIMAL repro x2
+(2026-10-16), but the LARGER-PROGRAM silent-mode shape is STILL RED on
+v0.64.6 (154/160 with the position tuple; `unknown type
+'Tuple__TValue__Int'`); residual `REL-20261017-1154-orbitdb`; the
+`DbResult[TValue]` workaround STAYS** (`Result[(Enum, Int), Enum]`; bus
+`REL-20261015-2022-orbitdb`).
 **BENCH-1 + the WAL held-handle perf slice LANDED 2026-10-16** (`f6a212b`
 + `21ea76a`; harness + docs/BENCH-1.md; suite/fault/io/crash x2 on BOTH
 platforms; WAL byte-equivalence proven; perf NUMBERS pending a quiet host
@@ -1642,17 +1671,16 @@ REFERENCE PROTOCOL (owner 2026-10-17, non-negotiable -- see
 XIOM -- never design from memory, never settle for an MVP. Missing
 stdlib/packages capability or a compiler defect -> relay (wishlist/bug) +
 documented fallback + re-test on the next release/package publish.
-1. **v0.64.6 ADOPTION + FULL RE-VERIFY (FIRST; owner-gated like v0.64.5)**:
-   the C-ORBIT-12 re-verify half is DONE (closed 2026-10-16; WSL canonical
-   already v0.64.6; Windows archive extracted at
-   `%LOCALAPPDATA%\xiom.new-20261016-233955`, sha `0ff5c5c4...` --
-   DATE-SUFFIX naming, not `xiom.new.0646`). REMAINING: re-point
-   `scripts/dev-env.*` to that path; suite x2 both FIRST; then the
-   08A/09/11 regression bundles + row `-2` (the C-ORBIT-12 repro is
-   already green x2); verdicts/notes on
-   `release-checks/compiler-compiler-v0.64.6.md` (the 1945 family row);
-   **if the wide shape holds, RETIRE the `DbResult[(TValue, Int)]`
-   position workaround** (suite+fuzz = acceptance).
+1. **v0.64.6 ADOPTION -- DONE 2026-10-17** (pin re-pointed: Windows
+   `xiom.new-20261016-233955` sha `0ff5c5c4...`; WSL canonical sha
+   `855bd7cc...`; suite 160/160 x2 both, db_crash 25/25 x2, probes +
+   fuzz green). **C-ORBIT-12 verdict CORRECTED:** the position-tuple
+   workaround-drop attempt fails in the larger program (silent
+   `Tuple__TValue__Int` -> i64; 154/160) even though the minimal repro is
+   green -- the workaround STAYS and the residual is filed
+   `REL-20261017-1154-orbitdb` (high; v0.64.6 + v0.64.7 check rows
+   corrected). Re-test at the next archive with the position tuple;
+   acceptance = suite 160/160 (suite+fuzz).
 2. **Perf absolute rows -- fold into the same battery (post-adoption pin)**:
    BENCH-1 R1-R3 + `probe_wal_ab.xi` full rounds; update `docs/BENCH-1.md`
    R1-R3 tables + findings 1/2 (the RELATIVE A/B already landed: median

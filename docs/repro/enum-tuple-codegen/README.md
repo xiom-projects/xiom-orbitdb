@@ -43,20 +43,25 @@ Stock pin (no `XIOM_RUNTIME_DIR` override).
   therefore STAYS** (`tuple2_read_value` returns `DbResult[TValue]` alone;
   callers advance via `tuple2_value_len`).
 
-## v0.64.6 verdict (2026-10-16; official artifacts, pre-adoption)
+## v0.64.6 verdict (2026-10-16/17; official artifacts, pre-adoption)
 
 Windows extract `%LOCALAPPDATA%\xiom.new-20261016-233955` (v0.64.6,
 `xiom.exe` sha256 `0ff5c5c471498d8c...`); WSL canonical
 `~/.local/share/xiom` (v0.64.6, `bin/xiom` sha256 `855bd7cc82c0f24f...`).
 
-- **PART C -- FIXED (m336):** `repro_enum_tuple_enum_error.xi` prints
-  `repro C: sum=110 (expected 110)`, exit 0 on BOTH platforms (was the
-  clang name-mismatch hard error). Control green (`n=8`/`custom=5`/`done`);
-  `repro_u8_cast.xi` 3x `248 (expected 248)` (PART B holds). Bus
-  `REL-20261015-2022-orbitdb` verified + closed; the
-  `release-checks/compiler-compiler-v0.64.6.md` verdict row is filled.
-- The `DbResult[TValue]` position workaround stays in-tree until the
-  v0.64.6 pin adoption (suite-level workaround-drop check then).
+- **PART C -- FIXED for the MINIMAL repro only (m336):**
+  `repro_enum_tuple_enum_error.xi` prints `repro C: sum=110 (expected
+  110)`, exit 0 on BOTH platforms (was the clang name-mismatch hard
+  error). Control green (`n=8`/`custom=5`/`done`); `repro_u8_cast.xi`
+  3x `248 (expected 248)` (PART B holds).
+- **LARGER-PROGRAM residual STILL RED on v0.64.6 (corrected 2026-10-17):**
+  dropping the `DbResult[TValue]` workaround in `src/storage/tuple.xi`
+  (natural position tuple) emits `unknown type 'Tuple__TValue__Int' --
+  defaulting to i64` and fails 6 typed-value suite tests (154/160).
+  Workaround restored; residual filed `REL-20261017-1154-orbitdb` (high);
+  acceptance = suite 160/160 WITH the position tuple at the next archive.
+  The `release-checks/compiler-compiler-v0.64.6.md` / `-v0.64.7.md` rows
+  are corrected to PARTIAL.
 
 ## A. `Result[(Enum, Int)]` miscompiles -- hard crash or silently skipped match arms
 
