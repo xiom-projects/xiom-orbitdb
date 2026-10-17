@@ -319,6 +319,21 @@ the v0.64.6 verdicts.
   /proc/loadavg read a phantom ~90 -- use ps/free, not loadavg). Wakeup
   armed to re-check quietness and run BENCH-1 R1-R3 + `probe_wal_ab` then;
   WSL rows after.
+**Updated:** 2026-10-17 (Satellite CANARY frozen + filed to packages):
+`package.xi` rewritten to the canonical published shape (the old manifest was
+STALE: `xiom-db 0.2.0` with retired `xiom-core` / `xiom-std 0.1.0` deps) --
+`xiom.orbitdb` v0.2.1, stage incubating, Satellite identity, 30 `xiom.db.*`
+modules, zero registry deps (`xiom.std` platform only); validated with
+`xiom pkg --root . lock` -> "xiom.orbitdb v0.2.1" (no lockfile needed);
+frozen at commit `3bc2a61`. Coordination item
+`REL-20261017-1245-orbitdb` filed to packages (pulse-style): candidate ids +
+scope + P-rc/canary notes + carve-mechanic question (porter from the private
+pin vs a git-archive export); their carve/validate/suite x2/ops-scope/
+allowlist/batched publish/sha-verify follows, then we announce to engine
+(A09 embedded lite tier) / registry pilot / xvector. Pre-P-rc canary note:
+pager M1.1b, hardware power-loss matrix and absolute BENCH rows still
+pending; all freeze gates green (suite 160/160 x2 both, crash 25/25 x2,
+probes + fuzz on the RELEASED stdlib v0.64.6). Relays `a804b6a`.
 **Updated:** 2026-10-17 (reference protocol recorded + v0.64.6 ADOPTION
   battery, with a corrected verdict): owner directive recorded as
   NON-NEGOTIABLE (commit `fbc009c`): the cloned battle-tested trees under

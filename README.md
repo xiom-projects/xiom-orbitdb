@@ -44,7 +44,7 @@ One engine, two products, one repository (**orbitdb-satellite** -- tier 1, embed
 
 ## Installation
 
-The **Satellite** registry package is not published yet -- publication is gated on P-rc and coordinates through the packages lane. Until then, build from source (see **Try it** below); module imports stay `xiom.db.*` either way.
+The **Satellite** package (`xiom.orbitdb`, stage incubating) is in canary publication through the packages lane (coordination item `REL-20261017-1245-orbitdb`, freeze `3bc2a61`) -- pre-P-rc, so the pager and hardware power-loss gates are still open. Until it is live on the registry, build from source (see **Try it** below); module imports stay `xiom.db.*` either way.
 
 ## Quick Start (public facade)
 ```xiom

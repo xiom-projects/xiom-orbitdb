@@ -31,14 +31,16 @@
 
 ## Satellite track (product labeling; the engine itself is done per plan)
 
-- [ ] README / SPEC / API gain the tier label "ORBITDB Satellite (embedded)"
-      at release time (module/package names unchanged: `xiom.db.*`,
-      `xiom.orbitdb`)
-- [ ] Registry P-rc recipe + `xiom.orbitdb` scope ask when the P-rc gates
-      pass (production checklist owns the gate; owner green-light first)
-- [ ] **At publication: open the relay item to the packages lane** for
-      publishing coordination (packaging assist: scope ask, P-rc recipe,
-      canary; ops owns the allowlist gate) -- owner directive 2026-10-16
+- [x] README carries the tier label "ORBITDB Satellite (embedded)" +
+      Station (2026-10-17); the SPEC / API identity line lands at release
+      time (module/package names unchanged: `xiom.db.*`, `xiom.orbitdb`)
+- [x] **Canary carve/publish requested** (pre-P-rc): coordination item
+      `REL-20261017-1245-orbitdb` filed to the packages lane at freeze pin
+      `3bc2a61` (`xiom.orbitdb` v0.2.1, stage incubating; candidate ids +
+      scope + P-rc/canary notes + carve-mechanic question). Their
+      carve/validate/suite x2/ops-scope/allowlist/batched publish follows;
+      the full P-rc recipe + release tag land when the production gate
+      passes (owner green-light first)
 - [ ] CLI shipped as the satellite front door (`apps/orbitdb_cli.xi` ->
       `out/orbitdb.exe`; WSL twin)
 
@@ -148,8 +150,10 @@
 
 ## Release engineering (both tiers; owner directives 2026-10-16)
 
-- [ ] **Satellite publication**: relay item to the packages lane at
-      publication time (packaging coordination; ops allowlist gate)
+- [~] **Satellite publication**: coordination item filed to the packages
+      lane (`REL-20261017-1245-orbitdb`; freeze `3bc2a61`; canary v0.2.1)
+      -- awaiting their carve/validate/suite x2/allowlist/batch/publish/
+      verify; ops owns the allowlist gate
 - [ ] **Station releases**: GitHub Actions pipeline authored WITH ops --
       this lane delivers the build/battery/soak contracts + pinned-toolchain
       recipe; ops owns the pipeline
