@@ -319,6 +319,23 @@ the v0.64.6 verdicts.
   /proc/loadavg read a phantom ~90 -- use ps/free, not loadavg). Wakeup
   armed to re-check quietness and run BENCH-1 R1-R3 + `probe_wal_ab` then;
   WSL rows after.
+**Updated:** 2026-10-18 (PAUSE -- owner away for the night, 21:34Z): the
+  owner paused the session. BOTH recurring watches are STOPPED: the
+  perf quiet-window retry chain (the 21:32Z retry already fired into the
+  pause; no further wakeups) AND the 3h doorbell cron (intentionally
+  deleted -- re-create on resume: `cron_create` `0 */3 * * *`, pull ->
+  `view --lane orbitdb` -> process -> scoped commit/push). **State at
+  pause:** `xiom.orbitdb` 0.2.1 LIVE (eco-v0.1.196, sha `c8fc6548...`) +
+  independently verified from the registry (isolated-home consumer smoke);
+  xvector consumed it (their 11-check probe green) and our hybrid guard is
+  GREEN on their settled tree `72db35e` (probe 36 checks, crash 5/5 x2
+  both); announcements to engine/registry/xvector filed; v0.64.7 still
+  BLOCKED upstream (stdlib m353 `.hash()` residual, dry-run 955/956).
+  **Open items for resume:** absolute BENCH-1 R1-R3 on the v0.64.6 release
+  pin (quiet host -- overnight may be the window, but we stay paused);
+  engine A09 verb list + registry/engine replies; R1/R2 split -> M1.1b
+  pager (reference rows ready) -> Station on G-START. Tree clean at
+  `b337f30`; relays `9360c9d`.
 **Updated:** 2026-10-17 (hybrid guard GREEN on xvector's settled tree --
   cross-lane proof of the published package): xvector consumed `xiom.orbitdb`
   0.2.1 (their `probe_package_orbitdb` 11 checks green x2 WSL + x1 Windows,
