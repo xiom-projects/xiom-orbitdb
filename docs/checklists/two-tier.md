@@ -150,10 +150,11 @@
 
 ## Release engineering (both tiers; owner directives 2026-10-16)
 
-- [~] **Satellite publication**: coordination item filed to the packages
-      lane (`REL-20261017-1245-orbitdb`; freeze `3bc2a61`; canary v0.2.1)
-      -- awaiting their carve/validate/suite x2/allowlist/batch/publish/
-      verify; ops owns the allowlist gate
+- [x] **Satellite publication LIVE (canary)**: `xiom.orbitdb` v0.2.1
+      published 2026-10-17 in eco-v0.1.196 (sha256 `c8fc6548...`) via the
+      packages lane (carve at `3bc2a61`; their suite x2 + crash/probes green
+      on the carved layout; our isolated-home consumer smoke green). The
+      full P-rc recipe + release tag still land at the production gate.
 - [ ] **Station releases**: GitHub Actions pipeline authored WITH ops --
       this lane delivers the build/battery/soak contracts + pinned-toolchain
       recipe; ops owns the pipeline

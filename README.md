@@ -44,11 +44,18 @@ One engine, two products, one repository (**orbitdb-satellite** -- tier 1, embed
 
 ## Installation
 
-The **Satellite** package (`xiom.orbitdb`, stage incubating) is in canary publication through the packages lane (coordination item `REL-20261017-1245-orbitdb`, freeze `3bc2a61`) -- pre-P-rc, so the pager and hardware power-loss gates are still open. Until it is live on the registry, build from source (see **Try it** below); module imports stay `xiom.db.*` either way.
+The **Satellite** package is **live on the registry** (pre-P-rc canary, stage incubating): **`xiom.orbitdb` v0.2.1** (eco-v0.1.196, sha256 `c8fc6548...`). Add it to a project manifest:
+
+```xiom
+[dependencies]
+xiom.orbitdb = "0.2.1"
+```
+
+The pager (M1.1b) and hardware power-loss gates are still open -- see `docs/BENCH-1.md` and the canary note on `REL-20261017-1245-orbitdb`. Module imports stay `xiom.db.*`; for source builds see **Try it** below.
 
 ## Quick Start (public facade)
 ```xiom
-use xiom.db.api.database;
+use xiom.db.engine;
 use xiom.db.query.query;
 
 fn main() -> Int {

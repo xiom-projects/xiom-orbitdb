@@ -319,6 +319,24 @@ the v0.64.6 verdicts.
   /proc/loadavg read a phantom ~90 -- use ps/free, not loadavg). Wakeup
   armed to re-check quietness and run BENCH-1 R1-R3 + `probe_wal_ab` then;
   WSL rows after.
+**Updated:** 2026-10-17 (Satellite canary PUBLISHED + independently verified):
+**xiom.orbitdb 0.2.1 is LIVE on the registry** -- eco-v0.1.196,
+2026-10-17T14:18:14Z, sha256 `c8fc65485b7dbedc...`, signed + live-verified;
+the packages lane carved read-only via `git archive 3bc2a61` (166 files,
+primary id held, no fallback) and their verify on the carved layout was
+suite 160/160 x2 + db_crash 25/25 + mvcc 36 + fault 56 + io 30 green; scope
+LIVE eco-release 563, allowlist 561->564. **Our independent verify:**
+installed from the registry into an ISOLATED XIOM_HOME and built+ran a
+consumer smoke with a project-manifest dependency only (no source-roots):
+in-memory facade + durable `db_file_*` WAL + checkpoint + reopen + typed
+payload + range -> `consumer smoke: OK`, rc 0. Item
+`REL-20261017-1245-orbitdb` verified + CLOSED; announcements filed: engine
+(`REL-20261017-1504-orbitdb`: recipe + A09 verb-list request), registry
+pilot (`-2`: pre-P-rc canary note), xvector (`-3`: hybrid-guard input).
+**Doc nit found:** the published README still imports
+`xiom.db.api.database` (merged into `xiom.db.engine`) -- fixed repo-side,
+rides 0.2.2. Remaining P-rc: M1.1b pager, hardware power-loss matrix,
+absolute BENCH-1 rows. Relays `1d08044`.
 **Updated:** 2026-10-17 (Satellite CANARY frozen + filed to packages):
 `package.xi` rewritten to the canonical published shape (the old manifest was
 STALE: `xiom-db 0.2.0` with retired `xiom-core` / `xiom-std 0.1.0` deps) --
