@@ -6,6 +6,9 @@
 > scoreboard (`docs/PRODUCTION-READINESS.md`) records the numbers.
 > Convention: `[x]` done with committed evidence; `[~]` in progress/blocked
 > with a named dependency; `[ ]` not started.
+> Reference protocol (2026-10-17): every slice starts with a crawl recorded
+> in `docs/REFERENCE-MATRIX.md` (file:line + adopt/adapt/avoid); blockers go
+> through the relay bus and are re-tested on the next release/publish.
 
 ## M1 -- Storage spine
 

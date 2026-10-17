@@ -8,6 +8,16 @@ studied read-only; every claim below carries `file:line` evidence in the
 source repo. **License matrix: bbolt MIT, redb MIT OR Apache-2.0, SQLite
 public domain -- all copy-safe for our MIT/Apache dual license.**
 
+## 0. Standing protocol (owner directive 2026-10-17, non-negotiable)
+
+This study is not a one-off: it is the design source for every slice. The
+living extraction matrix (file:line + symbols + adopt/adapt/avoid) lives in
+`docs/REFERENCE-MATRIX.md`. The loop: crawl -> matrix row -> convert to XIOM
+-> blocker? relay (wishlist/bug) + documented fallback -> re-test on the next
+release/package publish. No design from memory; no MVPs. The sandbox has
+since grown beyond the three databases (db-benchmarks methodology;
+h11/fastify/gin/knex/bullmq for the Station tier) -- use the matrix.
+
 | Repo | Pin | Role for us |
 |---|---|---|
 | `E:\repos\bbolt` (etcd-io/bbolt) | `80c2fe8` | page/tx model, two-slot meta, freelist discipline, crash test matrix |

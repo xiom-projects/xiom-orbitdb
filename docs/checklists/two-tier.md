@@ -10,6 +10,10 @@
 > with a named dependency; `[ ]` not started. Every station step inherits the
 > lane discipline: suites x2 both platforms, crash harnesses x2 both,
 > probe-logs gitignored, signed conventional commits, docs coupled.
+> Reference protocol (2026-10-17): every station step starts with a crawl
+> recorded in `docs/REFERENCE-MATRIX.md` section 3 (h11/fastify/gin/knex/
+> bullmq rows); blockers go through the bus and re-test on the next
+> release/publish.
 
 ## Gate G-START -- Station work may begin only when ALL of these hold
 

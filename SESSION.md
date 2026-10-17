@@ -1360,6 +1360,16 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   timestamps if it recovers.
 - Packages only from the registry; never vendor. Extraction candidates go to
   `docs/PACKAGE-WISHLIST-ORBITDB.md`.
+- **Reference-driven development (owner directive 2026-10-17,
+  NON-NEGOTIABLE):** the cloned battle-tested projects under `E:\repos` are
+  the design source -- engine slices from sqlite/bbolt/redb/db-benchmarks;
+  Station slices from h11/fastify/gin/knex/bullmq. Every slice starts with a
+  real crawl (file:line + symbols) recorded in `docs/REFERENCE-MATRIX.md`
+  with an adopt/adapt/avoid decision, then converts the mechanic to XIOM;
+  never design from memory, never settle for an MVP. Missing stdlib/packages
+  capability or a compiler defect -> relay item (wishlist/bug) + documented
+  fallback + re-test on the next release/package publish. Extend the matrix
+  on every crawl; re-crawl rows older than the slice.
 
 ## 2. Pin discipline that bites (v0.64.2: compiler workarounds dropped)
 
@@ -1478,6 +1488,13 @@ DCO sign-off (git commit -s). Cross-lane coordination: the xiom-relays bus
 finishing any task, then python tools/relay.py view --lane orbitdb and
 process items to this lane; never edit another lane's item (open a new one);
 owner relays human gates.
+REFERENCE PROTOCOL (owner directive 2026-10-17, non-negotiable): every slice
+starts by crawling the cloned battle-tested trees under E:\repos
+(sqlite/bbolt/redb/db-benchmarks for the engine; h11/fastify/gin/knex/bullmq
+for the Station), recording file:line + symbols + adopt/adapt/avoid in
+docs/REFERENCE-MATRIX.md, then converting to XIOM -- no design from memory,
+no MVPs. Blockers -> relay (wishlist/bug) with a documented fallback and a
+re-test on the next release/package publish.
 
 TOOLCHAIN (latest-tracking): **v0.64.5 lane pin (adopted 2026-10-16);
 v0.64.6 RELEASED 2026-10-16T20:33Z and PRE-VERIFIED** -- the lane pin
@@ -1619,6 +1636,12 @@ safety is still the optimistic guard (file_lock adoption pending);
 fuzz runs per wrap (CI cadence awaits F3).
 
 TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
+REFERENCE PROTOCOL (owner 2026-10-17, non-negotiable -- see
+`docs/REFERENCE-MATRIX.md`): every slice starts with a real crawl
+(file:line + symbols + adopt/adapt/avoid rows) and is CONVERTED from it into
+XIOM -- never design from memory, never settle for an MVP. Missing
+stdlib/packages capability or a compiler defect -> relay (wishlist/bug) +
+documented fallback + re-test on the next release/package publish.
 1. **v0.64.6 ADOPTION + FULL RE-VERIFY (FIRST; owner-gated like v0.64.5)**:
    the C-ORBIT-12 re-verify half is DONE (closed 2026-10-16; WSL canonical
    already v0.64.6; Windows archive extracted at
@@ -1639,11 +1662,16 @@ TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
 3. **R1/R2 refactor (owner directive)**: spike multi-file `module`
    support; if yes, move-only engine split (engine_core / btree /
    snapshot+pins / txn / db) with suite x2 both at every step, zero
-   consumer changes; then the suite split + summing runner.
-4. **M1.1b pager** (lazy node load + bounded cache + deferred-free
-   allocator over `read_at`/`write_at`) -- the last big architectural
-   piece; feeds on M3's `db_file_min_pinned_lsn` AND is the keystone of the
-   two-tier plan (`docs/TWO-TIER-ARCHITECTURE.md`).
+   consumer changes; then the suite split + summing runner. (Structural
+   refactor -- no external mechanic to convert; reference matrix N/A.)
+4. **M1.1b pager** -- **reference crawl FIRST** (rows seeded in
+   `docs/REFERENCE-MATRIX.md` sections 1.1-1.3: SQLite
+   `pager.c`/`pcache.c`, redb `cached_file.rs`/`lru_cache.rs`/
+   `page_manager.rs`, bbolt `internal/freelist`): extend the rows, then
+   convert to lazy node load + bounded cache + deferred-free allocator over
+   `read_at`/`write_at` -- the last big architectural piece; feeds on M3's
+   `db_file_min_pinned_lsn` AND is the keystone of the two-tier plan
+   (`docs/TWO-TIER-ARCHITECTURE.md`).
 5. **Station track (PLANNED, GATED -- `docs/checklists/two-tier.md`)**:
    satellite = today's release path; station (`station/`, ORBITWIRE v1,
    sessions, replication via WAL shipping, range sharding) may start only
@@ -1651,6 +1679,8 @@ TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
    R1/R2 split + threads decision**; ST1 protocol spike -> ST2 single-node
    core -> ST3 concurrency -> ST4 replication -> ST5 sharding -> ST6 ops ->
    ST7 league; optional ST8 PG-wire facade. Embedded release outranks it.
+   ST1 begins with the Station reference crawl + matrix section 3 rows
+   (h11/fastify/gin/knex/bullmq) before the protocol spike.
 6. **Hybrid guard**: re-run `probe_hybrid full` + `hybrid_crash_test` x2
    both when xvector's tree settles (DEFERRED 2026-10-16: their WIP moved
    `xiom.vector.types.*`; last green = their HEAD `200cbc7`) and at every
