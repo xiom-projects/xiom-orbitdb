@@ -1638,6 +1638,9 @@ FIXED on v0.64.4 and need no re-run -- REL-20261010-1802-orbitdb.
 **v0.64.6 release-check `compiler-compiler-v0.64.6` verdicts: our
 C-ORBIT-12 row CORRECTED 2026-10-17 to PARTIAL (minimal green,
 larger-program RED; residual filed); the v0.64.7 row carries the same.**
+**v0.64.7: NOT cut yet** -- the stdlib dry-run is 955/956 and the tag is
+blocked on the m353 negative-Int `.hash()` residual (stdlib, 2026-10-17);
+our C-ORBIT-12 regression re-run + the row verdict wait for the archive.
 Engine integration intent + the packages standing registry pipeline acked
 (see the wrap entry + `docs/checklists/two-tier.md`). **Compiler batch plan
 `REL-20261011-1342-compiler`: batches 1+3 satisfied and closed.** PULSE's
