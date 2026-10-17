@@ -46,8 +46,7 @@ use xiom.vector.durability.wal;
 use xiom.vector.durability.wal_file;
 use xiom.vector.payload.payload;
 use xiom.vector.query.search_service;
-use xiom.vector.types.dense_vector;
-use xiom.vector.types.metric;
+use xiom.vectors;
 
 // Row-store key layout (documented in docs/XVECTOR-INTEGRATION.md section 2):
 //   key id            row payload (value = the join id itself today)

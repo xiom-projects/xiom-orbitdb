@@ -319,6 +319,20 @@ the v0.64.6 verdicts.
   /proc/loadavg read a phantom ~90 -- use ps/free, not loadavg). Wakeup
   armed to re-check quietness and run BENCH-1 R1-R3 + `probe_wal_ab` then;
   WSL rows after.
+**Updated:** 2026-10-17 (hybrid guard GREEN on xvector's settled tree --
+  cross-lane proof of the published package): xvector consumed `xiom.orbitdb`
+  0.2.1 (their `probe_package_orbitdb` 11 checks green x2 WSL + x1 Windows,
+  commit `72db35e`) and declared their tree settled at compiler v0.64.6 +
+  stdlib `7073a64`. Their tree consolidated `xiom.vector.types.*` into the
+  published `xiom.vectors` package, so our hybrid harness was brought to
+  lockstep: `tests/hybrid/xiom.toml` `xiom.http` 0.1.4 -> 0.1.8 (mirrors
+  their manifest) and `probe_hybrid.xi` imports `xiom.vectors` (types
+  package) instead of the removed `xiom.vector.types.dense_vector/metric`
+  modules. **Guard results: `probe_hybrid` full GREEN (36 checks) Win x1 +
+  WSL x2; `hybrid_crash_test` GREEN 5/5 Win x2 + WSL x1 (repair 13 rows,
+  100% join integrity, verify #2 idempotent repaired=0; row store survives
+  hard kill + torn tail).** TASK ORDER item 6 DONE; re-run at every wrap.
+  Relays: reply item to xvector with the evidence.
 **Updated:** 2026-10-17 (Satellite canary PUBLISHED + independently verified):
 **xiom.orbitdb 0.2.1 is LIVE on the registry** -- eco-v0.1.196,
 2026-10-17T14:18:14Z, sha256 `c8fc65485b7dbedc...`, signed + live-verified;
@@ -1764,9 +1778,13 @@ documented fallback + re-test on the next release/package publish.
    ST7 league; optional ST8 PG-wire facade. Embedded release outranks it.
    ST1 begins with the Station reference crawl + matrix section 3 rows
    (h11/fastify/gin/knex/bullmq) before the protocol spike.
-6. **Hybrid guard**: re-run `probe_hybrid full` + `hybrid_crash_test` x2
-   both when xvector's tree settles (DEFERRED 2026-10-16: their WIP moved
-   `xiom.vector.types.*`; last green = their HEAD `200cbc7`) and at every
+6. **Hybrid guard -- DONE 2026-10-17** (xvector settled at `72db35e`,
+   compiler v0.64.6 + released stdlib): `probe_hybrid` full GREEN (36
+   checks) Win x1 + WSL x2; `hybrid_crash_test` GREEN 5/5 Win x2 + WSL x1
+   (repair 13 rows, 100% join integrity, verify #2 idempotent repaired=0;
+   row store survives hard kill + torn tail). Harness brought to lockstep:
+   `xiom.http` 0.1.8 + types imported from the published `xiom.vectors`
+   package (their tree consolidated `xiom.vector.types.*`). Re-run at every
    wrap.
 7. Hygiene: SESSION/STATE/readiness at every wrap; doorbell; signed
    commits; registry P-rc recipe + engine A09 adapter verb-list when asked.
