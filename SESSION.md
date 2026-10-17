@@ -329,19 +329,26 @@ the v0.64.6 verdicts.
   `xiom.new-20261016-233955` sha `0ff5c5c4...`; WSL canonical sha
   `855bd7cc...`); battery GREEN -- suite 160/160 x2 Win + x2 WSL, db_crash
   25/25 x2 (Win + WSL), probes mvcc 36 / fault 56 / io 30 x2, fuzz seeds=4
-  (orders 3/4/5). **C-ORBIT-12 verdict CORRECTED:** the workaround-drop
+  (orders 3/4/5); then RE-RUN on the RELEASED bundled stdlib v0.64.6 after
+  the owner's freshness directive: suite 160/160 (Win x2 incl. quiet retry,
+  WSL x1), db_crash 25/25, probes 3x, fuzz GREEN -- and `dev-env.*` now
+  DEFAULTS to the release stdlib (checkout opt-in; it was diverged + dirty). **C-ORBIT-12 verdict CORRECTED:** the workaround-drop
   attempt (position tuple in tuple.xi) proves the LARGER-PROGRAM
   silent-mode shape is STILL RED on v0.64.6 (`unknown type
   'Tuple__TValue__Int' -- defaulting to i64`; 6 typed-value suite tests
   fail, 154/160); workaround RESTORED (160/160), residual filed
   `REL-20261017-1154-orbitdb` (high; v0.64.6 + v0.64.7 check rows
-  corrected; relays `c260c07`). E001 `moved value 'bytes'` warnings
-  (4518:76/77) reproduce x2 platforms with and without the workaround; not
-  in our src -- unmapped combined-line site (likely stdlib), tracked
-  non-blocking. **Absolute BENCH-1 rows still pending** (host carried lane
-  compiles all morning -- gate never quiet; next quiet window / after the
-  v0.64.7 wave). Lane heads: compiler v0.64.6 released + v0.64.7 pre-cut;
-  stdlib `6c96bbb`; relays `c260c07`.
+  corrected; relays `c260c07`). E001 `moved value 'bytes'` (4518:76/77) is
+  OUR `src/storage/block.xi` and is a SPURIOUS report on a borrowed
+  `&Vec[Int]` read path -- filed `REL-20261017-1223-orbitdb-2` (low);
+  transient Windows compiler exits -1 under load (2/6 runs, rerun green)
+  filed `REL-20261017-1223-orbitdb` (medium). **Absolute BENCH-1 rows still
+  pending** (host carried lane compiles all morning -- gate never quiet;
+  next quiet window / after the v0.64.7 wave). Lane heads: compiler v0.64.6
+  released + v0.64.7 pre-cut; stdlib RELEASE 0.64.6 published (registry
+  sha `7ba3b09a`, waves 155-171); relays `ea1e7b7`; registry latest:
+  btree 0.1.1 / wal 0.1.0 / vectors 0.1.0 (installed), metrics+rate 0.2.0,
+  http 0.1.8 (hybrid mirror).
 **Updated:** 2026-10-17 (PAUSE -- owner away until tomorrow): the owner
   paused the session at 23:19Z. BOTH recurring watches are now STOPPED (a
   change from the entry below): the perf wakeup retry is cancelled (the
@@ -1393,6 +1400,13 @@ crash recovery; formerly `xiom-db` (renamed `xiom-orbitdb`).
   capability or a compiler defect -> relay item (wishlist/bug) + documented
   fallback + re-test on the next release/package publish. Extend the matrix
   on every crawl; re-crawl rows older than the slice.
+- **Freshness + feedback loop (owner directive 2026-10-17,
+  NON-NEGOTIABLE):** every session starts with a relay pull + lane view,
+  then the LATEST released compiler/stdlib/packages (the compiler-bundled
+  stdlib by default; the stdlib lane checkout is opt-in early-warning only;
+  never edit it). After any version move, re-run the battery (suite x2
+  both, crash, probes, fuzz) and report reds back through the bus -- the
+  lanes fix on request and we re-test on the next release/publish.
 
 ## 2. Pin discipline that bites (v0.64.2: compiler workarounds dropped)
 
@@ -1518,19 +1532,27 @@ for the Station), recording file:line + symbols + adopt/adapt/avoid in
 docs/REFERENCE-MATRIX.md, then converting to XIOM -- no design from memory,
 no MVPs. Blockers -> relay (wishlist/bug) with a documented fallback and a
 re-test on the next release/package publish.
+TOOLCHAIN FRESHNESS (owner directive 2026-10-17, non-negotiable): at every
+session start (1) pull the relays + process lane items; (2) use the LATEST
+RELEASED compiler archive, stdlib and registry packages -- the lanes fix
+requested bugs there and hardening flows back through our relay reports;
+the compiler-bundled stdlib is the default, the stdlib lane checkout is
+opt-in early-warning only; (3) after any version move re-run the battery
+(suite x2 both, crash, probes, fuzz) and relay reds.
 
-TOOLCHAIN (latest-tracking): **v0.64.5 lane pin (adopted 2026-10-16);
-v0.64.6 RELEASED 2026-10-16T20:33Z and PRE-VERIFIED** -- the lane pin
-(`dev-env.*` -> Windows shadow `%LOCALAPPDATA%\xiom.new.0645`, `xiom.exe`
-sha256 02f08578...) swaps to v0.64.6 only when owner/ops coordinate it.
-v0.64.6 artifacts are ALREADY LOCAL: **the WSL canonical IS v0.64.6**
-(sha256 855bd7cc82c0f24f...) and the Windows extract
-`xiom.new-20261016-233955` (sha `0ff5c5c4...`) -- the C-ORBIT-12 re-verify +
-the 08A/09/11 bundles are GREEN x2 on them (2026-10-16; the full adoption
-battery still runs at the pin swap). **XIOM_RUNTIME_DIR is RETIRED** (the
+TOOLCHAIN (latest-tracking; owner directive 2026-10-17: ALWAYS use the
+latest RELEASED stdlib/packages): **v0.64.6 IS ADOPTED (2026-10-17)** --
+`dev-env.*` pins the Windows official extract
+`%LOCALAPPDATA%\xiom.new-20261016-233955` (`xiom.exe` sha256
+`0ff5c5c471498d8c...`) and resolves the WSL canonical (sha256
+`855bd7cc82c0f24f...`). **stdlib default = the compiler-bundled RELEASE
+v0.64.6** (waves 155-171; registry `xiom-std 0.64.6` published, sha
+`7ba3b09a`) -- the stdlib lane checkout is OPT-IN early-warning only
+(export XIOM_STDLIB before dot-sourcing; never edit that tree; it was
+diverged/WIP as of 2026-10-17). **XIOM_RUNTIME_DIR is RETIRED** (the
 re-vendored
 stdlib carries wave 139); dev-env.* actively unsets any inherited override
--- the stock pin is authoritative. WATCH for the NEXT archive. Benchmark
+-- the released pin is authoritative. WATCH for the NEXT archive. Benchmark
 twin note: `BENCH_STOCK_STDLIB=1` selects the stock pin for WSL bench runs
 (kept as the stock-baseline option for rows comparable with the captured
 numbers; the Linux-compile WIP that made it REQUIRED is FIXED --

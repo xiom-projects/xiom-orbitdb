@@ -19,6 +19,11 @@
 #   stdlib    $XIOM_STDLIB if set; else the WSL-mounted lane checkout
 #             /mnt/e/xiom-lang/stdlib when present; else the compiler's
 #             bundled lib/xiom tree (release-artifact behavior)
+#   OWNER DIRECTIVE 2026-10-17: ALWAYS use the latest RELEASED stdlib (that
+#   is where requested fixes land). The bundled release tree is the DEFAULT;
+#   the stdlib lane checkout is early-warning/WIP and opt-in only -- export
+#   XIOM_STDLIB=/mnt/e/xiom-lang/stdlib before sourcing to use it (never
+#   edit that tree).
 #   packages  <xiom_home>/packages (xiom pkg install; WSL layout ~/xiom)
 #
 # XIOM_RUNTIME_DIR: the 2026-10-13 lane-runtime override (M1.2 S4) is
@@ -41,15 +46,14 @@ if [ -z "${XIOM_COMPILER:-}" ]; then
 fi
 [ -n "${XIOM_COMPILER:-}" ] && export XIOM_COMPILER
 
-# --- stock runtime (v0.64.5 re-vendor carries wave 139) ---------------------
+# --- stock runtime (v0.64.6 re-vendor carries wave 139) ---------------------
 # The 2026-10-13 lane-runtime override is retired; never inherit a stale one.
 unset XIOM_RUNTIME_DIR
 
 # --- stdlib -----------------------------------------------------------------
-if [ -z "${XIOM_STDLIB:-}" ] && [ -d /mnt/e/xiom-lang/stdlib ]; then
-  # WSL on the development machine: use the same lane checkout as Windows.
-  XIOM_STDLIB=/mnt/e/xiom-lang/stdlib
-fi
+# RELEASE default: leave XIOM_STDLIB unset -> the compiler's bundled
+# release tree. An explicitly exported XIOM_STDLIB is an opt-in
+# early-warning run against the stdlib lane checkout -- keep it as-is.
 [ -n "${XIOM_STDLIB:-}" ] && export XIOM_STDLIB
 
 # --- report -----------------------------------------------------------------

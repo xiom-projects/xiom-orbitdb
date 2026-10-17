@@ -15,8 +15,16 @@
 #     time and is the owner/ops artifact -- left as-is. The canonical
 #     %LOCALAPPDATA%\xiom.new belongs to the fleet and is left untouched;
 #     canonical swaps are owner/ops-coordinated, this lane pins explicitly.)
-#   stdlib    E:\xiom-lang\stdlib (stdlib-lane checkout = latest lane work)
-#   packages  %LOCALAPPDATA%\xiom\packages (registry, signature-verified)
+#   stdlib    the compiler-bundled RELEASE (v0.64.6, stdlib waves 155-171;
+#             registry xiom-std 0.64.6 published). Owner directive
+#             2026-10-17: ALWAYS use the latest RELEASED stdlib (that is
+#             where requested fixes land) -- the lanes' checkout is
+#             early-warning/WIP and is opt-in only: set XIOM_STDLIB
+#             explicitly before dot-sourcing to run against
+#             E:\xiom-lang\stdlib (never edit that tree).
+#   packages  %LOCALAPPDATA%\xiom\packages (registry, signature-verified;
+#             latest published versions -- btree 0.1.1 / wal 0.1.0 /
+#             vectors 0.1.0 installed 2026-10-17)
 #
 # XIOM_RUNTIME_DIR: the 2026-10-13 lane-runtime override (M1.2 S4: waves
 # 115/117/118 durability/byte-IO primitives) is DROPPED as of 2026-10-15:
@@ -35,14 +43,15 @@
 $ErrorActionPreference = "Stop"
 
 $env:XIOM_COMPILER = Join-Path $env:LOCALAPPDATA "xiom.new-20261016-233955\bin\xiom.exe"
-$env:XIOM_STDLIB   = "E:\xiom-lang\stdlib"
-# Stock runtime (v0.64.5 re-vendor carries wave 139): never inherit a stale
+# RELEASE stdlib by default (bundled in the v0.64.6 archive). An explicit
+# XIOM_STDLIB inherited from the shell stays (opt-in early-warning runs
+# against the stdlib lane checkout) -- this script never forces it.
+# Stock runtime (v0.64.6 re-vendor carries wave 139): never inherit a stale
 # lane-runtime override from the surrounding shell.
 Remove-Item Env:XIOM_RUNTIME_DIR -ErrorAction SilentlyContinue
 
 $missing = @()
 if (-not (Test-Path -LiteralPath $env:XIOM_COMPILER)) { $missing += "XIOM_COMPILER ($env:XIOM_COMPILER)" }
-if (-not (Test-Path -LiteralPath $env:XIOM_STDLIB))   { $missing += "XIOM_STDLIB   ($env:XIOM_STDLIB)" }
 
 if ($missing.Count -gt 0) {
     Write-Warning "dev-env: missing toolchain paths:"
@@ -52,5 +61,5 @@ if ($missing.Count -gt 0) {
 
 $ver = (& $env:XIOM_COMPILER --version 2>&1 | Select-Object -First 1)
 Write-Host "dev-env: $ver"
-Write-Host "dev-env: XIOM_STDLIB = $env:XIOM_STDLIB"
+Write-Host ("dev-env: XIOM_STDLIB = " + $(if ($env:XIOM_STDLIB) { $env:XIOM_STDLIB + " (OPT-IN checkout)" } else { "<unset -> bundled RELEASE stdlib v0.64.6>" }))
 Write-Host "dev-env: XIOM_RUNTIME_DIR = <unset> (stock v0.64.6 runtime; override retired 2026-10-15)"
