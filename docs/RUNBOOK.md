@@ -187,7 +187,7 @@ scripts\run.ps1 tests\probes\probe_db_file.xi -TimeoutSec 180
   binding), but push() args, by-value call args, for-loop element bindings
   and whole-struct copies with Vec FIELDS still share. "Clone then mutate in
   place" code must build an owned copy explicitly (fresh vectors + push
-  loops; see `node_deep_copy` in `src/engine.xi` -- the M3 COW shadows
+  loops; see `node_deep_copy` in `src/index/btree.xi` -- the M3 COW shadows
   corrupted pinned views before it; it STAYS as the ownership guarantee).
 - **WAL size-polls must open with DELETE sharing on Windows/DrvFs:** the
   crash harness polls line counts while the writer publishes its truncate;

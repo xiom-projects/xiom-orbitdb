@@ -361,7 +361,10 @@ fn tuple2_push_value(out: &mut Vec[Int], v: TValue) {
 // module-qualified context. Residual `REL-20261017-1154-orbitdb` stays
 // open (re-test evidence appended); drop this workaround only when the
 // acceptance run returns 160/160 with the position tuple on a released
-// archive.
+// archive. Compiler-side update (relay REL-20261018-1650, 2026-10-18):
+// c6b3362ef registers unresolved tuple names on demand (two-module minimal
+// reproduced; their branch f779c23 runs our suite 160/160 with the natural
+// tuple) -- not in v0.64.7, so this stays until an archive carries it.
 pub fn tuple2_read_value(buf: &Vec[Int], at: Int) -> DbResult[TValue] {
   if at < 0 { return Err(DbError.Corruption); }
   if at >= buf.len() { return Err(DbError.Corruption); }

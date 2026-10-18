@@ -615,6 +615,15 @@ the `DbResult[TValue]` position workaround stays.
   with the exact evidence; the v0.64.6 + v0.64.7 check rows are corrected
   to PARTIAL. Acceptance = suite 160/160 WITH the position tuple on the
   next archive. The m336 fix covers the reduced shape only.
+- **UPDATE 2026-10-18 (relay `REL-20261018-1650-compiler`, received on the
+  doorbell; closed by the compiler lane):** the requested self-contained
+  extraction was no longer needed -- the compiler reproduced the residual
+  with a TWO-MODULE minimal (module-qualified alias + a consumer reading
+  `p.1`), the same shape our split now formalizes. Fix `c6b3362ef`
+  registers unresolved tuple names on demand; the compiler lane reports our
+  suite 160/160 with the natural position tuple restored on branch
+  `f779c23` (their tree). NOT in v0.64.7: the workaround stays here until an
+  archive carrying the fix is adopted, then re-run the acceptance.
 
 ## C-ORBIT-09 -- element assignment through a copied Vec handle writes through to the source (FIXED on v0.64.5 by m302; residual caveats documented)
 

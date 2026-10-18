@@ -25,11 +25,11 @@ The working core. Everything here is implemented and exercised through the publi
 | Flat-array B-tree (insert/search/delete) | [OK] | `index/btree.xi` |
 | B-tree delete borrow/merge hardening (churn-proven vs model) | [OK] (2026-10-08) | `index/btree.xi` |
 | Range queries, min/max, in-order traversal | [OK] | `index/btree.xi` |
-| Write-ahead log (append/replay/truncate/clear) | [OK] (in-memory) | `wal/wal.xi`, `wal/wal_record.xi` |
-| Crash recovery via WAL replay | [OK] (in-memory; file-backed `DBFile` replays the disk segment) | `engine.xi` `engine_recover`, `db_file_open` |
-| Query engine (AND filter, limit, offset) | [OK] | `query/query.xi` |
-| Engine coordinator (WAL-before-data) | [OK] | `engine.xi` |
-| Public `Database` facade | [OK] | `api/database.xi` |
+| Write-ahead log (append/replay/truncate/clear) | [OK] (in-memory) | `engine/core.xi` |
+| Crash recovery via WAL replay | [OK] (in-memory; file-backed `DBFile` replays the disk segment) | `engine/core.xi` `engine_recover`; `engine.xi` `db_file_open` |
+| Query engine (AND filter, limit, offset) | [OK] | `engine/core.xi` |
+| Engine coordinator (WAL-before-data) | [OK] | `engine/core.xi` |
+| Public `Database` facade | [OK] | `engine.xi` |
 | Layered module structure | [OK] | whole `src/` tree |
 | Foundations (error/ids/config/contracts) | [OK] | `error.xi`, `ids.xi`, `config.xi`, `contracts.xi` |
 | Schema catalog + validation | [OK] | `catalog/schema.xi`, `catalog/schema_validator.xi` |
@@ -95,7 +95,7 @@ A relational front-end above the facade.
 
 | Item | Status | Plan |
 |------|--------|------|
-| SQL parser | [FAIL] | New `sql/` layer above `api/database.xi` |
+| SQL parser | [FAIL] | New `sql/` layer above `engine.xi` |
 | Typed values (beyond Int) | [FAIL] | Extend `storage/tuple.xi` + `catalog/schema.ColumnType` enforcement |
 | Column constraints (NOT NULL, defaults, types) | [FAIL] | Finish `TODO(Phase 4)` in `catalog/schema_validator.xi` |
 | Joins, aggregation, ordering | [FAIL] | Planner operators above `query/planner.xi` |

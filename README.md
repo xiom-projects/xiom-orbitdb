@@ -123,19 +123,23 @@ src/
 |-- catalog/
 |   |-- schema.xi                xiom.db.catalog.schema           -- Schema, ColumnDef, IndexDef
 |   `-- schema_validator.xi      xiom.db.catalog.schema_validator -- validation
-|-- wal/
-|   |-- wal_record.xi            xiom.db.wal.wal_record   -- WALEntry, WALOpType
-|   `-- wal.xi                   xiom.db.wal.wal          -- WAL, append/replay/truncate
+|-- wal/                          (tombstones: WAL buffer now in engine/core.xi)
+|   |-- wal_record.xi            xiom.db.wal.wal_record   -- merged into engine.core
+|   `-- wal.xi                   xiom.db.wal.wal          -- merged into engine.core
 |-- txn/
 |   `-- transaction.xi           xiom.db.txn.transaction  -- Transaction, TxState
 |-- index/
-|   `-- btree.xi                 xiom.db.index.btree      -- flat-array B-tree (canonical)
-|-- query/
-|   |-- query.xi                 xiom.db.query.query      -- Query builder + execution
-|   `-- planner.xi               xiom.db.query.planner    (scaffold, Phase 3)
-|-- engine.xi                    xiom.db.engine           -- internal coordinator
-`-- api/
-    `-- database.xi              xiom.db.api.database     -- public Database facade
+|   `-- btree.xi                 xiom.db.index.btree      -- flat-array B-tree, NodeStore, pins
+|-- query/                        (tombstones: query+planner now in engine/core.xi)
+|   |-- query.xi                 xiom.db.query.query      -- merged into engine.core
+|   `-- planner.xi               xiom.db.query.planner    -- merged into engine.core
+|-- engine/
+|   |-- core.xi                  xiom.db.engine.core      -- in-memory WAL/query/Engine + DBFile helpers
+|   |-- snapshot.xi              xiom.db.engine.snapshot  -- checkpoint codec + snapshot pins
+|   `-- txn.xi                   xiom.db.engine.txn       -- durable transaction window + savepoints
+|-- engine.xi                    xiom.db.engine           -- DBFile + file-backed public API (facade)
+`-- api/                          (tombstone: Database facade now in engine.xi)
+    `-- database.xi              xiom.db.api.database     -- merged into engine.xi
 ```
 
 ## API Reference

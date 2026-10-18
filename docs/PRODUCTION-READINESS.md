@@ -354,6 +354,16 @@ Scoreboard changelog:
   36.8k/s -- fsync-honest). **B 16.0 -> 18.0** (fsync second half +
   rename durability + O(1) healing; power-loss matrix on real hardware still
   pending): 75.5 -> **77.5**.
+- 2026-10-18 (R1 module split -- maintainability, no score change): the
+  3462-line consolidated `engine.xi` is now a facade over four modules
+  (`engine/core` in-memory WAL/query/legacy Engine + shared DBFile helpers,
+  `engine/snapshot` checkpoint codec + pins, `engine/txn` durable window +
+  savepoints, `index/btree` B-tree/NodeStore/COW pins). Cycle-import spike
+  proved `engine <-> engine.*` works; `pub use` re-exports keep the 0.2.x
+  consumer surface unchanged (suite + CLI + hybrid compile untouched).
+  Evidence: suite **160/160 x2 Win + x2 WSL**, db_crash **25/25 x2 both**,
+  probes x2 both, fuzz both, hybrid full 36 x2 both + crash 5/5 x2 both.
+  No score change (architecture/readiness gate unchanged).
 
 ## A. Correctness & data structures (20)
 

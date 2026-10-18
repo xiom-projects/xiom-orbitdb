@@ -1,15 +1,21 @@
 # ORBITDB Public API Reference
 
-> **Status:** current for the committed tree (compiler v0.64.2; all C-ORBIT
-> compiler workarounds reverted). Signatures are
+> **Status:** current for the committed tree (compiler v0.64.7; all C-ORBIT
+> compiler workarounds reverted except the documented C-ORBIT-12 position
+> tuple). Signatures are
 > the `pub` surface of the compiled modules; `requires:` contracts are noted
 > where they gate behavior. Error semantics: functions returning `DbResult[T]`
 > (`Result[T, DbError]`) never panic; `Option[Int]` means absence, and
 > `Bool`/`Int` returns encode success/failure (`-1` is the sentinel for
 > "rejected" on `Int`-returning checkpoint calls).
 
-Module map (compiled units): `xiom.db.engine` (B-tree, query, in-memory
-engine, `DBFile` -- the consolidated engine), `xiom.db.wal_file` (durable WAL
+Module map (compiled units): `xiom.db.engine` (the facade: `DBFile` + the
+file-backed public API, re-exporting the implementation modules below),
+`xiom.db.engine.core` (in-memory WAL/Query/planner, legacy `Engine`,
+shared DBFile helpers), `xiom.db.engine.snapshot` (v1/v2 checkpoint codec,
+compaction, snapshot pins), `xiom.db.engine.txn` (durable transaction window
++ savepoints), `xiom.db.index.btree` (B-tree, NodeStore, COW pins),
+`xiom.db.wal_file` (durable WAL
 segment), `xiom.db.storage.page` (page, checksum, buffer pool, storage
 engine), `xiom.db.storage.page_file` (durable page file + page log),
 `xiom.db.storage.block` (byte-page v2 codec, pure),
