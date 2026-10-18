@@ -9,7 +9,9 @@
 > docs/PRODUCTION-READINESS.md G1). Methodology adapted from the
 > `E:\repos\db-benchmarks` reference league (per-query CV discipline,
 > result-equality cross-checks, environment recording) with the embedded
-> adaptations recorded here.
+> adaptations recorded here. **2026-10-18: Windows R1-R3 recalibrated on the
+> ADOPTED v0.64.7 pin in a quiet-ish window (see section 4a); the 2026-10-16
+> tables stay as the first record.**
 
 ## 1. What is compared
 
@@ -18,7 +20,7 @@ time, fresh database per row:
 
 | Engine | Driver | Version (this run) |
 |---|---|---|
-| ORBITDB (Satellite engine) | `tests/probes/probe_ycsb.xi` (real engine, v2 container default, order 4) | engine tree @ v0.64.5-era (2026-10-16), compiler v0.64.5 |
+| ORBITDB (Satellite engine) | `tests/probes/probe_ycsb.xi` (real engine, v2 container default, order 4) | engine tree @ v0.64.7 pin (2026-10-18), compiler v0.64.7 |
 | SQLite | pinned CLI 3.54.0 (`%LOCALAPPDATA%\xiom-orbitdb-tools\sqlite\sqlite3.exe`; `~/.local/bin/sqlite3` on WSL), `journal_mode=WAL` | 3.54.0 (2026-10-09 build) |
 | bbolt | `bench/bbolt` (Go 1.24.5, `go.etcd.io/bbolt v1.4.3`) | bbolt v1.4.3 |
 
@@ -129,6 +131,58 @@ Windows: `bench-cross-20261016-145809.txt`. The 100-byte typed path is in
 the same league as bbolt's raw 100-byte values on this host; SQLite keeps
 its load/update asymmetry.
 
+### 4a. 2026-10-18 recalibration on the ADOPTED v0.64.7 pin (Windows)
+
+Window: CPU **43-45%** (desktop floor: qemu/docker/VS Code), **zero lane
+compiles**; one residual OS pathology: an unkillable stuck `lld-link`
+(PID 94980, created 2026-10-17 18:17, `Temp\kilo\min_test.exe`; taskkill
+reports "no running instance" yet it keeps burning ~1 core, ~6% of the
+machine). Treat these as the honest quiet-ish baseline; the 2026-10-16
+tables above remain the load-stressed first record. All verifies passed
+(9056 / 45263); typed/vals=8 rows as specified.
+
+R1 -- durable per-op (N=10000, batch=1, sync=1), log
+`bench-cross-20261018-183118.txt`:
+
+| phase | orbitdb | sqlite FULL | bbolt sync |
+|---|---:|---:|---:|
+| load | **947** | 1,737 | 709 |
+| read | 1,250,000 | 10,799 (CLI-bound) | 3,333,333 |
+| update | **866** | 61,350 | 803 |
+| scan | 100,000 | 3,448 (CLI-bound) | (sub-ms) |
+| delete | **784** | 822 | 926 |
+
+R2 -- durable group commit, batch=100 (N=50000), log
+`bench-cross-20261018-183233.txt`:
+
+| phase | orbitdb | sqlite FULL | bbolt sync |
+|---|---:|---:|---:|
+| load | **1,552** | 93,985 | 76,335 |
+| read | 769,230 | 192,308 (CLI-bound) | 1,724,137 |
+| update | **1,551** | 221,239 | 4,139 |
+| scan | 35,714 | 13,514 (CLI-bound) | 500,000 |
+| delete | **1,483** | 22,124 | 4,812 |
+
+R3 -- nosync per-op (N=50000), log `bench-cross-20261018-183425.txt`:
+
+| phase | orbitdb | sqlite OFF | bbolt NoSync |
+|---|---:|---:|---:|
+| load | **1,435** | 21,177 | 12,963 |
+| read | 568,181 | 161,812 (CLI-bound) | 1,041,666 |
+| update | **1,389** | 42,553 | 12,960 |
+| scan | 55,555 | 3,968 (CLI-bound) | 166,666 |
+| delete | **1,776** | 19,685 | 11,904 |
+
+vs the 2026-10-16 Windows baselines (load): **R1 611 -> 947 (+55%), R2
+885 -> 1,552 (+75%), R3 1,136 -> 1,435 (+26%)** -- the held-handle write
+path moving the intended rows, largest on group commit (R2) as predicted.
+
+A/B (interleaved old-vs-new WAL shape) re-run on this window: 5 rounds at
+N=3000 -- old/new ms 2701/2376, 2767/2156, 2764/2136, 4369/2030,
+2584/2133 -> **5/5 pairs favor the new shape, median ratio 1.28x**
+(earlier 10-pair record: 1.26x). Absolute numbers still read as
+"quiet-ish shared host", not a lab.
+
 ## 5. Findings (actionable)
 
 1. **Windows write path is syscall-bound, not fsync-bound.** ORBITDB
@@ -152,16 +206,17 @@ its load/update asymmetry.
    `probe_wal_ab.xi`, 10 interleaved old-vs-new pairs at N=2000 --
    **median old/new ratio 1.26x (mean 1.31x; min 1.04x, max 1.79x), 10/10
    pairs in favor** of the held-handle shape (interleaving makes the RATIO
-   load-robust; the absolute rows below still need a quiet host). The txn
-   fd path is not exercised by this probe -- its win (one open per
-   transaction) should be larger still. **Absolute BENCH-1 rows: PENDING A
-   QUIET HOST** (re-measure attempts at 16:29Z/18:29Z/20:29Z all saw CPU
-   >= 90% / WSL load 92-129; rescheduled). Re-run rows R1-R3 plus
-   `tests/probes/probe_wal_ab.xi` (env `ORBITDB_AB_N`/`ORBITDB_AB_ROUNDS`)
-   when the host is quiet.
-2. **Group commit semantics**: after finding 1's fix, re-measure R2 -- it
-   should move from ~885/s toward the fsync-amortized ceiling; the fd path
-   removes the per-record opens that dominated it. (Numbers pending.)
+   load-robust). The txn fd path is not exercised by this probe -- its win
+   (one open per transaction) should be larger still. **Absolute BENCH-1
+   rows: DONE 2026-10-18 on the adopted v0.64.7 pin** in the quiet-ish
+   window (section 4a): R1 load 611 -> 947 (+55%), R2 885 -> 1,552 (+75%),
+   R3 1,136 -> 1,435 (+26%); A/B re-run 5/5 pairs, median 1.28x.
+2. **Group commit semantics**: after finding 1's fix, R2 (batch=100) moved
+   885 -> 1,552/s (+75%, the largest of the three rows) on the v0.64.7
+   window -- the held-fd path removed the per-record opens that dominated
+   it. R2 load remains ~60x below SQLite's CLI batch (93,985/s): the
+   remaining gap is in-engine per-record cost (WAL encode + btree work),
+   the next perf target once the pager slice lands.
 3. **Reads/scans**: in-process engines are sub-microsecond per point read
    (orbitdb ~0.8-2.3us, bbolt ~0.3-1.5us); the SQLite CLI numbers are
    driver-bound and only meaningful as upper bounds.

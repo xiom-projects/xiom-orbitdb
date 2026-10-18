@@ -319,6 +319,25 @@ the v0.64.6 verdicts.
   /proc/loadavg read a phantom ~90 -- use ps/free, not loadavg). Wakeup
   armed to re-check quietness and run BENCH-1 R1-R3 + `probe_wal_ab` then;
   WSL rows after.
+**Updated:** 2026-10-18 (v0.64.7 ADOPTED + full battery GREEN + BENCH-1 rows
+  captured): lane pin re-pointed to v0.64.7 on BOTH platforms -- Windows
+  official extract `%LOCALAPPDATA%\xiom.new-20261018-1415` (zip sha
+  `16a436c4...`, SHA256SUMS-verified; exe sha `592aa125...`), WSL
+  lane-local install `~/.local/share/xiom-0.64.7` (tarball sha
+  `153f0cc9...`, bin sha `302d3192...`; the shared canonical stays v0.64.6
+  for ops). Battery on the new pin: suite 160/160 x2 Windows + x2 WSL;
+  db_crash 25/25 x2 (Win+WSL); probes mvcc/fault/io x2 both; fuzz seeds=4;
+  hybrid guard re-run GREEN (probe 36 checks + crash 5/5 x2 both; xvector
+  `72db35e`). **C-ORBIT-12 residual still RED on v0.64.7** (154/160 with
+  the position tuple; same warning) -- workaround stays; residue evidence
+  filed. **The absolute BENCH-1 rows are finally captured** (quiet-ish
+  window: floor 43-45%, zero lane compiles; one UNKILLABLE stuck lld-link
+  from 2026-10-17 burns ~1 core): R1 **947** (vs 611), R2 **1,552** (vs
+  885), R3 **1,435** (vs 1136) ops/s load; docs/BENCH-1.md section 4a +
+  raw logs `bench-cross-20261018-1831{18,233}` / `-183425.txt`; A/B 5/5
+  pairs, median **1.28x**. Next: R1/R2 split -> M1.1b pager; Station on
+  G-START. Lane heads: compiler v0.64.7, stdlib pin `stdlib-v0.64.7`
+  (`1271dd5`), relays `e043e71` (+ our `6abdace`); tree clean.
 **Updated:** 2026-10-18 (relay check + v0.64.7 re-verify):
   v0.64.7 shipped 2026-10-17T22:59Z (assets incl. linux-arm64; stdlib pin
   `stdlib-v0.64.7` tag `1271dd5`); downloaded the official windows-x64 zip
