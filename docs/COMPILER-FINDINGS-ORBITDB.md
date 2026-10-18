@@ -699,7 +699,7 @@ stays as interop testing design; co-composition is no longer blocked.
 
 1. Update `scripts/dev-env.ps1/.sh` pins (compiler path/version only; stdlib
    path is fixed to the lane checkout).
-2. Re-run: `scripts/run.ps1 tests/test_conformance.xi` (x2),
+2. Re-run: `scripts/suite.ps1` (x2; WSL: `scripts/suite.sh`),
    `scripts/crash_test.ps1 -Events 20` (x2) and the 200-record soak,
    `.sh` twins from WSL, then the repro bundles.
 3. A finding flips to RESOLVED only when its probe bundle is green

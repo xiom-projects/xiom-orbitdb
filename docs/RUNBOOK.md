@@ -24,7 +24,7 @@ WSL note: the default distro on this machine is `docker-desktop` (no bash);
 always target Ubuntu explicitly:
 
 ```bash
-wsl.exe -d Ubuntu bash -lc "cd /mnt/e/xiom-projects/xiom-orbitdb && scripts/run.sh tests/test_conformance.xi --timeout-sec 300"
+wsl.exe -d Ubuntu bash -lc "cd /mnt/e/xiom-projects/xiom-orbitdb && scripts/suite.sh --timeout-sec 300"
 ```
 
 Shell scripts and `.xi` files must stay LF; `.ps1` files are CRLF
@@ -34,7 +34,7 @@ Shell scripts and `.xi` files must stay LF; `.ps1` files are CRLF
 
 | Purpose | Command | Notes |
 |---------|---------|-------|
-| Conformance suite | `scripts/run.ps1 tests\test_conformance.xi -TimeoutSec 300` | 160 tests; expect `160/160` and exit 0. |
+| Conformance suite | `scripts\suite.ps1 -TimeoutSec 300` (WSL twin: `scripts/suite.sh --timeout-sec 300`) | 160 tests across 10 area files; each file runs twice; expect `160/160 passed x2` and exit 0. |
 | WAL crash harness | `scripts\crash_test.ps1 -Events 20 -TimeoutSec 90` | writer -> hard kill -> torn tail -> reopen -> verify -> heal -> verify+1. |
 | Page crash harness | `scripts\page_crash_test.ps1 -Pages 20 -TimeoutSec 120` | Use 120s: the writer's first compile can exceed 90s under load. |
 | DB crash harness | `scripts\db_crash_test.ps1 -Keys 20 -Tail 3 -Tx 5 -TimeoutSec 90` | Five scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn, committed txn); 25 checks. Prefix `ORBITDB_DB_FORMAT=v2` (env) to run the whole matrix with v2 byte-block snapshots (same 25 checks; GREEN x2 both platforms). |

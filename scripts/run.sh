@@ -7,7 +7,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 #
 # Usage:
-#   scripts/run.sh tests/test_conformance.xi
+#   scripts/run.sh tests/suite/foundations.xi
 #   scripts/run.sh tests/probes/probe_hello.xi --timeout-sec 300
 #
 # Exit code: the program's reported exit code (1 on compile failure,

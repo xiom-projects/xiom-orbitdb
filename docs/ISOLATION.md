@@ -76,7 +76,7 @@ in-process.
 
 ## Detectable vs undetectable (tests)
 
-`tests/test_conformance.xi` pins the behavior: the stale-handle test (two
+`tests/suite/dbfile.xi` (stale-handle test) + `tests/suite/typed_mvcc.xi` pin the behavior: the stale-handle test (two
 handles -> the second's `put`, `delete`, `txn_begin` and `checkpoint` are
 refused after the first writes; a fresh open works; the final reopen sees
 exactly the surviving keys) and the M3 tests (snapshot isolation, order-3
