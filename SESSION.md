@@ -319,6 +319,30 @@ the v0.64.6 verdicts.
   /proc/loadavg read a phantom ~90 -- use ps/free, not loadavg). Wakeup
   armed to re-check quietness and run BENCH-1 R1-R3 + `probe_wal_ab` then;
   WSL rows after.
+**Updated:** 2026-10-18 (relay check + v0.64.7 re-verify):
+  v0.64.7 shipped 2026-10-17T22:59Z (assets incl. linux-arm64; stdlib pin
+  `stdlib-v0.64.7` tag `1271dd5`); downloaded the official windows-x64 zip
+  (sha256 `16a436c4...`, verified vs SHA256SUMS) into a new ADDITIVE extract
+  `%LOCALAPPDATA%\xiom.new-20261018-1415` (exe sha `592aa125...`); WSL
+  canonical is still v0.64.6 and the lane pin is still v0.64.6 -- adoption
+  (pin re-point + full battery both platforms) is the next task. **C-ORBIT-12
+  residual re-tested: STILL RED on v0.64.7** -- minimal repros green, but
+  the larger-program position-tuple acceptance is 154/160 with the SAME 6
+  typed-value failures + the same twice-emitted `unknown type
+  'Tuple__TValue__Int'` warning; control 160/160 with the workaround. Filed
+  `REL-20261018-1416-orbitdb-2` (high) + updated the v0.64.7 check row;
+  workaround stays (tuple.xi comment now records the v0.64.7 evidence).
+  **Engine A09 v0 ack processed**: intended surface = open/close;
+  collection put/get/del + batch; prefix/range scan WITH CURSORS; atomic
+  batch; flush/sync + durability knob; stats/compaction; export/backup;
+  bytes+typed wrappers. Mapping reply filed
+  (`REL-20261018-1416-orbitdb`): open/put/get/del/typed/txn+savepoints/
+  flush+durability map today; DIFFERENCES flagged -- no explicit close
+  (flush+drop), no collections (key-prefix ranges today), NO cursors
+  (materialized range only; M1.1b-adjacent), minimal stats, backup =
+  checkpoint+copy recipe. They ack/flag early; collections/cursors are 0.3
+  candidates. Bus `6abdace`; doorbell re-armed (3h). Remaining P-rc inputs:
+  absolute BENCH rows + hardware power-loss matrix + M1.1b pager.
 **Updated:** 2026-10-18 (PAUSE -- owner away for the night, 21:34Z): the
   owner paused the session. BOTH recurring watches are STOPPED: the
   perf quiet-window retry chain (the 21:32Z retry already fired into the

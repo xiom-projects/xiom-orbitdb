@@ -351,15 +351,17 @@ fn tuple2_push_value(out: &mut Vec[Int], v: TValue) {
 // length is `tuple2_value_len(v)`, so callers advance by at +
 // tuple2_value_len(v).
 //
-// WORKAROUND, STILL REQUIRED: the `(TValue, Int)` position-tuple shape
-// emits `unknown type 'Tuple__TValue__Int' -- defaulting to i64` and
-// silently misdecodes inside larger programs (6 typed-value suite tests
-// failed when this was dropped, 154/160 on v0.64.6, 2026-10-17). The
-// minimal repro (`docs/repro/enum-tuple-codegen/repro_enum_tuple_enum_error.xi`)
-// is GREEN since m336 -- the fix covers the reduced shape, not this
-// module-qualified context. Residual filed on the bus; drop this
-// workaround only when the larger-program shape turns green on a released
-// archive (acceptance = suite returns 160/160 with the position tuple).
+// WORKAROUND, STILL REQUIRED (re-tested on v0.64.7, 2026-10-18): the
+// `(TValue, Int)` position-tuple shape emits `unknown type
+// 'Tuple__TValue__Int' -- defaulting to i64` and silently misdecodes
+// inside larger programs -- 154/160 with the SAME 6 typed-value failures
+// and the SAME warning on v0.64.6 AND v0.64.7. The minimal repro
+// (`docs/repro/enum-tuple-codegen/repro_enum_tuple_enum_error.xi`) is
+// GREEN since m336; the fix covers the reduced shape, not this
+// module-qualified context. Residual `REL-20261017-1154-orbitdb` stays
+// open (re-test evidence appended); drop this workaround only when the
+// acceptance run returns 160/160 with the position tuple on a released
+// archive.
 pub fn tuple2_read_value(buf: &Vec[Int], at: Int) -> DbResult[TValue] {
   if at < 0 { return Err(DbError.Corruption); }
   if at >= buf.len() { return Err(DbError.Corruption); }
