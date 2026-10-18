@@ -334,6 +334,40 @@ the v0.64.6 verdicts.
   (lane pin = v0.64.7 without the fix); at the next release adoption:
   merge `f779c23`, suite x2 both, close the item. Branch left in place.
   Relays head checked; no other lane items.
+**Updated:** 2026-10-18 (R1+R2 SPLIT SESSION -- module split + suite split
+  landed; battery green): **R1 module split DONE (owner directive).** The
+  cycle-import spike GREEN with the correct struct syntax (`pub type X =
+  { ... }`; multi-file `module` stays unsupported) -- cyclic modules AND
+  `pub use` re-exports both work, so the facade shape is safe. Move-only
+  split, one commit per step, suite 160/160 x2 Win+WSL after each:
+  `src/index/btree.xi` (`xiom.db.index.btree`: B-tree, NodeStore, COW pin
+  helpers), `src/engine/core.xi` (`xiom.db.engine.core`: in-memory
+  WAL/Query/planner, legacy `Engine`, shared DBFile helpers),
+  `src/engine/snapshot.xi` (`xiom.db.engine.snapshot`: v1/v2 checkpoint
+  codec, compaction, pins), `src/engine/txn.xi` (`xiom.db.engine.txn`:
+  `TxOp`, durable window, savepoints). `engine.xi` = `DBFile` + the
+  file-backed public API + `Database` facade, 3462 -> **677 lines**; the
+  four modules are re-exported with `pub use` so `use xiom.db.engine;` keeps
+  the 0.2.x surface -- **zero consumer changes** (`git diff` over tests/apps
+  empty; CLI builds unchanged). `package.xi` module list + ARCHITECTURE /
+  SPEC / README / API / deep-dive docs realigned (deliberate
+  engine<->engine.* cycle documented; tombstones noted). **R2 suite split
+  DONE.** `tests/test_conformance.xi` (5988 lines) -> `tests/suite/`: 10
+  area files (foundations 24, storage 21, wal_txn 13, schema_query 19,
+  btree 10, engine_database 13, tuple_codec 14, typed_mvcc 15, dbfile 23,
+  block_index 8) + `suite_common.xi` (pub helpers); summing x2 runners
+  `scripts/suite.ps1` / `suite.sh` (per-file P/T, identical rounds, exit
+  gate) -- **160/160 passed x2 across 10 files on BOTH platforms**; monolith
+  retired. **Battery on the final tree:** suite 160/160 x2 both; db_crash
+  **25/25 x2 Win + x2 WSL**; probes mvcc/fault/io x2 both; fuzz seeds=4
+  both; hybrid probe full 36 checks x2 both + hybrid crash 5/5 x2 both.
+  **Harness lesson:** the Windows and WSL crash harnesses share the fixed
+  `probe-logs/crash-dbfile*.wal` paths -- never run them concurrently (the
+  initial parallel run false-REDded; sequential runs are green). Doorbell
+  processed: compiler `REL-20261018-1650` (closed by them -- two-module
+  minimal reproduced C-ORBIT-12; fix `c6b3362ef`; our suite 160/160 on
+  their branch `f779c23`; not in v0.64.7, workaround stays). Next: M1.1b
+  pager (reference crawl first).
 **Updated:** 2026-10-18 (SESSION WRAP -- context budget; v0.64.7 adopted,
   BENCH matrix complete, R1/R2 spike partial): **Landed today:** v0.64.7
   adopted on BOTH platforms (Windows official zip sha `16a436c4...` verified
@@ -1771,7 +1805,13 @@ sha `592aa125...`, zip `16a436c4...` verified; WSL LANE-LOCAL
 shared canonical stays v0.64.6 for ops; stdlib = bundled RELEASE v0.64.7
 `stdlib-v0.64.7`/`1271dd5`). Battery on the pin: suite 160/160 x2 both,
 db_crash 25/25 x2, probes x2, fuzz; hybrid re-run GREEN (probe 36 + crash
-5/5 x2 both on xvector `72db35e`). Bundle verdicts x2 platforms:
+5/5 x2 both on xvector `72db35e`). **R1/R2 DONE 2026-10-18:** module split
+(`engine.xi` facade 677 lines + `index/btree` + `engine/{core,snapshot,txn}`,
+`pub use`-re-exported, zero consumer changes) and suite split
+(`tests/suite/` 10 area files + `suite_common`; `scripts/suite.ps1` /
+`suite.sh` summing x2 runners) -- final-tree battery re-ran green: suite
+160/160 x2 both, db_crash 25/25 x2 both, probes x2 both, fuzz both, hybrid
+probe full 36 x2 both + crash 5/5 x2 both. Bundle verdicts x2 platforms:
 **C-ORBIT-08 A/B FIXED (08B masks RETIRED), C-ORBIT-09 FIXED (m302;
 residual caveats stay), C-ORBIT-11 FIXED (m298), row `-2` FIXED (m304),
 C-ORBIT-10 RETRACTED (rc=1 both); C-ORBIT-12 FIX VERIFIED on main
@@ -1867,19 +1907,18 @@ documented fallback + re-test on the next release/package publish.
    4a; full matrix both platforms: Windows load 947/1,552/1,435 vs
    611/885/1,136; A/B 5/5 median 1.28x; WSL R1-R4). Re-run at each pin
    move. Re-create the 3h relay doorbell (`cron_create`) -- session-scoped.
-3. **R1/R2 refactor (owner directive) -- IN PROGRESS (spike partial):**
-   - **multi-file `module` is NOT supported**: the compiler warns W001
-     ("module 'spike.multi' declared by 2 files ... using <first>") and
-     ignores the other file(s). The split must use SEPARATE modules.
-   - NEXT: (a) redo the **cycle spike** with the CORRECT struct syntax
-     (my `pub struct Ctx { x: Int; }` hit P001 "expected declaration,
-     found 'struct'" -- consult `xiom_xiom_cheatsheet` structs first);
-     (b) if cyclic imports work: move-only split into engine_core / btree
-     / snapshot+pins / txn, keeping public `DBFile` + API in `engine.xi`
-     (internals take `&mut DBFile`); if not: split only one-way leaf
-     modules (btree/snapshot/wal_file) first or expose primitives;
-     (c) suite x2 both at EVERY step, zero consumer changes; (d) then the
-     suite split + summing runner.
+3. **R1/R2 refactor (owner directive) -- DONE 2026-10-18.** R1: cycle
+   spike GREEN (struct syntax is `pub type X = { ... }`; multi-file
+   `module` remains unsupported), so engine<->engine.* cycles are safe.
+   Move-only split landed: `src/index/btree.xi`, `src/engine/core.xi`,
+   `src/engine/snapshot.xi`, `src/engine/txn.xi`, with `engine.xi` (677
+   lines) keeping `DBFile` + the file-backed API + `Database` and
+   `pub use`-re-exporting the four modules; zero consumer changes; suite
+   x2 both at every step. R2: `tests/test_conformance.xi` split into
+   `tests/suite/` (10 area files + `suite_common.xi`) with summing x2
+   runners `scripts/suite.ps1` / `scripts/suite.sh` -> 160/160 x2 both.
+   The old single-file suite and its run command are RETIRED (use
+   `scripts/suite.*`).
 4. **M1.1b pager** -- **reference crawl FIRST** (rows seeded in
    `docs/REFERENCE-MATRIX.md` sections 1.1-1.3: SQLite
    `pager.c`/`pcache.c`, redb `cached_file.rs`/`lru_cache.rs`/
