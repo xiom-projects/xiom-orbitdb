@@ -9,9 +9,9 @@
 > docs/PRODUCTION-READINESS.md G1). Methodology adapted from the
 > `E:\repos\db-benchmarks` reference league (per-query CV discipline,
 > result-equality cross-checks, environment recording) with the embedded
-> adaptations recorded here. **2026-10-18: Windows R1-R3 recalibrated on the
-> ADOPTED v0.64.7 pin in a quiet-ish window (see section 4a); the 2026-10-16
-> tables stay as the first record.**
+> adaptations recorded here. **2026-10-18: the full R1-R4 matrix is
+> recaptured on the ADOPTED v0.64.7 pin (Windows quiet-ish window + WSL);
+> see section 4a; the 2026-10-16 tables stay as the first record.**
 
 ## 1. What is compared
 
@@ -182,6 +182,35 @@ N=3000 -- old/new ms 2701/2376, 2767/2156, 2764/2136, 4369/2030,
 2584/2133 -> **5/5 pairs favor the new shape, median ratio 1.28x**
 (earlier 10-pair record: 1.26x). Absolute numbers still read as
 "quiet-ish shared host", not a lab.
+
+**WSL rows on the same v0.64.7 pin (2026-10-18).** The WSL harness runs
+over DrvFs (`/mnt/e`): the durable rows are fsync-bound by the
+shared-filesystem path, NOT by the engine -- R1 durable-per-op is 106/s
+vs Windows 947/s, while batch=100 (R2 7,225/s) and nosync (R3 23,126/s)
+show the same seam. Treat WSL durable absolutes as lower bounds.
+
+R1 WSL (N=10000, sync=1), `bench-cross-wsl-20261018-183908.txt`:
+orbitdb **106** load / 833,333 read / **107** update / 25,000 scan / 105
+delete; sqlite 202 / 208,333 / 73,529 / 5,000 / 87; bbolt 121 / 5,000,000
+/ 114 / (sub-ms) / 112.
+
+R2 WSL (N=50000, batch=100, sync=1), `bench-cross-wsl-20261018-185400.txt`:
+orbitdb **7,225** load / 416,666 read / **6,115** update / 38,461 scan /
+6,849 delete; sqlite 10,792 / 212,765 / 165,562 / 13,888 / 10,245; bbolt
+6,707 / 793,650 / 7,910 / 500,000 / 8,169. (Batch amortizes the DrvFs
+fsyncs: 106 -> 7,225.)
+
+R3 WSL (N=50000, sync=0), `bench-cross-wsl-20261018-184755.txt`:
+orbitdb **23,126** load / 442,477 read / **16,270** update / 29,411 scan /
+22,727 delete; sqlite 45,620 / 216,450 / 76,452 / 17,241 / 44,247; bbolt
+28,216 / 1,315,789 / 34,602 / 250,000 / 29,069. vs the 2026-10-16 WSL
+baseline (16,611 load / 12,987 update): **+39% / +25%** on v0.64.7.
+
+R4 WSL (N=10000, vals=100, point-only, sync=1),
+`bench-cross-wsl-20261018-185932.txt`: orbitdb typed **109** load /
+277,777 read / **84** update; sqlite 174 / 200,000 / 8,361; bbolt 103 /
+833,333 / 109 -- typed 100 B and bbolt raw 100 B are in the same league
+on this path.
 
 ## 5. Findings (actionable)
 
