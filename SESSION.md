@@ -319,6 +319,21 @@ the v0.64.6 verdicts.
   /proc/loadavg read a phantom ~90 -- use ps/free, not loadavg). Wakeup
   armed to re-check quietness and run BENCH-1 R1-R3 + `probe_wal_ab` then;
   WSL rows after.
+**Updated:** 2026-10-18 (C-ORBIT-12 residual FIX VERIFIED on main; drop
+  staged): the compiler lane fixed the module-qualified position-tuple
+  registration (`c6b3362ef`: on-demand `Tuple__*` registration in
+  llvm_type_for) and staged the workaround drop on branch
+  `fix/c-orbit-12-position-tuple` (`f779c23`: natural `(TValue, Int)` with
+  absolute next offsets). **Independent verify (our lane): suite 160/160 x2
+  with the position tuple on the main-tree RELEASE build**
+  (`E:\xiom-lang\xiom\target\release\xiom.exe` + main stdlib
+  `E:\xiom-lang\xiom\stdlib`) -- zero unknown-type warnings (previously
+  154/160 + two `Tuple__TValue__Int` warnings). Item
+  `REL-20261017-1154-orbitdb` moved fixed -> VERIFIED; it will be CLOSED
+  when the fix rides a released archive. **The workaround stays on main**
+  (lane pin = v0.64.7 without the fix); at the next release adoption:
+  merge `f779c23`, suite x2 both, close the item. Branch left in place.
+  Relays head checked; no other lane items.
 **Updated:** 2026-10-18 (SESSION WRAP -- context budget; v0.64.7 adopted,
   BENCH matrix complete, R1/R2 spike partial): **Landed today:** v0.64.7
   adopted on BOTH platforms (Windows official zip sha `16a436c4...` verified
@@ -1715,12 +1730,13 @@ the suite first): `enum-tuple-codegen` (C-ORBIT-08 A/B FIXED; **C-ORBIT-12
 PARTIAL -- m336 fixed only the MINIMAL repro (green x2 on v0.64.6
 2026-10-16); the LARGER-PROGRAM silent-mode shape is STILL RED on v0.64.6
 (position-tuple drop -> `unknown type 'Tuple__TValue__Int' -- defaulting
-to i64`; 6 typed-value suite tests fail, 154/160) -> **RE-TESTED on
-v0.64.7: STILL RED, identical (154/160, same warning; minimal repros
-green)** -> residual `REL-20261017-1154-orbitdb` stays open
-(`REL-20261018-1416-orbitdb-2` carries the v0.64.7 evidence); the
-`DbResult[TValue]` workaround STAYS; acceptance = suite 160/160 WITH the
-position tuple**),
+to i64`; 6 typed-value suite tests fail, 154/160) -> re-tested on v0.64.7
+(STILL RED) -> **FIX VERIFIED on main `c6b3362ef`: suite 160/160 x2 with
+the position tuple (main-tree release build), zero warnings; drop STAGED
+on branch `fix/c-orbit-12-position-tuple` (`f779c23`); item
+`REL-20261017-1154-orbitdb` = VERIFIED, closes when the fix ships in a
+released archive; the workaround STAYS on main until that release
+adoption**),
 `vec-copy-alias` (C-ORBIT-09 FIXED m302; re-checked green on v0.64.6;
 residual caveats documented -- `node_deep_copy` stays), `check-exit-code`
 (C-ORBIT-10 RETRACTED -- `--check` rc=1 both platforms; probes stay as
@@ -1758,12 +1774,13 @@ db_crash 25/25 x2, probes x2, fuzz; hybrid re-run GREEN (probe 36 + crash
 5/5 x2 both on xvector `72db35e`). Bundle verdicts x2 platforms:
 **C-ORBIT-08 A/B FIXED (08B masks RETIRED), C-ORBIT-09 FIXED (m302;
 residual caveats stay), C-ORBIT-11 FIXED (m298), row `-2` FIXED (m304),
-C-ORBIT-10 RETRACTED (rc=1 both); C-ORBIT-12 PARTIAL -- minimal repro
-green, LARGER-PROGRAM silent-mode STILL RED on v0.64.6 AND v0.64.7
-(154/160 with the position tuple; `unknown type 'Tuple__TValue__Int'`);
-residual `REL-20261017-1154-orbitdb` (evidence
-`REL-20261018-1416-orbitdb-2`); the `DbResult[TValue]` workaround STAYS**
-(`Result[(Enum, Int), Enum]`).
+C-ORBIT-10 RETRACTED (rc=1 both); C-ORBIT-12 FIX VERIFIED on main
+(`c6b3362ef`): 160/160 x2 with the natural position tuple on the main-tree
+release build (was 154/160 + warnings on v0.64.6/v0.64.7); drop STAGED on
+branch `fix/c-orbit-12-position-tuple` (`f779c23`), merges at the next
+release adoption; item `REL-20261017-1154-orbitdb` = verified /
+close-at-release; the `DbResult[TValue]` workaround STAYS on main for the
+v0.64.7 pin** (`Result[(Enum, Int), Enum]`).
 **BENCH-1 + the WAL held-handle perf slice LANDED 2026-10-16, ABSOLUTE
 ROWS CAPTURED 2026-10-18** (`f6a212b` + `21ea76a`; harness +
 docs/BENCH-1.md; byte-equivalence proven; **2026-10-18 quiet-ish window on
