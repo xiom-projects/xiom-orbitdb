@@ -334,6 +334,20 @@ the v0.64.6 verdicts.
   (lane pin = v0.64.7 without the fix); at the next release adoption:
   merge `f779c23`, suite x2 both, close the item. Branch left in place.
   Relays head checked; no other lane items.
+**Updated:** 2026-10-18 (PAUSE -- owner away for the night, 19:45Z): the
+  owner paused the session. The 3h relay doorbell cron is intentionally
+  STOPPED (session-scoped) -- re-create on resume with `cron_create`
+  `0 */3 * * *` (pull -> `view --lane orbitdb` -> process -> scoped
+  commit/push). **State at pause:** R1 module split + R2 suite split DONE
+  and committed; tree clean at `08d351c`; final-tree battery GREEN (suite
+  160/160 x2 both via `scripts/suite.*`, db_crash 25/25 x2 both, probes x2
+  both, fuzz both, hybrid probe full 36 x2 both + crash 5/5 x2 both).
+  Lane heads: compiler v0.64.7, stdlib `stdlib-v0.64.7` (`1271dd5`),
+  relays `4156410` (the last orbitdb item, `REL-20261018-1650`, was closed
+  by the compiler lane -- fix `c6b3362ef`, not yet in a release).
+  **Next on resume:** M1.1b pager (reference crawl first, REFERENCE-MATRIX
+  1.1-1.3), then Station on G-START; the hardware power-loss matrix
+  remains the other P-rc gate.
 **Updated:** 2026-10-18 (R1+R2 SPLIT SESSION -- module split + suite split
   landed; battery green): **R1 module split DONE (owner directive).** The
   cycle-import spike GREEN with the correct struct syntax (`pub type X =
