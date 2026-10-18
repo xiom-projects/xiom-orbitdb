@@ -33,6 +33,7 @@ package xiom_orbitdb {
     "xiom.db.engine",
     "xiom.db.engine.core",
     "xiom.db.engine.snapshot",
+    "xiom.db.engine.txn",
     "xiom.db.error",
     "xiom.db.ids",
     "xiom.db.index.btree",
