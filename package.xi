@@ -31,6 +31,7 @@ package xiom_orbitdb {
     "xiom.db.config",
     "xiom.db.contracts",
     "xiom.db.engine",
+    "xiom.db.engine.core",
     "xiom.db.error",
     "xiom.db.ids",
     "xiom.db.index.btree",
