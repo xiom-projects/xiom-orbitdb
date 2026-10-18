@@ -319,6 +319,36 @@ the v0.64.6 verdicts.
   /proc/loadavg read a phantom ~90 -- use ps/free, not loadavg). Wakeup
   armed to re-check quietness and run BENCH-1 R1-R3 + `probe_wal_ab` then;
   WSL rows after.
+**Updated:** 2026-10-18 (SESSION WRAP -- context budget; v0.64.7 adopted,
+  BENCH matrix complete, R1/R2 spike partial): **Landed today:** v0.64.7
+  adopted on BOTH platforms (Windows official zip sha `16a436c4...` verified
+  -> `xiom.new-20261018-1415` exe `592aa125...`; WSL lane-local tarball
+  `153f0cc9...` -> `~/.local/share/xiom-0.64.7` bin `302d3192...`; shared
+  canonical untouched); **full battery + hybrid guard GREEN** (suite 160/160
+  x2 both, crash 25/25 x2, probes x2, fuzz; hybrid probe 36 + crash 5/5 x2
+  both against xvector `72db35e`). **BENCH-1 absolute rows captured** (the
+  last P-rc measurement; quiet-ish window, floor 43-45%, one UNKILLABLE
+  stuck lld-link from 2026-10-17 burns a core): Windows load **947 / 1,552 /
+  1,435** vs 611/885/1,136 = **+55% / +75% / +26%**; **A/B 5/5 median
+  1.28x**; WSL R1 106 / R2 7,225 / R3 23,126 / R4 109 (DrvFs-fsync-bound);
+  full matrix + raw logs in `docs/BENCH-1.md` section 4a. **C-ORBIT-12
+  residual re-tested on v0.64.7: STILL RED** (154/160, same unknown-type
+  warning; minimal repros green) -> `REL-20261018-1416-orbitdb-2`, rows
+  updated, workaround stays. **Engine A09 v0 ack -> mapping reply filed**
+  (`REL-20261018-1416-orbitdb`): open/put/get/del/typed/txn/savepoints/
+  flush+durability map today; differences = explicit close, collections,
+  CURSORS, stats, one-call backup; collections/cursors are 0.3 candidates.
+  **R1/R2 spike (partial, context cut):** multi-file `module` NOT supported
+  (W001; second file ignored) -> the split must use SEPARATE modules; the
+  cycle spike hit P001 from wrong struct syntax -- next session must consult
+  `xiom_xiom_cheatsheet` (structs) and redo it before choosing the split
+  shape (cycle-capable: internals take `&mut DBFile` with public types in
+  engine.xi; else one-way leaf split first). Satellite stays LIVE (0.2.1,
+  eco-v0.1.196) + verified; xvector consumed it. Lane heads: compiler
+  v0.64.7, stdlib `stdlib-v0.64.7` (`1271dd5`), relays `e043e71` (+ ours
+  `6abdace`); tree clean at `52a70d7` + this wrap. Next: finish R1/R2 spike
+  -> move-only split; then M1.1b pager (matrix rows ready); Station on
+  G-START; power-loss matrix remains the other P-rc gate.
 **Updated:** 2026-10-18 (v0.64.7 ADOPTED + full battery GREEN + BENCH-1 rows
   captured): lane pin re-pointed to v0.64.7 on BOTH platforms -- Windows
   official extract `%LOCALAPPDATA%\xiom.new-20261018-1415` (zip sha
@@ -1648,17 +1678,16 @@ opt-in early-warning only; (3) after any version move re-run the battery
 (suite x2 both, crash, probes, fuzz) and relay reds.
 
 TOOLCHAIN (latest-tracking; owner directive 2026-10-17: ALWAYS use the
-latest RELEASED stdlib/packages): **v0.64.6 IS ADOPTED (2026-10-17)** --
+latest RELEASED stdlib/packages): **v0.64.7 IS ADOPTED (2026-10-18)** --
 `dev-env.*` pins the Windows official extract
-`%LOCALAPPDATA%\xiom.new-20261016-233955` (`xiom.exe` sha256
-`0ff5c5c471498d8c...`) and resolves the WSL canonical (sha256
-`855bd7cc82c0f24f...`). **stdlib default = the compiler-bundled RELEASE
-v0.64.6** (waves 155-171; registry `xiom-std 0.64.6` published, sha
-`7ba3b09a`) -- the stdlib lane checkout is OPT-IN early-warning only
-(export XIOM_STDLIB before dot-sourcing; never edit that tree; it was
-diverged/WIP as of 2026-10-17). **XIOM_RUNTIME_DIR is RETIRED** (the
-re-vendored
-stdlib carries wave 139); dev-env.* actively unsets any inherited override
+`%LOCALAPPDATA%\xiom.new-20261018-1415` (`xiom.exe` sha256
+`592aa1259fd03371...`; zip `16a436c4...` verified) and the WSL LANE-LOCAL
+install `~/.local/share/xiom-0.64.7` (bin sha `302d3192...`; tarball
+`153f0cc9...`); the shared canonical stays v0.64.6 until ops swaps it.
+**stdlib default = the compiler-bundled RELEASE v0.64.7** (`stdlib-v0.64.7`
+tag `1271dd5`) -- the stdlib lane checkout is OPT-IN early-warning only
+(export XIOM_STDLIB before dot-sourcing; never edit that tree). **XIOM_
+RUNTIME_DIR is RETIRED**; dev-env.* actively unsets any inherited override
 -- the released pin is authoritative. WATCH for the NEXT archive. Benchmark
 twin note: `BENCH_STOCK_STDLIB=1` selects the stock pin for WSL bench runs
 (kept as the stock-baseline option for rows comparable with the captured
@@ -1686,9 +1715,12 @@ the suite first): `enum-tuple-codegen` (C-ORBIT-08 A/B FIXED; **C-ORBIT-12
 PARTIAL -- m336 fixed only the MINIMAL repro (green x2 on v0.64.6
 2026-10-16); the LARGER-PROGRAM silent-mode shape is STILL RED on v0.64.6
 (position-tuple drop -> `unknown type 'Tuple__TValue__Int' -- defaulting
-to i64`; 6 typed-value suite tests fail, 154/160) -> residual
-`REL-20261017-1154-orbitdb`; the `DbResult[TValue]` workaround STAYS;
-acceptance at the next archive = suite 160/160 WITH the position tuple**),
+to i64`; 6 typed-value suite tests fail, 154/160) -> **RE-TESTED on
+v0.64.7: STILL RED, identical (154/160, same warning; minimal repros
+green)** -> residual `REL-20261017-1154-orbitdb` stays open
+(`REL-20261018-1416-orbitdb-2` carries the v0.64.7 evidence); the
+`DbResult[TValue]` workaround STAYS; acceptance = suite 160/160 WITH the
+position tuple**),
 `vec-copy-alias` (C-ORBIT-09 FIXED m302; re-checked green on v0.64.6;
 residual caveats documented -- `node_deep_copy` stays), `check-exit-code`
 (C-ORBIT-10 RETRACTED -- `--check` rc=1 both platforms; probes stay as
@@ -1698,9 +1730,10 @@ FIXED on v0.64.4 and need no re-run -- REL-20261010-1802-orbitdb.
 **v0.64.6 release-check `compiler-compiler-v0.64.6` verdicts: our
 C-ORBIT-12 row CORRECTED 2026-10-17 to PARTIAL (minimal green,
 larger-program RED; residual filed); the v0.64.7 row carries the same.**
-**v0.64.7: NOT cut yet** -- the stdlib dry-run is 955/956 and the tag is
-blocked on the m353 negative-Int `.hash()` residual (stdlib, 2026-10-17);
-our C-ORBIT-12 regression re-run + the row verdict wait for the archive.
+**v0.64.7 RELEASED 2026-10-17T22:59Z (linux-arm64 live) and ADOPTED
+2026-10-18** -- battery + hybrid guard green; the C-ORBIT-12 regression
+re-run is DONE (still red, see above); the v0.64.7 check row carries the
+verdict. (The stdlib m353 tag block was cleared by the r2 re-gate.)
 Engine integration intent + the packages standing registry pipeline acked
 (see the wrap entry + `docs/checklists/two-tier.md`). **Compiler batch plan
 `REL-20261011-1342-compiler`: batches 1+3 satisfied and closed.** PULSE's
@@ -1715,25 +1748,28 @@ fast-forward to multiple branches" even when main matches origin -- verify
 with `git rev-parse main origin/main` and use `git merge --ff-only
 origin/main`.)
 
-CURRENT STATE: **v0.64.5 lane pin; v0.64.6 RELEASED + PRE-VERIFIED
-(2026-10-16); the XIOM_RUNTIME_DIR override is RETIRED** (lane pin: Windows
-shadow `xiom.new.0645` sha 02f08578...; **the WSL canonical is now v0.64.6**
-sha 855bd7cc...; the Windows extract `xiom.new-20261016-233955` sha
-0ff5c5c4... is local -- the pin swap is owner-coordinated). Bundle verdicts
-on the official artifacts,
-x2 platforms: **C-ORBIT-08 A/B FIXED (08B masks RETIRED), C-ORBIT-09 FIXED
-(m302; residual caveats stay), C-ORBIT-11 FIXED (m298), row `-2` FIXED
-(m304), C-ORBIT-10 RETRACTED (rc=1 both -- `xiom-dbg` was the rc=0
-artifact); C-ORBIT-12 PARTIAL -- m336 fixed the MINIMAL repro x2
-(2026-10-16), but the LARGER-PROGRAM silent-mode shape is STILL RED on
-v0.64.6 (154/160 with the position tuple; `unknown type
-'Tuple__TValue__Int'`); residual `REL-20261017-1154-orbitdb`; the
-`DbResult[TValue]` workaround STAYS** (`Result[(Enum, Int), Enum]`; bus
-`REL-20261015-2022-orbitdb`).
-**BENCH-1 + the WAL held-handle perf slice LANDED 2026-10-16** (`f6a212b`
-+ `21ea76a`; harness + docs/BENCH-1.md; suite/fault/io/crash x2 on BOTH
-platforms; WAL byte-equivalence proven; perf NUMBERS pending a quiet host
--- first clean A/B pair 1.6x new). **C-ORBIT-06/07 verified fixed +
+CURRENT STATE: **v0.64.7 lane pin (ADOPTED 2026-10-18); the XIOM_RUNTIME_DIR
+override is RETIRED** (Windows extract `%LOCALAPPDATA%\xiom.new-20261018-1415`
+sha `592aa125...`, zip `16a436c4...` verified; WSL LANE-LOCAL
+`~/.local/share/xiom-0.64.7` sha `302d3192...`, tarball `153f0cc9...`; the
+shared canonical stays v0.64.6 for ops; stdlib = bundled RELEASE v0.64.7
+`stdlib-v0.64.7`/`1271dd5`). Battery on the pin: suite 160/160 x2 both,
+db_crash 25/25 x2, probes x2, fuzz; hybrid re-run GREEN (probe 36 + crash
+5/5 x2 both on xvector `72db35e`). Bundle verdicts x2 platforms:
+**C-ORBIT-08 A/B FIXED (08B masks RETIRED), C-ORBIT-09 FIXED (m302;
+residual caveats stay), C-ORBIT-11 FIXED (m298), row `-2` FIXED (m304),
+C-ORBIT-10 RETRACTED (rc=1 both); C-ORBIT-12 PARTIAL -- minimal repro
+green, LARGER-PROGRAM silent-mode STILL RED on v0.64.6 AND v0.64.7
+(154/160 with the position tuple; `unknown type 'Tuple__TValue__Int'`);
+residual `REL-20261017-1154-orbitdb` (evidence
+`REL-20261018-1416-orbitdb-2`); the `DbResult[TValue]` workaround STAYS**
+(`Result[(Enum, Int), Enum]`).
+**BENCH-1 + the WAL held-handle perf slice LANDED 2026-10-16, ABSOLUTE
+ROWS CAPTURED 2026-10-18** (`f6a212b` + `21ea76a`; harness +
+docs/BENCH-1.md; byte-equivalence proven; **2026-10-18 quiet-ish window on
+v0.64.7: Windows load R1 947 / R2 1,552 / R3 1,435 vs 611/885/1,136 =
++55%/+75%/+26%; A/B 5/5 median 1.28x; WSL R1 106 / R2 7,225 / R3 23,126 /
+R4 109 (DrvFs-fsync-bound); section 4a**). **C-ORBIT-06/07 verified fixed +
 closed; probe_arm reverted.** **M1.2 S4 + M2.1 second half LANDED 2026-10-13**
 (real byte-IO + fsync + rename durability + O(1) heal; **v2 byte container
 is the DEFAULT** -- `db_file_open` writes v2, v1 pinned via
@@ -1749,11 +1785,11 @@ followed by qverify (25 checks);
 GREEN x2 both; fuzz (`scripts/fuzz.{ps1,sh}`, seeds=4 ops/seed=4000, sections
 a-l) x2 both; policy soak 2000 keys / 9 checkpoints x2 both; bench fresh
 under shared-machine load (Win wal_append 1.7k/s, WSL 33.8k/s; insert
-513k/333k ops/s); hybrid ORBITDB <->
-XVECTOR probe (36 checks) + `scripts/hybrid_crash_test.{ps1,sh}` x2 both --
-**DEFERRED 2026-10-16: xvector's WIP (HEAD 99f879f) moved
-`xiom.vector.types.*` -- probe full fails `unresolved import`; re-run when
-their tree settles (last green = their HEAD `200cbc7`);** **M3.1 snapshot
+ 513k/333k ops/s); hybrid ORBITDB <->
+XVECTOR probe (36 checks) + `scripts/hybrid_crash_test.{ps1,sh}` --
+**GREEN 2026-10-18 on xvector's settled `72db35e`: probe full x2 WSL + x1
+Win, crash 5/5 x2 Win + x1 WSL; harness lockstep (xiom.http 0.1.8,
+`xiom.vectors` package types);** **M3.1 snapshot
 pins + savepoints DONE 2026-10-11** (`docs/MVCC.md`); M5
 typed values END-TO-END DONE 2026-10-11 (codec -> schema -> engine ->
 typed predicates; CLI putrow/getrow/qrow); xiom.btree 0.1.1 two-way
@@ -1803,27 +1839,30 @@ REFERENCE PROTOCOL (owner 2026-10-17, non-negotiable -- see
 XIOM -- never design from memory, never settle for an MVP. Missing
 stdlib/packages capability or a compiler defect -> relay (wishlist/bug) +
 documented fallback + re-test on the next release/package publish.
-1. **v0.64.6 ADOPTION -- DONE 2026-10-17** (pin re-pointed: Windows
-   `xiom.new-20261016-233955` sha `0ff5c5c4...`; WSL canonical sha
-   `855bd7cc...`; suite 160/160 x2 both, db_crash 25/25 x2, probes +
-   fuzz green). **C-ORBIT-12 verdict CORRECTED:** the position-tuple
-   workaround-drop attempt fails in the larger program (silent
-   `Tuple__TValue__Int` -> i64; 154/160) even though the minimal repro is
-   green -- the workaround STAYS and the residual is filed
-   `REL-20261017-1154-orbitdb` (high; v0.64.6 + v0.64.7 check rows
-   corrected). Re-test at the next archive with the position tuple;
-   acceptance = suite 160/160 (suite+fuzz).
-2. **Perf absolute rows -- fold into the same battery (post-adoption pin)**:
-   BENCH-1 R1-R3 + `probe_wal_ab.xi` full rounds; update `docs/BENCH-1.md`
-   R1-R3 tables + findings 1/2 (the RELATIVE A/B already landed: median
-   1.26x, 10/10 pairs). Quietness: use `ps`/`free` on WSL (its loadavg
-   reads phantom ~90); Win CPU via Get-CimInstance. Re-create the 3h
-   relay doorbell (`cron_create`) -- session-scoped state.
-3. **R1/R2 refactor (owner directive)**: spike multi-file `module`
-   support; if yes, move-only engine split (engine_core / btree /
-   snapshot+pins / txn / db) with suite x2 both at every step, zero
-   consumer changes; then the suite split + summing runner. (Structural
-   refactor -- no external mechanic to convert; reference matrix N/A.)
+1. **v0.64.7 ADOPTION -- DONE 2026-10-18** (both platforms: Windows
+   `xiom.new-20261018-1415` sha `592aa125...`; WSL lane-local
+   `~/.local/share/xiom-0.64.7` sha `302d3192...`; suite 160/160 x2 both,
+   db_crash 25/25 x2, probes x2, fuzz, hybrid green). **C-ORBIT-12
+   residual re-tested: STILL RED on v0.64.7** (154/160 with the position
+   tuple, same warning) -- workaround STAYS; residual
+   `REL-20261017-1154-orbitdb` open (evidence `-1416-orbitdb-2`).
+2. **BENCH-1 absolute rows -- DONE 2026-10-18** (docs/BENCH-1.md section
+   4a; full matrix both platforms: Windows load 947/1,552/1,435 vs
+   611/885/1,136; A/B 5/5 median 1.28x; WSL R1-R4). Re-run at each pin
+   move. Re-create the 3h relay doorbell (`cron_create`) -- session-scoped.
+3. **R1/R2 refactor (owner directive) -- IN PROGRESS (spike partial):**
+   - **multi-file `module` is NOT supported**: the compiler warns W001
+     ("module 'spike.multi' declared by 2 files ... using <first>") and
+     ignores the other file(s). The split must use SEPARATE modules.
+   - NEXT: (a) redo the **cycle spike** with the CORRECT struct syntax
+     (my `pub struct Ctx { x: Int; }` hit P001 "expected declaration,
+     found 'struct'" -- consult `xiom_xiom_cheatsheet` structs first);
+     (b) if cyclic imports work: move-only split into engine_core / btree
+     / snapshot+pins / txn, keeping public `DBFile` + API in `engine.xi`
+     (internals take `&mut DBFile`); if not: split only one-way leaf
+     modules (btree/snapshot/wal_file) first or expose primitives;
+     (c) suite x2 both at EVERY step, zero consumer changes; (d) then the
+     suite split + summing runner.
 4. **M1.1b pager** -- **reference crawl FIRST** (rows seeded in
    `docs/REFERENCE-MATRIX.md` sections 1.1-1.3: SQLite
    `pager.c`/`pcache.c`, redb `cached_file.rs`/`lru_cache.rs`/
