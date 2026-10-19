@@ -65,7 +65,9 @@ pinned, deferred-free hook. Still deferred:
 2. **Pager-backed versioned reads** (C3/M1.1b): lazy node load + a bounded
    cache turn pins into a disk-generation contract; the compaction refusal
    is already the guard that keeps a pinned generation resolvable from the
-   file.
+   file. **Status 2026-10-19:** v2 snapshots are lazily loaded through a
+   256-frame clock cache (dirty-frame spill at the uncommitted generation);
+   deferred free / version GC remains open (M1.1b A5).
 3. **Version GC**: allocatable-below-min-pin free list over the arena.
 4. **Threads**: the platform does not provide them yet; "concurrent" today
    means interleaved API use in one process, which the pins make safe.

@@ -334,6 +334,36 @@ the v0.64.6 verdicts.
   (lane pin = v0.64.7 without the fix); at the next release adoption:
   merge `f779c23`, suite x2 both, close the item. Branch left in place.
   Relays head checked; no other lane items.
+**Updated:** 2026-10-19 (M1.1b A1-A4 LANDED -- v2 pager live, battery
+  green): **`docs/checklists/m1-1b-pager.md` is the design of record.**
+  A1: all node reads route through `ns_get`. A2: node page codec moved to
+  `xiom.db.index.node_page`. A3: `NodeStore` gained a paged mode --
+  `slots[id] -> frame`, 256-frame clock cache, per-frame dirty/ref bits,
+  dirty-frame spill at `write_gen` (committed+1; own-writes-visible, a
+  reopen ignores it), `ns_get` lazy-decodes on miss, `ns_push/ns_set` own
+  growth; stats `[hits, misses, evictions, spills, corrupt, io]`. A4:
+  `snap_load_v2` validates every page then discards it and builds the paged
+  store; `snap_flush_v2` uses the store's OWNED `BlockStore` handle for
+  spills + checkpoint (single `block_count`); `v2_rewrite_all` rebinds the
+  pager after rename. v1 stays resident (auto-detect/migrate).
+  **Two defects found and fixed:** (1) eviction left the victim's old id
+  slot pointing at the reused frame -> wrong node at scale; the new pager
+  suite (1200-key lazy/eviction + 1400-key spill/checkpoint) caught it.
+  (2) **C-ORBIT-13**: `&mut` on a >=3-level nested field path silently
+  copies Int/nested-struct state (Vec writes still leak) -- this made the
+  paged checkpoint write at a stale `block_count` and drop the header
+  update. Repro/README in `docs/repro/nested-mut-path/`, filed
+  `REL-20261019-1209-orbitdb` (pushed, relays `4959cf1`); workaround =
+  local copy + write-back in `snap_flush_v2`. **Evidence:** suite
+  **162/162 x2 Win + x2 WSL** (new pager 2/2), db_crash 25/25 x2 both,
+  probes mvcc/fault/io x2 both, fuzz both, hybrid full 36 x2 both + crash
+  5/5 x2 both. Harness notes: run the crash/hybrid harnesses SEQUENTIALLY
+  and never while another invocation is alive (a timed-out WSL hybrid run
+  left a concurrent harness that false-REDded once; clean reruns 5/5 x2).
+  The Windows host crashed once under the long suite (pagefile
+  exhaustion); after the reboot the runs are green -- `wsl --shutdown`
+  before Windows-heavy batteries. **NEXT: A5 deferred free / version GC +
+  the 1M-key memory soak; then Station on G-START.**
 **Updated:** 2026-10-18 (PAUSE -- owner away for the night, 19:45Z): the
   owner paused the session. The 3h relay doorbell cron is intentionally
   STOPPED (session-scoped) -- re-create on resume with `cron_create`
@@ -1817,9 +1847,14 @@ override is RETIRED** (Windows extract `%LOCALAPPDATA%\xiom.new-20261018-1415`
 sha `592aa125...`, zip `16a436c4...` verified; WSL LANE-LOCAL
 `~/.local/share/xiom-0.64.7` sha `302d3192...`, tarball `153f0cc9...`; the
 shared canonical stays v0.64.6 for ops; stdlib = bundled RELEASE v0.64.7
-`stdlib-v0.64.7`/`1271dd5`). Battery on the pin: suite 160/160 x2 both,
+`stdlib-v0.64.7`/`1271dd5`). Battery on the pin: suite **162/162 x2 both**,
 db_crash 25/25 x2, probes x2, fuzz; hybrid re-run GREEN (probe 36 + crash
-5/5 x2 both on xvector `72db35e`). **R1/R2 DONE 2026-10-18:** module split
+5/5 x2 both on xvector `72db35e`). **M1.1b A1-A4 DONE 2026-10-19:** v2
+lazy load + 256-frame clock cache + dirty spill + owned-block-store
+checkpoint; `index/node_page`; pager suite 2/2; **C-ORBIT-13 open**
+(3-level `&mut` copies; relay `REL-20261019-1209-orbitdb`; local-copy
+workaround); A5 deferred free + 1M-key soak NEXT. **R1/R2 DONE
+2026-10-18:** module split
 (`engine.xi` facade 677 lines + `index/btree` + `engine/{core,snapshot,txn}`,
 `pub use`-re-exported, zero consumer changes) and suite split
 (`tests/suite/` 10 area files + `suite_common`; `scripts/suite.ps1` /
@@ -1930,17 +1965,22 @@ documented fallback + re-test on the next release/package publish.
    `pub use`-re-exporting the four modules; zero consumer changes; suite
    x2 both at every step. R2: `tests/test_conformance.xi` split into
    `tests/suite/` (10 area files + `suite_common.xi`) with summing x2
-   runners `scripts/suite.ps1` / `scripts/suite.sh` -> 160/160 x2 both.
+   runners `scripts/suite.ps1` / `scripts/suite.sh` -> 160/160 x2 both (now 162 with pager).
    The old single-file suite and its run command are RETIRED (use
    `scripts/suite.*`).
-4. **M1.1b pager** -- **reference crawl FIRST** (rows seeded in
-   `docs/REFERENCE-MATRIX.md` sections 1.1-1.3: SQLite
-   `pager.c`/`pcache.c`, redb `cached_file.rs`/`lru_cache.rs`/
-   `page_manager.rs`, bbolt `internal/freelist`): extend the rows, then
-   convert to lazy node load + bounded cache + deferred-free allocator over
-   `read_at`/`write_at` -- the last big architectural piece; feeds on M3's
-   `db_file_min_pinned_lsn` AND is the keystone of the two-tier plan
-   (`docs/TWO-TIER-ARCHITECTURE.md`).
+4. **M1.1b pager -- A1-A4 DONE 2026-10-19; A5 NEXT.** Reference rows
+   1.1-1.3 re-crawled with verified line numbers; design/checklist in
+   `docs/checklists/m1-1b-pager.md`. Landed: lazy v2 node load (validate
+   then discard), 256-frame clock cache (`slots`/`frames`), dirty-frame
+   spill at the uncommitted generation, checkpoint via the store's owned
+   `BlockStore`, `index/node_page` codec module, pager suite (1200-key
+   lazy/eviction + 1400-key spill/checkpoint). **A5 = deferred free /
+   version GC** (pending-free + live set + compaction skip/renumber; pin
+   epochs) and the **1M-key memory soak**; then the BENCH-1 memory row.
+   **C-ORBIT-13 open** (`REL-20261019-1209-orbitdb`): 3-level `&mut` path
+   copies; workaround (local copy + write-back) stays until a release
+   carries the fix; re-run `docs/repro/nested-mut-path/repro.xi` + suite
+   on the next archive. v1 snapshots remain resident (auto-detect).
 5. **Station track (PLANNED, GATED -- `docs/checklists/two-tier.md`)**:
    satellite = today's release path; station (`station/`, ORBITWIRE v1,
    sessions, replication via WAL shipping, range sharding) may start only

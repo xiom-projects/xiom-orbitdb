@@ -3,6 +3,8 @@
 # M1.1b -- pager: lazy node load + bounded cache + deferred free
 
 > Design of record for the storage-spine slice (task order #4; G-START gate).
+> **Status 2026-10-19: A1-A4 DONE and green on both platforms; A5
+> (deferred free) + the A6 soak/BENCH note remain open.**
 > References: `docs/REFERENCE-MATRIX.md` sections 1.1-1.3 (re-crawled
 > 2026-10-19). Implementation: `src/index/btree.xi` (NodeStore) +
 > `src/engine/snapshot.xi` (v2 container integration). Evidence rules: suite
@@ -176,10 +178,10 @@ flowchart TD
   x2; keys 1..8 survive the second checkpoint/reopen. **C-ORBIT-13:**
   &mut tree.store.bs (3-level path) copies -- use a local + write-back
   (workaround landed). WSL suite + db_crash pending.
-- [ ] **A5 -- deferred free.** Retire points + `ns_release_pending` + pin
+- [ ] **A5 -- deferred free (NEXT).** Retire points + `ns_release_pending` + pin
   epochs; probe asserts live count drops after checkpoint/compaction and
   snapshot reads stay exact. Suite x2 both + MVCC probe x2.
-- [ ] **A6 -- evidence + docs.** probe_pager + suite pager coverage; update
+- [~] **A6 -- evidence + docs.** (battery green; BENCH-1/soak note pending) probe_pager + suite pager coverage; update
   ARCHITECTURE (NodeStore contract), MVCC (pin epochs), READINESS changelog;
   BENCH-1 memory note (bounded cache) and a soak at the wrap. Suite x2 both,
   crash x2 both, fuzz, hybrid guard.

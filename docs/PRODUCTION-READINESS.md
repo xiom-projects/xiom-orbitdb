@@ -364,6 +364,18 @@ Scoreboard changelog:
   Evidence: suite **160/160 x2 Win + x2 WSL**, db_crash **25/25 x2 both**,
   probes x2 both, fuzz both, hybrid full 36 x2 both + crash 5/5 x2 both.
   No score change (architecture/readiness gate unchanged).
+- 2026-10-19 (M1.1b A1-A4 -- v2 pager: lazy load + bounded cache, no score
+  change yet): v2 snapshots no longer decode the whole tree at open;
+  `NodeStore` is paged (node id -> cache frame, 256-frame clock, dirty
+  spill at the uncommitted generation) and the checkpoint uses the store's
+  owned block-store handle. v1 stays resident (auto-detected/migrated).
+  New `index/node_page` codec module; new pager suite (1200-key lazy +
+  eviction, 1400-key spill + checkpoint). Evidence: suite **162/162 x2 Win
+  + x2 WSL**, db_crash 25/25 x2 both, probes x2 both, fuzz both, hybrid
+  full 36 x2 both + crash 5/5 x2 both. **C-ORBIT-13** found and worked
+  around (3-level `&mut` path copies; filed `REL-20261019-1209-orbitdb`).
+  A5 row stays WIP: deferred free/version GC (A5) and the 1M-key memory
+  soak are still open.
 
 ## A. Correctness & data structures (20)
 
@@ -373,7 +385,7 @@ Scoreboard changelog:
 | A2 | B-tree delete borrow/merge invariants (all key counts valid, uniform leaf depth) | 4 | OK | `probe_btree_churn` structural validator; 20k ops x orders 3/4/5/6 + seed matrix (order-3 empty-chain regime fixed 2026-10-10: predecessor/successor OOB, fill_child merge, min/max; reproducer order 3 / keyspace 16 / seed 777) |
 | A3 | Byte-packed tuple codec with strict decode + budget | 4 | OK | `probe_tuple_codec` KAT/extremes/rejects; suite 99/99 |
 | A4 | Free-space map hardening (best-fit, invariants, model soak) | 4 | OK | `probe_fsm` (use/release/find vs model, invariant checks, 50k ops x 256 pages) + suite best-fit/clamp tests |
-| A5 | Node-per-page B-tree | 4 | WIP | durable node pages + incremental generation-committed flush (snapshot path); live tree still fully resident -- paged/evicting access needs the pager seam |
+| A5 | Node-per-page B-tree | 4 | WIP | durable node pages + incremental generation-committed flush; **v2 pager (M1.1b A1-A4, 2026-10-19)**: lazy load + 256-frame clock cache + dirty spill, suite pager 2/2. Open: deferred free/version GC + 1M-key memory soak |
 | | *Partial credit:* CRC32C integrity aids A3/A5 | +0 | -- | counted in B |
 
 ## B. Durability & crash safety (20)

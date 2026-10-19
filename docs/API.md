@@ -14,7 +14,7 @@ file-backed public API, re-exporting the implementation modules below),
 `xiom.db.engine.core` (in-memory WAL/Query/planner, legacy `Engine`,
 shared DBFile helpers), `xiom.db.engine.snapshot` (v1/v2 checkpoint codec,
 compaction, snapshot pins), `xiom.db.engine.txn` (durable transaction window
-+ savepoints), `xiom.db.index.btree` (B-tree, NodeStore, COW pins),
++ savepoints), `xiom.db.index.btree` (B-tree, NodeStore, COW pins, v2 pager cache), `xiom.db.index.node_page` (node page codec),
 `xiom.db.wal_file` (durable WAL
 segment), `xiom.db.storage.page` (page, checksum, buffer pool, storage
 engine), `xiom.db.storage.page_file` (durable page file + page log),

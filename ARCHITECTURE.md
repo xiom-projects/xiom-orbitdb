@@ -39,7 +39,8 @@ src/
 |   `-- transaction.xi       xiom.db.txn.transaction  Transaction, TxState, WALOp
 |
 |-- index/
-|   `-- btree.xi             xiom.db.index.btree      Flat-array B-tree, NodeStore, COW pins
+|   |-- btree.xi             xiom.db.index.btree      Flat-array B-tree, NodeStore, COW pins, v2 pager cache
+|   `-- node_page.xi         xiom.db.index.node_page  B-tree node page codec (v1/v2)
 |
 |-- engine/
 |   |-- core.xi              xiom.db.engine.core      in-memory WAL/Query/planner + legacy Engine,
@@ -78,7 +79,7 @@ Ownership answers "who is allowed to mutate this state?" -- the single most impo
 | **Row/tuple encoding** | `storage/tuple.xi` | Sole owner of the on-wire byte layout via `tuple_encode` / `tuple_decode`. |
 | **Schema / catalog** | `catalog/schema.xi` | Immutable metadata; `schema_validator.xi` is the only validator. |
 | **WAL buffer** | `engine/core.xi` (`WAL`) | Append-only. Only the engine appends; replay reads. No other module edits `entries`. |
-| **B-tree nodes** | `index/btree.xi` (`BTree.nodes`) | All structural mutation (split/merge/borrow) is private to this module. |
+| **B-tree nodes** | `index/btree.xi` (`NodeStore`) | All structural mutation (split/merge/borrow) is private to this module. v2 node bodies live in the bounded `NodeStore.frames` cache (`slots` id -> frame); `ns_get`/`ns_set`/`ns_push` own load, spill and dirty tracking. |
 | **Transactions** | `engine/txn.xi` (durable window) + `txn/transaction.xi` (state machine type) | State transitions occur only through `commit` / `abort` / `add_op`; the durable window buffers through `db_file_txn_*`. |
 | **Timestamps / write ordering** | `engine/core.xi` (legacy `Engine`) + `engine.xi` (`DBFile`) | The engine is the sole issuer of monotonic timestamps and the sole enforcer of WAL-before-data. |
 | **Open/closed lifecycle** | `engine.xi` (`Database` facade) | The facade owns the `open` flag; a closed DB rejects all operations. |
