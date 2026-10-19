@@ -2,9 +2,10 @@
 // a COPY for Int and nested-struct fields (Vec element writes still leak
 // through the shared buffer). Two-level paths work.
 //
-// Compiler: v0.64.7. Expected: both cases print the bumped values and PASS.
-// Observed: the two-level control PASSes; the three-level case prints
-// n=1 g=0 v=1 and FAILs (only the Vec element write survived).
+// Compiler: v0.64.8 (fixed) / v0.64.7 (defect). Expected on v0.64.8: all
+// three cases PASS. Observed on v0.64.7: the two-level control PASSes, the
+// three-level case prints n=1 g=0 v=1 and FAILs (only the Vec write
+// survived). This file is the regression probe for C-ORBIT-13.
 //
 // Impact: ORBITDB M1.1b pager spills/commits via `&mut tree.store.bs`
 // (3 levels) wrote blocks at a stale block_count and dropped the header
@@ -78,6 +79,6 @@ fn main() -> Int {
     && fixed.store.bs.v[0] == 1;
   if fixed_ok { io.println("workaround: PASS"); } else { io.println("workaround: FAIL"); }
 
-  if two_ok && !three_ok && fixed_ok { return 0; }
+  if two_ok && three_ok && fixed_ok { return 0; }
   return 1;
 }

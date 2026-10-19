@@ -22,6 +22,7 @@ fn run_pager_lazy_bounded() -> Int {
   let path = "orbitdb-suite-pager-bounded.wal";
   pager_cleanup(path);
   var db = db_file_open_cfg(path, 4, 2);
+  let _ = db_file_set_durability(&mut db, 0);
   var i = 1;
   while i <= 1200 {
     if !db_file_put(&mut db, i, i * 10) { return 1; }
@@ -29,6 +30,7 @@ fn run_pager_lazy_bounded() -> Int {
   }
   if db_file_checkpoint(&mut db) < 0 { return 2; }
   var db2 = db_file_open(path, 4);
+  let _ = db_file_set_durability(&mut db2, 0);
   if !db2.tree.store.paged { return 3; }
   if db2.tree.store.frames.len() != 256 { return 4; }
   // Nothing is decoded at open: the first search must miss.
@@ -65,6 +67,7 @@ fn run_pager_dirty_spill_checkpoint() -> Int {
   let path = "orbitdb-suite-pager-spill.wal";
   pager_cleanup(path);
   var db = db_file_open_cfg(path, 4, 2);
+  let _ = db_file_set_durability(&mut db, 0);
   var i = 1;
   while i <= 1200 {
     if !db_file_put(&mut db, i, i * 10) { return 1; }
@@ -78,6 +81,7 @@ fn run_pager_dirty_spill_checkpoint() -> Int {
     i = i + 1;
   }
   var db2 = db_file_open(path, 4);
+  let _ = db_file_set_durability(&mut db2, 0);
   if db_file_size(&db2) != 1400 { return 4; }
   // Force cache churn so replay-dirtied nodes spill at the write generation.
   var j = 1;
@@ -91,6 +95,7 @@ fn run_pager_dirty_spill_checkpoint() -> Int {
   if !db_file_put(&mut db2, 1401, 14010) { return 7; }
   if db_file_checkpoint(&mut db2) < 0 { return 8; }
   var db3 = db_file_open(path, 4);
+  let _ = db_file_set_durability(&mut db3, 0);
   if db_file_size(&db3) != 1401 { return 9; }
   j = 1;
   while j <= 1401 {
@@ -119,6 +124,7 @@ fn run_pager_gc_compaction() -> Int {
   let path = "orbitdb-suite-pager-gc.wal";
   pager_cleanup(path);
   var db0 = db_file_open_cfg(path, 4, 2);
+  let _ = db_file_set_durability(&mut db0, 0);
   var i = 1;
   while i <= 200 {
     if !db_file_put(&mut db0, i, i * 10) { return 1; }
@@ -126,6 +132,7 @@ fn run_pager_gc_compaction() -> Int {
   }
   if db_file_checkpoint(&mut db0) < 0 { return 2; }
   var db = db_file_open(path, 4);
+  let _ = db_file_set_durability(&mut db, 0);
   if !db.tree.store.paged { return 3; }
   let s1 = db_file_snapshot_begin(&mut db);
   i = 2;
@@ -165,6 +172,7 @@ fn run_pager_gc_compaction() -> Int {
   if db_file_checkpoint(&mut db) < 0 { return 12; }
   if db.tree.store.count >= high_water { return 13; }
   var db2 = db_file_open(path, 4);
+  let _ = db_file_set_durability(&mut db2, 0);
   if db_file_size(&db2) != 220 { return 14; }
   match db_file_get(&db2, 2) {
     None => { return 15; }

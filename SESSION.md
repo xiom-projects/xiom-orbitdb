@@ -1892,19 +1892,18 @@ fast-forward to multiple branches" even when main matches origin -- verify
 with `git rev-parse main origin/main` and use `git merge --ff-only
 origin/main`.)
 
-CURRENT STATE: **v0.64.7 lane pin (ADOPTED 2026-10-18); the XIOM_RUNTIME_DIR
-override is RETIRED** (Windows extract `%LOCALAPPDATA%\xiom.new-20261018-1415`
-sha `592aa125...`, zip `16a436c4...` verified; WSL LANE-LOCAL
-`~/.local/share/xiom-0.64.7` sha `302d3192...`, tarball `153f0cc9...`; the
-shared canonical stays v0.64.6 for ops; stdlib = bundled RELEASE v0.64.7
-`stdlib-v0.64.7`/`1271dd5`). Battery on the pin: suite **162/162 x2 both**,
-db_crash 25/25 x2, probes x2, fuzz; hybrid re-run GREEN (probe 36 + crash
-5/5 x2 both on xvector `72db35e`). **M1.1b A1-A5 DONE 2026-10-19:** v2
+CURRENT STATE: **v0.64.8 lane pin (ADOPTED 2026-10-19); the XIOM_RUNTIME_DIR
+override is RETIRED** (Windows `%LOCALAPPDATA%\xiom-0.64.8` exe `ee3ee902...`,
+zip `c31d9c46...` verified; WSL LANE-LOCAL `~/.local/share/xiom-0.64.8`
+bin `7c5b3482...`, tarball `a8c003c0...`; stdlib = bundled RELEASE v0.64.8).
+Battery on the pin: suite **163/163 x2 Win + x2 WSL**, db_crash 25/25 x2
+both, probes x2 both, fuzz both; hybrid full 36 x2 both + crash 5/5 x2
+both (xvector `72db35e`). C-ORBIT-12 and C-ORBIT-13 are **FIXED + verified +
+CLOSED**; workarounds retired. **M1.1b A1-A5 DONE 2026-10-19:** v2
 lazy load + 256-frame clock cache + dirty spill + owned-block-store
 checkpoint + deferred-free GC compaction; `index/node_page`; pager suite
-3/3; **C-ORBIT-13 open** (3-level `&mut` copies; relay
-`REL-20261019-1209-orbitdb`; `ns_bs_*`/`btree_release_pending` helpers);
-A6 = 1M-key soak + BENCH memory row NEXT. **R1/R2 DONE
+3/3; A6 = 1M-key soak + BENCH memory row NEXT. **Owner-approved next
+track: Pulse web admin UI** (separate client, localhost). **R1/R2 DONE
 2026-10-18:** module split
 (`engine.xi` facade 677 lines + `index/btree` + `engine/{core,snapshot,txn}`,
 `pub use`-re-exported, zero consumer changes) and suite split
@@ -1996,13 +1995,18 @@ REFERENCE PROTOCOL (owner 2026-10-17, non-negotiable -- see
 XIOM -- never design from memory, never settle for an MVP. Missing
 stdlib/packages capability or a compiler defect -> relay (wishlist/bug) +
 documented fallback + re-test on the next release/package publish.
-1. **v0.64.7 ADOPTION -- DONE 2026-10-18** (both platforms: Windows
-   `xiom.new-20261018-1415` sha `592aa125...`; WSL lane-local
-   `~/.local/share/xiom-0.64.7` sha `302d3192...`; suite 160/160 x2 both,
-   db_crash 25/25 x2, probes x2, fuzz, hybrid green). **C-ORBIT-12
-   residual re-tested: STILL RED on v0.64.7** (154/160 with the position
-   tuple, same warning) -- workaround STAYS; residual
-   `REL-20261017-1154-orbitdb` open (evidence `-1416-orbitdb-2`).
+1. **v0.64.8 ADOPTION -- DONE 2026-10-19** (Windows
+   `%LOCALAPPDATA%\xiom-0.64.8` exe `ee3ee902...`, zip `c31d9c46...`;
+   WSL lane-local `~/.local/share/xiom-0.64.8` bin `7c5b3482...`, tarball
+   `a8c003c0...`; bundled stdlib v0.64.8). **C-ORBIT-12 and C-ORBIT-13
+   FIXED + verified**; workarounds RETIRED (natural `(TValue, Int)` tuple,
+   direct nested `&mut`); items CLOSED (`cdb27b9`). Battery on the final
+   tree: suite **163/163 x2 Win + x2 WSL**, db_crash 25/25 x2 both,
+   probes x2 both, fuzz both, hybrid full 36 x2 both + crash 5/5 x2 both.
+   **WSL caveat:** `/mnt/e` DrvFs can stall in `p9_client_rpc` (D state)
+   under large snapshot I/O -> run suite/crash/hybrid from an ext4 copy
+   (`cp -r src tests scripts package.xi /tmp/orbitdb-v0648`); the same
+   flow is green there.
 2. **BENCH-1 absolute rows -- DONE 2026-10-18** (docs/BENCH-1.md section
    4a; full matrix both platforms: Windows load 947/1,552/1,435 vs
    611/885/1,136; A/B 5/5 median 1.28x; WSL R1-R4). Re-run at each pin
@@ -2016,7 +2020,7 @@ documented fallback + re-test on the next release/package publish.
    `pub use`-re-exporting the four modules; zero consumer changes; suite
    x2 both at every step. R2: `tests/test_conformance.xi` split into
    `tests/suite/` (10 area files + `suite_common.xi`) with summing x2
-   runners `scripts/suite.ps1` / `scripts/suite.sh` -> 160/160 x2 both (now 162 with pager).
+   runners `scripts/suite.ps1` / `scripts/suite.sh` -> 163/163 x2 both (pager included).
    The old single-file suite and its run command are RETIRED (use
    `scripts/suite.*`).
 4. **M1.1b pager -- A1-A5 DONE 2026-10-19; A6 (soak/BENCH) NEXT.** Reference rows
@@ -2029,11 +2033,10 @@ documented fallback + re-test on the next release/package publish.
    deferred free (retire points + pin epochs + `ns_release_pending`),
    reachability GC with dense renumbering (`ns_reset_paged`); **A6 = 1M-key
    memory soak + BENCH-1 memory row** next.
-   **C-ORBIT-13 open** (`REL-20261019-1209-orbitdb`): 3-level `&mut` path
-   copies; workaround (`ns_bs_*` + `btree_release_pending` helpers; local
-   copy only inside btree) stays until v0.64.8; re-run
-   `docs/repro/nested-mut-path/repro.xi` + suite on the next archive. v1
-   snapshots remain resident (auto-detect).
+   **C-ORBIT-13 FIXED in v0.64.8** (verified; `docs/repro/nested-mut-path/
+   repro.xi` all PASS on Win + WSL; direct nested `&mut` restored, helper
+   workarounds removed; item CLOSED). v1 snapshots remain resident
+   (auto-detect).
 5. **Station track (PLANNED, GATED -- `docs/checklists/two-tier.md`)**:
    satellite = today's release path; station (`station/`, ORBITWIRE v1,
    sessions, replication via WAL shipping, range sharding) may start only
@@ -2051,7 +2054,16 @@ documented fallback + re-test on the next release/package publish.
    `xiom.http` 0.1.8 + types imported from the published `xiom.vectors`
    package (their tree consolidated `xiom.vector.types.*`). Re-run at every
    wrap.
-7. Hygiene: SESSION/STATE/readiness at every wrap; doorbell; signed
+7. **Station admin web UI (Pulse) -- OWNER-APPROVED 2026-10-19.** Build the
+   pgAdmin-style admin as a SEPARATE client on a localhost HTTP server
+   (`xiom.pulse` 0.3.1 + `xiom.static` + `xiom.router` + `xiom.session` +
+   `xiom.http.middleware`), localhost-bound with session/token auth + CSRF.
+   Phase 1: read-only dashboard over the public engine API (status, tables,
+   ranges, query editor, logs/checkpoints); phase 2: attach to the Station
+   over ORBITWIRE after ST1. Native SDL3+ImGui admin is an optional later
+   client (imgui is headless-only today). This runs alongside the Station
+   gates and does not block the Satellite release.
+8. Hygiene: SESSION/STATE/readiness at every wrap; doorbell; signed
    commits; registry P-rc recipe + engine A09 adapter verb-list when asked.
    **Publication coordination (owner directives 2026-10-16):** when the
    Satellite is ready to publish, open the packages-lane relay item

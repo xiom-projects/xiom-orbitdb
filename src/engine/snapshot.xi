@@ -563,16 +563,16 @@ fn snap_flush_v2(path: Str, tree: &mut BTree, checkpoint_lsn: Int, allow_compact
         return -1;
       }
     }
-    // Every append goes through the store's REAL BlockStore (ns_bs_*): cache
-    // evictions during this loop spill and bump the same block_count, so the
-    // checkpoint's header and blocks stay consistent. (C-ORBIT-13 forbids a
-    // direct `&mut tree.store.bs` at this depth; the helpers are 2-level.)
+    // Every append goes through the store's REAL BlockStore: cache evictions
+    // during this loop spill and bump the same block_count, so the
+    // checkpoint's header and blocks stay consistent. C-ORBIT-13 (3-level
+    // `&mut` copies) is fixed in v0.64.8; the natural nested `&mut` is used.
     var pi = 0;
     while pi < ns_len(&tree.store) {
       if tree.store.dirty[pi] {
         let pnode = ns_get(&tree.store, pi);
         let pdata = node_page_bytes(&pnode);
-        if ns_bs_put(&tree.store, gen, pi, &pdata) < 0 { return -1; }
+        if block_store_put(&mut tree.store.bs, gen, pi, &pdata) < 0 { return -1; }
       }
       pi = pi + 1;
     }
@@ -582,10 +582,10 @@ fn snap_flush_v2(path: Str, tree: &mut BTree, checkpoint_lsn: Int, allow_compact
       node_count: ns_len(&tree.store),
       checkpoint_lsn: checkpoint_lsn,
       committed_generation: gen,
-      block_count: ns_bs_block_count(&tree.store),
+      block_count: tree.store.bs.block_count,
       next_page_id: 0,
     };
-    if !ns_bs_commit(&tree.store, &ph) { return -1; }
+    if !block_store_commit(&mut tree.store.bs, &ph) { return -1; }
     ns_mark_clean(&mut tree.store);
     ns_release_pending(&mut tree.store);
     return gen;
@@ -791,7 +791,7 @@ pub fn db_file_snapshot_end(db: &mut DBFile, id: Int) -> Bool {
     i = i + 1;
   }
   db.tree.store.pins.pop();
-  btree_release_pending(&mut db.tree);
+  ns_release_pending(&mut db.tree.store);
   return true;
 }
 

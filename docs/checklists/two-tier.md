@@ -29,7 +29,8 @@
       consumer changes)
 - [ ] **Threads decision recorded** -- runtime threads (wave 139) vs
       process-per-shard for station concurrency; one-page note in
-      `docs/ISOLATION.md`
+      `docs/ISOLATION.md`. Proposal: single engine actor + I/O threads,
+      process-per-shard for scale; in-engine threading later.
 
 ## Satellite track (product labeling; the engine itself is done per plan)
 
@@ -45,6 +46,14 @@
       passes (owner green-light first)
 - [ ] CLI shipped as the satellite front door (`apps/orbitdb_cli.xi` ->
       `out/orbitdb.exe`; WSL twin)
+
+## Admin UI track (owner-approved 2026-10-19, runs alongside, not gated)
+
+- [ ] Pulse web admin (separate client): localhost HTTP server
+      (`xiom.pulse` + `xiom.static` + `xiom.router` + `xiom.session` +
+      `xiom.http.middleware`), read-only dashboard first (status/tables/
+      ranges/query/logs), then ORBITWIRE attach at ST1; token/session auth
+      + CSRF; never public by default. Native SDL3+ImGui admin later.
 
 ## ST0 -- prerequisites (no new code; re-verify the gate)
 

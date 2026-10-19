@@ -87,7 +87,7 @@ v0.64.5 (Windows shadow `xiom.new.0645` `02f0857887e14e48...`; WSL canonical
 (2026-10-16T20:33Z; stdlib pin `stdlib-v0.64.6` `b81430ba`); the enum-tuple
 re-verify on the official artifacts is GREEN x2 platforms for the MINIMAL
 shape:
-- **C-ORBIT-12 PARTIAL (corrected 2026-10-17)** -- `repro_enum_tuple_enum_error.xi`
+- **C-ORBIT-12 RESOLVED on v0.64.8** (`c6b3362ef` in the release; natural `(TValue, Int)` tuple restored, suite 163/163 x2 Win + x2 WSL, workaround retired; item closed). Historical PARTIAL verdict (v0.64.6/v0.64.7): `repro_enum_tuple_enum_error.xi`
   prints `repro C: sum=110 (expected 110)`, rc 0 on the Windows extract
   (`xiom.new-20261016-233955`, sha256 `0ff5c5c471498d8c...`) AND the WSL
   canonical (`855bd7cc82c0f24f...`); control `n=8`/`custom=5`/`done`; u8
@@ -576,7 +576,7 @@ the `DbResult[TValue]` position workaround stays.
   escape hatch), and zero-extend `UInt8 -> Int` casts for fixed-size array
   element reads.
 
-## C-ORBIT-12 -- enum-in-tuple with an enum ERROR type (minimal repro FIXED by m336; LARGER-PROGRAM residual RED on v0.64.6 -- see verdict)
+## C-ORBIT-12 -- enum-in-tuple with an enum ERROR type (RESOLVED on v0.64.8, verified + closed 2026-10-19)
 
 - **Bundle:** `docs/repro/enum-tuple-codegen/repro_enum_tuple_enum_error.xi`
   (minimal: two variants suffice; no Str/Vec/Float payloads needed).
@@ -695,7 +695,7 @@ stays as interop testing design; co-composition is no longer blocked.
   type definition; emit a clean "no field on <Type>" diagnostic when a
   field is genuinely missing.
 
-## C-ORBIT-13 -- `&mut` on a >=3-level nested field path copies Int/nested-struct state (OPEN, v0.64.7)
+## C-ORBIT-13 -- `&mut` on a >=3-level nested field path copies Int/nested-struct state (FIXED in v0.64.8, verified 2026-10-19)
 
 **Filed 2026-10-19** as relay `REL-20261019-1209-orbitdb` (orbitdb -> compiler,
 severity high). Repro bundle: `docs/repro/nested-mut-path/` (self-contained).
@@ -721,7 +721,7 @@ forever; fixed with BTree-level wrappers (`btree_release_pending`,
 `ns_bs_put`/`ns_bs_commit`). The checkpoint workaround moved from a copied
 BlockStore to these helpers because a copied store loses cache-spill
 `block_count` updates and the two writers overwrite blocks once evictions
-occur (caught by the new GC suite test).
+occur (caught by the new GC suite test). **RESOLVED on v0.64.8:** the natural nested `&mut` calls were restored (helpers removed) and the repro prints all PASS on Win + WSL; suite 163/163 x2 both, crash 25/25 x2 both, hybrid green. Item closed.
 
 ## Bump procedure used by this lane
 

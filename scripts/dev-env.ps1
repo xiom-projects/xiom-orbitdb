@@ -8,14 +8,14 @@
 # file the finding, note the last known-good version in SESSION.md as a
 # ROLLBACK OPTION, and keep moving on other slices.
 #
-# As of 2026-10-18 (compiler v0.64.7 adoption):
-#   compiler  v0.64.7  %LOCALAPPDATA%\xiom.new-20261018-1415\bin\xiom.exe
-#     (official v0.64.7 extract; xiom-0.64.7-windows-x64.zip sha256
-#     16a436c4194c13e3... SHA256SUMS-verified; xiom.exe sha256
-#     592aa1259fd03371... -- release 2026-10-17T22:59Z, run 39076930839.
+# As of 2026-10-19 (compiler v0.64.8 adoption):
+#   compiler  v0.64.8  %LOCALAPPDATA%\xiom-0.64.8\bin\xiom.exe
+#     (official v0.64.8 extract; xiom-0.64.8-windows-x64.zip sha256
+#     c31d9c464a4f9489... SHA256SUMS-verified; xiom.exe sha256
+#     ee3ee902307770a0... -- release 2026-10-19T17:49Z, run 39296778685.
 #     The dated extraction is lane-local and additive; the canonical
 #     %LOCALAPPDATA%\xiom.new belongs to the fleet and is left untouched.)
-#   stdlib    the compiler-bundled RELEASE (v0.64.7, stdlib-v0.64.7 pin
+#   stdlib    the compiler-bundled RELEASE (v0.64.8, stdlib-v0.64.8 pin
 #             tag 1271dd5; registry publish owner-approved). Owner directive
 #             2026-10-17: ALWAYS use the latest RELEASED stdlib (that is
 #             where requested fixes land) -- the lanes' checkout is
@@ -42,7 +42,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$env:XIOM_COMPILER = Join-Path $env:LOCALAPPDATA "xiom.new-20261018-1415\bin\xiom.exe"
+$env:XIOM_COMPILER = Join-Path $env:LOCALAPPDATA "xiom-0.64.8\bin\xiom.exe"
 # RELEASE stdlib by default (bundled in the v0.64.6 archive). An explicit
 # XIOM_STDLIB inherited from the shell stays (opt-in early-warning runs
 # against the stdlib lane checkout) -- this script never forces it.
@@ -61,5 +61,5 @@ if ($missing.Count -gt 0) {
 
 $ver = (& $env:XIOM_COMPILER --version 2>&1 | Select-Object -First 1)
 Write-Host "dev-env: $ver"
-Write-Host ("dev-env: XIOM_STDLIB = " + $(if ($env:XIOM_STDLIB) { $env:XIOM_STDLIB + " (OPT-IN checkout)" } else { "<unset -> bundled RELEASE stdlib v0.64.7>" }))
-Write-Host "dev-env: XIOM_RUNTIME_DIR = <unset> (stock v0.64.7 runtime; override retired 2026-10-15)"
+Write-Host ("dev-env: XIOM_STDLIB = " + $(if ($env:XIOM_STDLIB) { $env:XIOM_STDLIB + " (OPT-IN checkout)" } else { "<unset -> bundled RELEASE stdlib v0.64.8>" }))
+Write-Host "dev-env: XIOM_RUNTIME_DIR = <unset> (stock v0.64.8 runtime; override retired 2026-10-15)"

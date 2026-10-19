@@ -70,6 +70,15 @@ last spilled page survived and replayed keys were lost on reopen
 `tree.store.bs = bsw` (verified green: suite 160/160 x2 Win, keys 1..8 after
 the second checkpoint). The workaround stays until the compiler fix ships.
 
+## Resolution (v0.64.8, 2026-10-19)
+
+Fixed on the released v0.64.8 archive (tag `4d040604b`): the three-level
+case prints `n=2 g=10 v=1` / `PASS` on Windows and WSL, and the repro now
+returns 0 only when all three cases pass. ORBITDB restored the natural
+nested `&mut tree.store.bs` checkpoint and `ns_release_pending(&mut
+db.tree.store)` call; the helper workarounds were removed. The relay item
+`REL-20261019-1209-orbitdb` is verified + closed.
+
 ## Compiler-side notes
 
 The failure is specific to taking `&mut` of a path with three or more

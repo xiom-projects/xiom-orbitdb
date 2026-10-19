@@ -356,29 +356,6 @@ pub fn ns_release_pending(store: &mut NodeStore) {
   store.pending_epoch = kept_ep;
 }
 
-// Block-store write/commit helpers. They keep the pager and the checkpoint on
-// ONE BlockStore instance: snapshot.xi cannot call lock_store_put(&mut
-// tree.store.bs, ...) directly because C-ORBIT-13 makes a >=3-level &mut
-// path operate on a copy (spills would then bump a different block_count).
-pub fn ns_bs_put(store: &NodeStore, generation: Int, page_id: Int,
-                      data: &Vec[Int]) -> Int {
-  return block_store_put(&mut store.bs, generation, page_id, data);
-}
-
-pub fn ns_bs_commit(store: &NodeStore, h: &BlockHeader) -> Bool {
-  return block_store_commit(&mut store.bs, h);
-}
-
-pub fn ns_bs_block_count(store: &NodeStore) -> Int {
-  return store.bs.block_count;
-}
-
-// BTree-level wrapper: callers holding a DBFile cannot pass
-// `&mut db.tree.store` (3-level &mut copies, C-ORBIT-13).
-pub fn btree_release_pending(tree: &mut BTree) {
-  ns_release_pending(&mut tree.store);
-}
-
 pub fn ns_live_count(store: &NodeStore) -> Int {
   var n = 0;
   var i = 0;

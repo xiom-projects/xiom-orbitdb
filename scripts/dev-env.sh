@@ -10,14 +10,14 @@
 # LATEST compiler / stdlib / packages to harden the ecosystem by real-world
 # use. Record exact versions and lane hashes in SESSION.md at every wrap.
 #
-# As of 2026-10-18 (compiler v0.64.7 adoption): compiler v0.64.7 (mirrors
+# As of 2026-10-19 (compiler v0.64.8 adoption): compiler v0.64.8 (mirrors
 # scripts/dev-env.ps1, which pins the Windows extract
 # %LOCALAPPDATA%\xiom.new-20261018-1415). WSL uses a LANE-LOCAL install:
-#   ~/.local/share/xiom-0.64.7/bin/xiom
-#   (official xiom-0.64.7-linux-x64.tar.gz sha256 153f0cc9aa96cbb3...,
-#    SHA256SUMS-verified; bin/xiom sha256 302d319227e970bc...; the shared
-#    canonical ~/.local/share/xiom stays at v0.64.6 until ops swaps it.)
-#   compiler  ~/.local/share/xiom-0.64.7/bin/xiom (lane-local pin)
+#   ~/.local/share/xiom-0.64.8/bin/xiom
+#   (official xiom-0.64.8-linux-x64.tar.gz sha256 a8c003c0d817880a...,
+#    SHA256SUMS-verified; bin/xiom sha256 7c5b34823a154ee7...; the shared
+#    prefix also holds v0.64.8 after this adoption; the lane pin is the versioned copy.)
+#   compiler  ~/.local/share/xiom-0.64.8/bin/xiom (lane-local pin)
 #   stdlib    $XIOM_STDLIB if set; else the WSL-mounted lane checkout
 #             /mnt/e/xiom-lang/stdlib when present; else the compiler's
 #             bundled lib/xiom tree (release-artifact behavior)
@@ -38,10 +38,10 @@
 
 # --- compiler resolution ----------------------------------------------------
 if [ -z "${XIOM_COMPILER:-}" ]; then
-  if [ -x "$HOME/.local/share/xiom-0.64.7/bin/xiom" ]; then
-    # Lane-local v0.64.7 adoption pin (additive; the shared canonical
+  if [ -x "$HOME/.local/share/xiom-0.64.8/bin/xiom" ]; then
+    # Lane-local v0.64.8 adoption pin (additive; the shared prefix
     # ~/.local/share/xiom is left to ops).
-    XIOM_COMPILER="$HOME/.local/share/xiom-0.64.7/bin/xiom"
+    XIOM_COMPILER="$HOME/.local/share/xiom-0.64.8/bin/xiom"
   elif command -v xiom >/dev/null 2>&1; then
     XIOM_COMPILER="$(command -v xiom)"
   elif [ -x "$HOME/.local/bin/xiom" ]; then
@@ -52,7 +52,7 @@ if [ -z "${XIOM_COMPILER:-}" ]; then
 fi
 [ -n "${XIOM_COMPILER:-}" ] && export XIOM_COMPILER
 
-# --- stock runtime (v0.64.7 re-vendor carries wave 139) ---------------------
+# --- stock runtime (v0.64.8 re-vendor carries wave 139) ---------------------
 # The 2026-10-13 lane-runtime override is retired; never inherit a stale one.
 unset XIOM_RUNTIME_DIR
 
@@ -72,5 +72,5 @@ _ver="$("$XIOM_COMPILER" --version 2>&1 | head -n 1)"
 printf 'dev-env: %s\n' "$_ver"
 printf 'dev-env: XIOM_COMPILER = %s\n' "$XIOM_COMPILER"
 printf 'dev-env: XIOM_STDLIB   = %s\n' "${XIOM_STDLIB:-<unset: compiler bundled stdlib>}"
-printf 'dev-env: XIOM_RUNTIME_DIR = <unset> (stock v0.64.7 runtime; override retired 2026-10-15)\n'
+printf 'dev-env: XIOM_RUNTIME_DIR = <unset> (stock v0.64.8 runtime; override retired 2026-10-15)\n'
 unset _ver

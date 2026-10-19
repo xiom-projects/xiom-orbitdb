@@ -380,6 +380,18 @@ Scoreboard changelog:
   suite **163/163 x2 both**, db_crash 25/25 x2 both, probes/fuzz/hybrid
   green. A5 row stays WIP only for the 1M-key memory soak.
 
+- 2026-10-19 (v0.64.8 adoption -- compiler/stdlib pin move, no score
+  change): official archives verified (Windows `c31d9c46...` exe
+  `ee3ee902...`; Linux `a8c003c0...` bin `7c5b3482...`; bundled stdlib
+  v0.64.8). **C-ORBIT-12 and C-ORBIT-13 are fixed and verified**: the
+  natural `(TValue, Int)` position tuple and the direct 3-level
+  `&mut tree.store.bs` are back (workarounds retired). Evidence: suite
+  **163/163 x2 Win + x2 WSL**, db_crash 25/25 x2 both, probes x2 both,
+  fuzz both, hybrid full 36 x2 both + crash 5/5 x2 both. WSL note: `/mnt/e`
+  DrvFs can stall in `p9_client_rpc` under large snapshot I/O; the WSL
+  battery was run from an ext4 copy of the lane and is green. No score
+  change; A5's 1M-key soak remains the only open A-row item.
+
 ## A. Correctness & data structures (20)
 
 | # | Item | Pts | Status | Evidence / gate |
