@@ -206,6 +206,11 @@ fn ns_place(store: &NodeStore, id: Int, node: BTreeNode) -> Bool {
     }
   }
   if f < 0 { return false; }
+  // The reused frame may still be indexed by its previous node id; clear that
+  // slot or the old id would resolve to the new node (and vice versa).
+  if store.frame_ids[f] >= 0 {
+    store.slots[store.frame_ids[f]] = -1;
+  }
   store.frames[f] = node;
   store.frame_ids[f] = id;
   store.frame_dirty[f] = store.dirty[id];
