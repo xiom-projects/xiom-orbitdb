@@ -8,6 +8,7 @@ module xiom.db.engine.snapshot
 // The DBFile type + public API stay in xiom.db.engine and are re-exported.
 
 use xiom.io;
+use xiom.env;
 use xiom.db.wal_file;
 use xiom.db.index.node_page;
 use xiom.db.index.btree;
@@ -60,6 +61,21 @@ pub const SNAP_PAGE_STRIDE: Int = 4294967296;
 const SNAP_COMPACT_SLACK: Int = 64;
 // M1.1b pager: node cache frames kept decoded per handle (4096-B pages).
 const SNAP_PAGER_CAPACITY: Int = 256;
+
+// Pager cache frames. The default is deliberately small; production/soak
+// runs can raise it (ORBITDB_PAGER_CAPACITY) to trade memory for cold-read
+// syscalls. Every frame is one decoded node.
+fn pager_capacity() -> Int {
+  let raw = env.var_or("ORBITDB_PAGER_CAPACITY", "");
+  if raw.len() == 0 { return SNAP_PAGER_CAPACITY; }
+  match io.parse_int(raw) {
+    Ok(v) => {
+      if v >= 1 && v <= 262144 { return v; }
+      return SNAP_PAGER_CAPACITY;
+    }
+    Err(_) => { return SNAP_PAGER_CAPACITY; }
+  }
+}
 
 fn snap_page_id_for(gen: Int, node_idx: Int) -> Int {
   return gen * SNAP_PAGE_STRIDE + node_idx + 1;
@@ -409,7 +425,7 @@ fn snap_load_v2(path: Str) -> Option[Snapshot] {
     }
     i = i + 1;
   }
-  let store = ns_new_paged(bs, node_count, SNAP_PAGER_CAPACITY);
+  let store = ns_new_paged(bs, node_count, pager_capacity());
   var tree = BTree{ root: root, order: order, store: store };
   return Some(Snapshot{ tree: tree, checkpoint_lsn: bs.header.checkpoint_lsn,
                         generation: bs.header.committed_generation });

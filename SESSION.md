@@ -347,8 +347,12 @@ the v0.64.6 verdicts.
   (one 4 KiB page per node). The pager cache/metadata are bounded, so the
   growth is per-I/O transient allocation (`read_at` -> Vec[UInt8] ->
   Vec[Int] 8x; `block_store_open` scans every block) -- filed
-  `REL-20261019-2206-orbitdb` (pushed `561e713`). **A6 not green / 1M
-  blocked** until that is fixed; BENCH-1 section 7 carries the numbers.**Updated:** 2026-10-19 (ST0 THREADS DECISION RECORDED + runtime spike): the
+  `REL-20261019-2206-orbitdb` (pushed `561e713`). **Order 64 + an 8192
+  cache (`ORBITDB_PAGER_CAPACITY`) makes 200k functionally GREEN** (252 ms,
+  exact, 19.9 MB snapshot, 6,455 nodes) but peak RSS is **940 MB** and
+  process teardown took **~251 s** -> per-op allocation retention; **A6
+  not green / 1M blocked** until the runtime reclaim lands. BENCH-1
+  section 7 carries the numbers.**Updated:** 2026-10-19 (ST0 THREADS DECISION RECORDED + runtime spike): the
   Station concurrency decision is now explicit (docs/ISOLATION.md "Threads
   decision"): **one engine-actor thread per `DBFile`/shard; a handle never
   crosses threads**; scale-out is process-per-shard once M3 `file_lock` +

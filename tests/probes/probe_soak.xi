@@ -42,16 +42,18 @@ pub fn main() -> Int {
   let want_keys = env_int("ORBITDB_SOAK_KEYS", 200000);
   var first = env_int("ORBITDB_SOAK_FIRST", 20000);
   let chunk = env_int("ORBITDB_SOAK_CHUNK", 50000);
+  let order = env_int("ORBITDB_SOAK_ORDER", 64);
   let keep = env.var_or("ORBITDB_SOAK_KEEP", "0") == "1";
   if first > want_keys { first = want_keys; }
   if first < 1 { first = 1; }
   remove_all(path);
   io.println("soak: start keys=" + convert.int_to_string(want_keys)
     + " first=" + convert.int_to_string(first)
-    + " chunk=" + convert.int_to_string(chunk));
+    + " chunk=" + convert.int_to_string(chunk)
+    + " order=" + convert.int_to_string(order));
 
   var t0 = io.time_now();
-  var db = db_file_open_cfg(path, 4, 2);
+  var db = db_file_open_cfg(path, order, 2);
   let _ = db_file_set_durability(&mut db, 0);
   var i = 1;
   while i <= first {
@@ -65,7 +67,7 @@ pub fn main() -> Int {
     + " ms=" + convert.int_to_string(io.time_now() - t0));
 
   // Reopen: v2 is lazily loaded, so phase 2 runs with the bounded pager.
-  db = db_file_open(path, 4);
+  db = db_file_open(path, order);
   let _ = db_file_set_durability(&mut db, 0);
   if !db.tree.store.paged { return 3; }
   io.println("soak: paged reopen nodes=" + convert.int_to_string(db.tree.store.count)

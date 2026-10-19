@@ -304,9 +304,15 @@ ORBITDB_SOAK_KEYS=15000 ORBITDB_SOAK_FIRST=5000 ORBITDB_SOAK_CHUNK=5000 \
   fix: the in-place GC store reset handed a local `BlockStore` into a
   longer-lived store; post-GC reads hung. The reset now installs a fresh
   `ns_new_paged` value.
-- **200k keys: RED (blocker).** Peak working set **~57.8 GB**, 600 s
-  timeout at ~129k keys, snapshot 527 MB (one 4 KiB page per node). The
-  pager cache (256 frames) and node metadata (~10 MB at 130k nodes) are
-  bounded, so the growth is per-I/O transient allocation (read_at ->
-  Vec[UInt8] -> Vec[Int] 8x; block_store_open scans every block) --
-  filed as `REL-20261019-2206-orbitdb`. **1M-key soak blocked** until fixed.
+- **200k keys at order 4: RED.** Peak working set **~57.8 GB**, 600 s
+  timeout at ~129k keys, snapshot 527 MB (one 4 KiB page per node; order 4
+  packs ~1 key/node on ascending inserts).
+- **200k keys at order 64 + 8192 cache frames: functionally GREEN, still
+  memory-blocked.** Exact verify (201 sampled keys), size 200k, 6,455
+  nodes / 6,472 blocks (19.9 MB snapshot), **252 ms engine time**; but peak
+  RSS **940 MB** (~4.7 KB/put retained) and the process took **~251 s to
+  exit** after the last print. The paged cache/metadata are bounded; the
+  growth is per-operation allocation retention (push-COW buffers + page
+  I/O Vecs). Filed `REL-20261019-2206-orbitdb`; **1M-key soak blocked**
+  until the runtime reclaim lands. `ORBITDB_PAGER_CAPACITY` now overrides
+  the 256-frame default; the soak defaults to order 64.
