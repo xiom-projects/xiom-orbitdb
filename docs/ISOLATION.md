@@ -69,7 +69,7 @@ pinned, deferred-free hook. Still deferred:
    256-frame clock cache (dirty-frame spill at the uncommitted generation);
    deferred free / version GC remains open (M1.1b A5).
 3. **Version GC**: landed in M1.1b A5 (retire points + pin epochs +
-   reachability GC compaction; `ns_reset_paged`).
+   reachability GC compaction; the post-GC store is a fresh `ns_new_paged`).
 4. **In-engine threading**: multiple threads sharing one DBFile remains
    deferred; the ST0 decision is the engine-actor model below.
 

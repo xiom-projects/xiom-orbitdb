@@ -334,7 +334,21 @@ the v0.64.6 verdicts.
   (lane pin = v0.64.7 without the fix); at the next release adoption:
   merge `f779c23`, suite x2 both, close the item. Branch left in place.
   Relays head checked; no other lane items.
-**Updated:** 2026-10-19 (ST0 THREADS DECISION RECORDED + runtime spike): the
+**Updated:** 2026-10-19 (A6 SOAK: GC lifetime fix + scale memory finding):
+  the A6 soak (`tests/probes/probe_soak.xi`, chunked build -> paged reopen
+  -> chunked growth -> sample verify) exposed and fixed a **GC store-reset
+  lifetime bug**: `ns_reset_paged` installed a local `BlockStore` into the
+  longer-lived store; post-GC reads on the same handle hung (15k-key run
+  CPU-bound, 61 MB snapshot valid). Replaced with `tree.store =
+  ns_new_paged(fresh, count, capacity)`; 15k keys now **GREEN** (90 ms,
+  exact verification, GC count 15,003 -> 14,991, blocks reset, tree walk
+  14,991/14,991 reachable / 0 cycles / 0 OOB). **200k keys RED:** peak
+  working set **~57.8 GB**, 600 s timeout at ~129k keys, snapshot 527 MB
+  (one 4 KiB page per node). The pager cache/metadata are bounded, so the
+  growth is per-I/O transient allocation (`read_at` -> Vec[UInt8] ->
+  Vec[Int] 8x; `block_store_open` scans every block) -- filed
+  `REL-20261019-2206-orbitdb` (pushed `561e713`). **A6 not green / 1M
+  blocked** until that is fixed; BENCH-1 section 7 carries the numbers.**Updated:** 2026-10-19 (ST0 THREADS DECISION RECORDED + runtime spike): the
   Station concurrency decision is now explicit (docs/ISOLATION.md "Threads
   decision"): **one engine-actor thread per `DBFile`/shard; a handle never
   crosses threads**; scale-out is process-per-shard once M3 `file_lock` +
@@ -2064,7 +2078,9 @@ documented fallback + re-test on the next release/package publish.
    lazy/eviction + 1400-key spill/checkpoint + GC compaction). **A5 DONE:**
    deferred free (retire points + pin epochs + `ns_release_pending`),
    reachability GC with dense renumbering (`ns_reset_paged`); **A6 = 1M-key
-   memory soak + BENCH-1 memory row** next.
+   memory soak: 15k GREEN, 200k RED on memory (relay `REL-20261019-2206`),**
+   1M blocked; BENCH-1 section 7 has the numbers. Fix the per-I/O
+   allocation retention next.
    **C-ORBIT-13 FIXED in v0.64.8** (verified; `docs/repro/nested-mut-path/
    repro.xi` all PASS on Win + WSL; direct nested `&mut` restored, helper
    workarounds removed; item CLOSED). v1 snapshots remain resident

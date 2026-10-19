@@ -187,7 +187,7 @@ flowchart TD
 - [x] **A5 -- deferred free.** Retire points + `ns_release_pending` + pin
   epochs; probe asserts live count drops after checkpoint/compaction and
   snapshot reads stay exact. Suite x2 both + MVCC probe x2.
-- [~] **A6 -- evidence + docs.** (battery green: suite 163/163 x2 both, crash 25/25 x2 both, probes/fuzz/hybrid; 1M-key soak + BENCH-1 memory row pending) probe_pager + suite pager coverage; update
+- [~] **A6 -- evidence + docs.** Battery green (suite 164/164 x2 both, crash 25/25 x2 both, probes/fuzz/hybrid). **Soak: 15k green; 200k RED on memory (relay `REL-20261019-2206-orbitdb`); 1M blocked** until the per-I/O allocation retention is fixed. BENCH memory row pending. probe_pager + suite pager coverage; update
   ARCHITECTURE (NodeStore contract), MVCC (pin epochs), READINESS changelog;
   BENCH-1 memory note (bounded cache) and a soak at the wrap. Suite x2 both,
   crash x2 both, fuzz, hybrid guard.

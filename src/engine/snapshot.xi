@@ -513,8 +513,12 @@ fn v2_rewrite_all(path: Str, tree: &mut BTree, gen: Int, checkpoint_lsn: Int) ->
     Err(_) => { return false; }
   }
   if do_gc {
+    // Replace the whole store with a fresh paged value. Do NOT hand a local
+    // BlockStore to an in-place reset helper: the local owner can be reclaimed
+    // while the store still encodes its vectors (post-GC reads then hang).
     let fresh = block_store_open(path);
-    ns_reset_paged(&mut tree.store, fresh, new_count);
+    let cap = tree.store.capacity;
+    tree.store = ns_new_paged(fresh, new_count, cap);
     tree.root = new_root;
   } else if tree.store.paged {
     // A paged tree read its nodes from THIS path; the rename replaced the

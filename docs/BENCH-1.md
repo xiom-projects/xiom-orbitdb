@@ -284,3 +284,29 @@ principle):
 . scripts\dev-env.ps1
 & .\scripts\run.ps1 tests\probes\probe_wal_ab.xi        # ORBITDB_AB_N=5000, _ROUNDS=3
 ```
+
+## 7. Memory soak (A6, preliminary -- 2026-10-19)
+
+`tests/probes/probe_soak.xi` builds a v2 database in two phases (a small
+resident first build, then a paged reopen and chunked growth with
+checkpoints), samples every 997th key, and reports node/cache/pager counters.
+Peak RSS is sampled externally (XIOM has no RSS API).
+
+```
+xiom -o out/orbitdb-soak.exe tests/probes/probe_soak.xi
+ORBITDB_SOAK_KEYS=15000 ORBITDB_SOAK_FIRST=5000 ORBITDB_SOAK_CHUNK=5000 \
+  ORBITDB_SOAK_PATH=orbitdb-soak.wal out/orbitdb-soak.exe
+```
+
+- **15k keys: GREEN.** 90 ms, exact sample verification, GC compaction
+  fired (count 15,003 -> 14,991; blocks reset), post-GC tree walk
+  `14,991/14,991` reachable, **0 cycles / 0 out-of-range**. This required a
+  fix: the in-place GC store reset handed a local `BlockStore` into a
+  longer-lived store; post-GC reads hung. The reset now installs a fresh
+  `ns_new_paged` value.
+- **200k keys: RED (blocker).** Peak working set **~57.8 GB**, 600 s
+  timeout at ~129k keys, snapshot 527 MB (one 4 KiB page per node). The
+  pager cache (256 frames) and node metadata (~10 MB at 130k nodes) are
+  bounded, so the growth is per-I/O transient allocation (read_at ->
+  Vec[UInt8] -> Vec[Int] 8x; block_store_open scans every block) --
+  filed as `REL-20261019-2206-orbitdb`. **1M-key soak blocked** until fixed.

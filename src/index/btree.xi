@@ -370,8 +370,6 @@ pub fn ns_pending_count(store: &NodeStore) -> Int {
   return store.pending_free.len();
 }
 
-// Rebuild the paged store around a GC-compacted container: dense ids
-// 0..count-1, no pins/dead metadata, empty cache. Node bodies reload lazily.
 pub fn ns_reset_paged(store: &mut NodeStore, bs: BlockStore, count: Int) {
   store.bs = bs;
   store.count = count;
