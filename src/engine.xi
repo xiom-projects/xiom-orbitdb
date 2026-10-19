@@ -538,6 +538,13 @@ pub fn db_file_range(db: &DBFile, low: Int, high: Int) -> Vec[Int]
   return btree_range_query(&db.tree, low, high);
 }
 
+// Key/value pairs in [low, high] (admin/Station range views).
+pub fn db_file_range_pairs(db: &DBFile, low: Int, high: Int) -> Vec[(Int, Int)]
+  requires: low <= high
+{
+  return btree_range_pairs(&db.tree, low, high);
+}
+
 // Value-filter query on the live/recovered tree, planned and executed:
 // conditions filter VALUES (not keys), key bounds (query_key_range) restrict
 // the scanned key range first, a secondary index (M4.2) narrows value

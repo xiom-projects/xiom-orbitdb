@@ -1283,6 +1283,43 @@ pub fn collect_range(tree: &BTree, node_idx: Int, low: Int, high: Int, results: 
   }
 }
 
+// Key/value pairs in [low, high], key order. The int-only range API returns
+// values alone; the admin/Station range viewer needs the keys too.
+pub fn btree_range_pairs(tree: &BTree, low: Int, high: Int) -> Vec[(Int, Int)] {
+  var results = Vec[(Int, Int)].new();
+  collect_range_pairs(tree, tree.root, low, high, results);
+  return results;
+}
+
+pub fn collect_range_pairs(tree: &BTree, node_idx: Int, low: Int, high: Int,
+                           results: &mut Vec[(Int, Int)]) {
+  var node = ns_get(&tree.store, node_idx);
+  if node.is_leaf {
+    var i = 0;
+    while i < node.keys.len() {
+      if node.keys[i] >= low && node.keys[i] <= high {
+        results.push((node.keys[i], node.values[i]));
+      }
+      i = i + 1;
+    }
+    return;
+  }
+  var i = 0;
+  while i < node.keys.len() && node.keys[i] < low {
+    i = i + 1;
+  }
+  if i < node.children.len() {
+    collect_range_pairs(tree, node.children[i], low, high, results);
+  }
+  while i < node.keys.len() && node.keys[i] <= high {
+    results.push((node.keys[i], node.values[i]));
+    i = i + 1;
+    if i < node.children.len() {
+      collect_range_pairs(tree, node.children[i], low, high, results);
+    }
+  }
+}
+
 pub fn btree_size(tree: &BTree) -> Int {
   return count_keys(tree, tree.root);
 }

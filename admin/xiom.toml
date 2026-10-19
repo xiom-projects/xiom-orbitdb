@@ -1,0 +1,14 @@
+# XIOM ORBITDB -- Station-adjacent admin web client (owner-approved 2026-10-19).
+# Separate app: source-composes the Satellite engine (../src) and the PULSE
+# HTTP core (registry package). Localhost-only by default; read-only phase 1.
+[project]
+name = "orbitdb-admin"
+version = "0.1.0"
+root = "."
+source-roots = [
+  "../src",
+  "src",
+]
+
+[dependencies]
+xiom.pulse = "0.3.1"

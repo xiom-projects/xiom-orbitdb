@@ -55,6 +55,7 @@ layout: `<path>` = WAL segment, `<path>.snap` = snapshot page log.
 | `db_file_get_typed(db, key)` | `Option[Vec[Int]]` | The stored payload; `None` when the key is absent or the entry is a plain int row (read those with `db_file_get`). |
 | `db_file_typed_payload_max(order)` | `Int` | Payload budget so a full node page fits both snapshot containers (1978 bytes at order 3, 1308 at order 4, 973 at order 5). |
 | `db_file_range(db, low, high)` | `Vec[Int]` | Values for keys in `[low, high]` inclusive, in key order (`requires: low <= high`). |
+| `db_file_range_pairs(db, low, high)` | `Vec[(Int, Int)]` | `(key, value)` pairs in `[low, high]` inclusive, key order (`requires: low <= high`). Admin/Station range views. |
 | `db_file_query(db, query)` | `Vec[Int]` | Value-filter query; same semantics as `db_query` / `query_execute` (conditions filter VALUES). |
 | `db_file_size(db)` | `Int` | Number of keys. |
 | `db_file_last_lsn(db)` | `Int` | Highest WAL LSN assigned (0 = empty). |

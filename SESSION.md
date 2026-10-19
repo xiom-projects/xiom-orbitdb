@@ -334,7 +334,25 @@ the v0.64.6 verdicts.
   (lane pin = v0.64.7 without the fix); at the next release adoption:
   merge `f779c23`, suite x2 both, close the item. Branch left in place.
   Relays head checked; no other lane items.
-**Updated:** 2026-10-19 (v0.64.8 verification DONE -- C-ORBIT-12/13 CLOSED):
+**Updated:** 2026-10-19 (STATION ADMIN WEB UI -- phase 1 landed): the
+  owner approved the Pulse web admin as the recommended admin shape (a
+  separate client, pgAdmin-style; native SDL3+ImGui deferred -- imgui is
+  headless-only today). New `admin/` app source-composes the Satellite
+  engine (`../src`) + `xiom.pulse` 0.3.1: `admin/xiom.toml`,
+  `admin/src/admin.xi`, `admin/src/index.html`, `admin/tests/seed_demo.xi`,
+  `admin/README.md`. **GET-only phase 1:** `/` dashboard, `/api/status`
+  (file/engine/pager), `/api/range` key/value pairs, `/api/get`; localhost
+  bind, optional `ORBITDB_ADMIN_TOKEN`, clean shutdown via `X-Pulse-Quit`.
+  New additive engine API **`db_file_range_pairs`** (the int range API
+  returns values only) in `index/btree` + `engine.xi`, with dbfile suite
+  coverage (24/24; suite total **164**). Runners `scripts/admin.ps1`
+  (`-Database`; `-Db` collides with PowerShell's Debug alias) and
+  `scripts/admin.sh`. Smoke: status/range/get/html 200 with exact JSON and
+  the quit seam (`pulse: shutdown served=3`). **Phase 1 owns the DB file**
+  (no read-only open / cross-process pins yet -- M3 remainder); the Station
+  will attach the same UI over ORBITWIRE at ST1. Reference rows added to
+  REFERENCE-MATRIX 3.1; RUNBOOK admin section. Next: auth/session + query
+  editor + write actions gated on the protocol, then optional native client.**Updated:** 2026-10-19 (v0.64.8 verification DONE -- C-ORBIT-12/13 CLOSED):
   the released v0.64.8 archive (tag `4d040604b`; Windows zip `c31d9c46...`
   verified -> `%LOCALAPPDATA%\xiom-0.64.8` exe `ee3ee902...`; WSL
   `~/.local/share/xiom-0.64.8` bin `7c5b3482...`) fixes BOTH our compiler

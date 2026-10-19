@@ -1,0 +1,72 @@
+# ORBITDB Admin (web) -- phase 1
+
+A separate, localhost-only control plane for a single-node ORBITDB file.
+Browser UI served by the PULSE Beacon HTTP core (`xiom.pulse` 0.3.1); it
+source-composes the Satellite engine (`../src`). No native GUI dependency,
+no external assets -- it works headless and survives SSH/tunnel access.
+
+> **Status:** phase 1 (2026-10-19) -- read-only dashboard: engine status,
+> key/value range browser, point lookup. Owner-approved as the recommended
+> admin shape (pgAdmin-style separate client; native SDL3+ImGui is a later
+> optional client). The Station will reuse this UI over ORBITWIRE after ST1.
+
+## Run
+
+```powershell
+# repo root, Windows
+.\scripts\admin.ps1                         # orbitdb-admin.wal, 127.0.0.1:8787
+.\scripts\admin.ps1 -Database data\app.wal -Port 9000
+```
+
+```bash
+# WSL/Linux (lane toolchain)
+scripts/admin.sh                            # orbitdb-admin.wal, 8787
+DB=data/app.wal PORT=9000 scripts/admin.sh
+```
+
+Seed a demo database (40 keys, values key*10):
+
+```powershell
+$env:ORBITDB_ADMIN_DB='orbitdb-admin-demo.wal'
+& (Join-Path $PWD 'out\seed-demo.exe')      # build: xiom -o out\seed-demo.exe admin\tests\seed_demo.xi
+```
+
+Open `http://127.0.0.1:8787/`.
+
+## Endpoints (GET, read-only)
+
+| Path | Meaning |
+|---|---|
+| `/` | dashboard (inline HTML/JS; no CDN) |
+| `/api/status` | engine/file/pager status JSON |
+| `/api/range?low=&high=&limit=` | `(key,value)` pairs in key order (limit 1..500) |
+| `/api/get?key=` | point lookup |
+
+Stop the server with any request carrying `X-Pulse-Quit: 1` (PULSE's clean
+shutdown seam), or Ctrl+C.
+
+## Security / ownership
+
+- Binds to `127.0.0.1` by default; keep it local. `ORBITDB_ADMIN_TOKEN`
+  enables a shared-token check for `/api/*` (`X-Admin-Token: <token>`).
+- **The admin owns the database file while it runs.** The engine has no
+  read-only open or cross-process pin contract yet (M3 remainder), and
+  opening replays/heals the WAL. Do not point the admin at a DB that another
+  process has open; the Station mode (ORBITWIRE session) removes this
+  limitation.
+- Phase 1 is GET-only; no write endpoints, so no CSRF surface. Writes,
+  backups, and metrics come after the Station protocol freeze.
+
+## Layout
+
+```
+admin/
+  xiom.toml          manifest (source-roots ../src + src; dep xiom.pulse 0.3.1)
+  src/admin.xi       PULSE routes + engine reads (module orbitdb.admin)
+  src/index.html     dashboard
+  tests/seed_demo.xi demo data
+```
+
+The engine addition this needed: `db_file_range_pairs` (keys + values; the
+existing `db_file_range` returns values only) in `src/index/btree.xi` +
+`src/engine.xi`, with `dbfile` suite coverage.

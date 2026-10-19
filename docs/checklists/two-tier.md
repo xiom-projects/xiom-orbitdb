@@ -49,11 +49,14 @@
 
 ## Admin UI track (owner-approved 2026-10-19, runs alongside, not gated)
 
-- [ ] Pulse web admin (separate client): localhost HTTP server
-      (`xiom.pulse` + `xiom.static` + `xiom.router` + `xiom.session` +
-      `xiom.http.middleware`), read-only dashboard first (status/tables/
-      ranges/query/logs), then ORBITWIRE attach at ST1; token/session auth
-      + CSRF; never public by default. Native SDL3+ImGui admin later.
+- [x] **Pulse web admin phase 1 (2026-10-19):** `admin/` separate app,
+      `xiom.pulse` 0.3.1, GET-only dashboard (`/`, `/api/status`,
+      `/api/range` pairs, `/api/get`), localhost bind + optional token,
+      `X-Pulse-Quit` shutdown; runners `scripts/admin.ps1`/`admin.sh`;
+      additive `db_file_range_pairs` API + dbfile 24/24. Smoke green.
+- [ ] Pulse web admin phase 2: auth/session + CSRF, query editor, write
+      actions (gated on the Station txn model), metrics/logs, ORBITWIRE
+      attach at ST1; never public by default. Native SDL3+ImGui later.
 
 ## ST0 -- prerequisites (no new code; re-verify the gate)
 

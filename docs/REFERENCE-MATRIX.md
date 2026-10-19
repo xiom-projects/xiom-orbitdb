@@ -89,6 +89,14 @@ planner/executor boundary), `bullmq` (job locking + script-based atomic
 operations -- informs replica promotion/lock discipline). These rows are
 filled when ST1 freezes the ORBITWIRE surface; do not convert before G-START.
 
+
+### 3.1 Admin web client (owner-approved 2026-10-19; runs alongside, not gated)
+
+| Mechanic | Reference (verified 2026-10-19) | Decision | ORBITDB conversion |
+|---|---|---|---|
+| HTTP/1.1 server core with parser, keep-alive loop, routes and JSON builders | `E:\xiom-packages\packages\xiom-pulse\src\server.xi`: `register` l.447, `out_json` l.212, `out_text` l.218, `out_html` l.224, `serve` l.868, `serve_with` l.877; `router.xi`: `PulseRoute` l.26, `parse_query` l.101; `http.xi`: `header_get` l.258; `config.xi`: `PULSE_PORT` default 8080 l.76 | adopt | `admin/` is a separate app: `xiom.pulse` 0.3.1 + the Satellite engine via source-roots. Localhost bind, GET-only phase 1; token via `ORBITDB_ADMIN_TOKEN`; `X-Pulse-Quit: 1` clean shutdown. |
+| Native desktop admin (pgAdmin-like local panel) | `xiom.imgui` README: vendored headless core, no SDL/GLFW/Vulkan backend or widgets yet (Phase 3); `xiom.sdl3` 0.20.0: window/renderer/texture/events | defer | optional later client; the web UI is the primary admin and works headless/remote. Revisit when imgui ships a backend. |
+| Admin shape: separate client, not a server-embedded GUI | pgAdmin is a separate application over PostgreSQL; PostgreSQL itself has no GUI | adopt (shape) | the admin is its own program in the same repo; against a Station it attaches over ORBITWIRE (ST1) instead of opening the file. |
 ## 4. Blocker ledger (relay items opened from crawl findings)
 
 | Slice | Blocker | Relay item | Status |

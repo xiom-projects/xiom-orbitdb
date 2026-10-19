@@ -1263,6 +1263,41 @@ fn test_db_file_syncfail_latch() -> TestResult {
   return assert(false, "db_file: syncfail latch failed rc=" + int_to_str(rc));
 }
 
+// Range pairs: the admin/Station range view needs keys, not only values.
+fn run_db_file_range_pairs() -> Int {
+  let path = "orbitdb-suite-range-pairs.wal";
+  let snap = "orbitdb-suite-range-pairs.wal.snap";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  var db = db_file_open(path, 4);
+  var i = 1;
+  while i <= 5 {
+    if !db_file_put(&mut db, i, i * 10) { return 1; }
+    i = i + 1;
+  }
+  let pairs = db_file_range_pairs(&db, 2, 4);
+  if pairs.len() != 3 { return 2; }
+  if pairs[0].0 != 2 || pairs[0].1 != 20 { return 3; }
+  if pairs[1].0 != 3 || pairs[1].1 != 30 { return 4; }
+  if pairs[2].0 != 4 || pairs[2].1 != 40 { return 5; }
+  let empty = db_file_range_pairs(&db, 10, 20);
+  if empty.len() != 0 { return 6; }
+  if db_file_checkpoint(&mut db) < 0 { return 7; }
+  var db2 = db_file_open(path, 4);
+  let reopened = db_file_range_pairs(&db2, 1, 5);
+  if reopened.len() != 5 { return 8; }
+  if reopened[4].0 != 5 || reopened[4].1 != 50 { return 9; }
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  return 0;
+}
+
+fn test_db_file_range_pairs() -> TestResult {
+  let rc = run_db_file_range_pairs();
+  if rc == 0 { return assert(true, "db_file: range_pairs returns (key,value) in order, live + paged reopen"); }
+  return assert(false, "db_file: range_pairs failed rc=" + int_to_str(rc));
+}
+
 fn main() -> Int {
   io.println("=== XIOM DB Conformance: dbfile ===");
   var failed: Int = 0;
@@ -1281,6 +1316,8 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r95b.passed, r95b.name);
   let r96 = test_db_file_query_range();
   total = total + 1; failed = failed + report(r96.passed, r96.name);
+  let r96b = test_db_file_range_pairs();
+  total = total + 1; failed = failed + report(r96b.passed, r96b.name);
   let r97a = test_db_file_incremental_checkpoint();
   total = total + 1; failed = failed + report(r97a.passed, r97a.name);
   let r97b = test_db_file_uncommitted_generation();
