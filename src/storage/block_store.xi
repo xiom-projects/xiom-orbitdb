@@ -40,6 +40,19 @@ pub type BlockStore = {
   block_count: Int;
 }
 
+pub fn block_store_empty() -> BlockStore {
+  return BlockStore{
+    path: "",
+    ids: Vec[Int].new(),
+    blocks: Vec[Int].new(),
+    gens: Vec[Int].new(),
+    header: empty_header(),
+    active_slot: 0,
+    committed: false,
+    block_count: 0,
+  };
+}
+
 fn empty_header() -> BlockHeader {
   return BlockHeader{
     root: 0,

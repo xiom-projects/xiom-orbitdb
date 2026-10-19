@@ -695,6 +695,27 @@ stays as interop testing design; co-composition is no longer blocked.
   type definition; emit a clean "no field on <Type>" diagnostic when a
   field is genuinely missing.
 
+## C-ORBIT-13 -- `&mut` on a >=3-level nested field path copies Int/nested-struct state (OPEN, v0.64.7)
+
+**Filed 2026-10-19** as relay `REL-20261019-1209-orbitdb` (orbitdb -> compiler,
+severity high). Repro bundle: `docs/repro/nested-mut-path/` (self-contained).
+
+Shape: `bump(&mut t.store.bs)` where `T -> NS -> BS` is a three-field-segment
+path. It compiles, but the callee receives a COPY: Int and nested-struct
+fields in `t` keep their old values, while Vec element writes still leak
+through the shared buffer (so the defect is silent and partial). Two-level
+paths are correct; direct assignment and local-copy-then-write-back are
+correct; no warning is emitted.
+
+Evidence: v0.64.7 Windows (`592aa125...`) and WSL lane (`302d3192...`) print
+`two-level: PASS`, `three-level: n=1 g=0 v=1` / `FAIL`, `workaround: PASS`.
+Found while landing M1.1b: `snap_flush_v2` committed via
+`&mut tree.store.bs`, so each spill used a stale `block_count`, overwrote the
+same block, and dropped the header update -- the checkpoint returned success
+but replayed keys were lost on reopen (typed_mvcc 14/15). **Workaround stays**
+in `snap_flush_v2` (local copy + write-back) until a release carries a fix;
+re-run the repro + suite on the next archive.
+
 ## Bump procedure used by this lane
 
 1. Update `scripts/dev-env.ps1/.sh` pins (compiler path/version only; stdlib

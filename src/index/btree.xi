@@ -3,6 +3,9 @@
 
 module xiom.db.index.btree
 
+use xiom.db.storage.block_store;
+use xiom.db.index.node_page;
+
 // Flat-array B-tree: node arena (`NodeStore`) with dirty tracking and M3
 // snapshot pins (copy-on-write shadowing), plus the canonical structural
 // operations (search/insert/delete/range/min/max/to_vec). Extracted
@@ -26,30 +29,263 @@ pub type DBSnapshot = {
 // pins exist, a node with `birth <= pin_clock` may be reachable from a pinned
 // root and must be shadow-copied before any mutation (see `cow_shadow`).
 // `compaction_deferred` counts checkpoint compactions skipped because a pin
-// was live (docs/MVCC.md sec. 2.3). The store is fully resident for now --
-// lazy load and a bounded cache arrive with the storage spine.
+// was live (docs/MVCC.md sec. 2.3).
+//
+// M1.1b: two modes.
+//  - resident (`paged=false`): v1 snapshots. `nodes[i]` holds every node.
+//  - paged (`paged=true`): v2 snapshots. Node ids are block page ids; the
+//    node STRUCTS live in a bounded clock cache (`frames`) reached through
+//    `slots[id]`. Reads load on miss from the owned `bs` block store; dirty
+//    frames spill at `write_gen` (committed+1) before eviction. Metadata
+//    (`dirty`/`births`/`live`) stays O(n); node bodies are bounded by
+//    `capacity`. XIOM references are shallow, so cache mutation through
+//    `&NodeStore` is legal (verified 2026-10-19); callers keep the read API.
 pub type NodeStore = {
   nodes: Vec[BTreeNode];
   dirty: Vec[Bool];
   births: Vec[Int];
+  live: Vec[Bool];
+  pending_free: Vec[Int];
+  pending_epoch: Vec[Int];
   pins: Vec[DBSnapshot];
   pin_clock: Int;
   compaction_deferred: Int;
+  paged: Bool;
+  bs: BlockStore;
+  write_gen: Int;
+  count: Int;
+  slots: Vec[Int];
+  frames: Vec[BTreeNode];
+  frame_ids: Vec[Int];
+  frame_dirty: Vec[Bool];
+  frame_ref: Vec[Bool];
+  hand: Int;
+  capacity: Int;
+  // [hits, misses, evictions, spills, corrupt, io_errors]
+  stats: Vec[Int];
+}
+
+fn ns_empty_stats() -> Vec[Int] {
+  var st = Vec[Int].new();
+  var i = 0;
+  while i < 6 {
+    st.push(0);
+    i = i + 1;
+  }
+  return st;
+}
+
+// Resident store for v1 snapshots and fresh in-memory trees.
+pub fn ns_new_resident(nodes: Vec[BTreeNode], dirty: Vec[Bool],
+                       births: Vec[Int]) -> NodeStore {
+  var live = Vec[Bool].new();
+  var i = 0;
+  while i < nodes.len() {
+    live.push(true);
+    i = i + 1;
+  }
+  var empty_pending = Vec[Int].new();
+  var empty_slots = Vec[Int].new();
+  var empty_frames = Vec[BTreeNode].new();
+  var empty_ids = Vec[Int].new();
+  var empty_flags = Vec[Bool].new();
+  return NodeStore{
+    nodes: nodes, dirty: dirty, births: births, live: live,
+    pending_free: empty_pending, pending_epoch: Vec[Int].new(),
+    pins: Vec[DBSnapshot].new(), pin_clock: 0, compaction_deferred: 0,
+    paged: false, bs: block_store_empty(), write_gen: 0, count: nodes.len(),
+    slots: empty_slots, frames: empty_frames, frame_ids: empty_ids,
+    frame_dirty: empty_flags, frame_ref: Vec[Bool].new(), hand: 0,
+    capacity: 0, stats: ns_empty_stats(),
+  };
+}
+
+// Paged store for v2 snapshots: no node is decoded until first access.
+pub fn ns_new_paged(bs: BlockStore, count: Int, capacity: Int) -> NodeStore
+  requires: count >= 1
+  requires: capacity >= 1
+{
+  var slots = Vec[Int].new();
+  var dirty = Vec[Bool].new();
+  var births = Vec[Int].new();
+  var live = Vec[Bool].new();
+  var i = 0;
+  while i < count {
+    slots.push(-1);
+    dirty.push(false);
+    births.push(0);
+    live.push(true);
+    i = i + 1;
+  }
+  var frames = Vec[BTreeNode].new();
+  var frame_ids = Vec[Int].new();
+  var frame_dirty = Vec[Bool].new();
+  var frame_ref = Vec[Bool].new();
+  var f = 0;
+  while f < capacity {
+    frames.push(new_leaf_node());
+    frame_ids.push(-1);
+    frame_dirty.push(false);
+    frame_ref.push(false);
+    f = f + 1;
+  }
+  return NodeStore{
+    nodes: Vec[BTreeNode].new(), dirty: dirty, births: births, live: live,
+    pending_free: Vec[Int].new(), pending_epoch: Vec[Int].new(),
+    pins: Vec[DBSnapshot].new(), pin_clock: 0, compaction_deferred: 0,
+    paged: true, bs: bs, write_gen: bs.header.committed_generation + 1,
+    count: count, slots: slots, frames: frames, frame_ids: frame_ids,
+    frame_dirty: frame_dirty, frame_ref: frame_ref, hand: 0,
+    capacity: capacity, stats: ns_empty_stats(),
+  };
 }
 
 pub fn ns_len(store: &NodeStore) -> Int {
-  return store.nodes.len();
+  return store.count;
 }
 
-// Read a node copy.
+pub fn ns_pager_stats(store: &NodeStore) -> Vec[Int] {
+  return store.stats;
+}
+
+pub fn ns_is_dirty(store: &NodeStore, idx: Int) -> Bool {
+  return store.dirty[idx];
+}
+
+pub fn ns_pager_resident(store: &NodeStore, idx: Int) -> Bool {
+  if !store.paged { return true; }
+  if idx < 0 { return false; }
+  if idx >= store.count { return false; }
+  return store.slots[idx] >= 0;
+}
+
+// Reserve a cache frame and install `node`. Free frames first; otherwise a
+// clock sweep skipping referenced frames. A dirty victim spills at the
+// uncommitted write generation (own-writes-visible; a reopen ignores it);
+// a failed spill skips that victim and is counted. Returns false when every
+// frame stayed unreleasable -- the caller then serves/keeps the node without
+// caching (reads) or grows the cache (writes).
+fn ns_place(store: &NodeStore, id: Int, node: BTreeNode) -> Bool {
+  var f = -1;
+  var i = 0;
+  while i < store.capacity {
+    if store.frame_ids[i] < 0 {
+      f = i;
+      i = store.capacity;
+    } else {
+      i = i + 1;
+    }
+  }
+  if f < 0 {
+    var steps = 0;
+    var done = false;
+    while steps < 2 * store.capacity && !done {
+      let c = store.hand;
+      store.hand = (c + 1) % store.capacity;
+      if store.frame_ref[c] {
+        store.frame_ref[c] = false;
+      } else {
+        var spill_ok = true;
+        if store.frame_dirty[c] {
+          let victim_id = store.frame_ids[c];
+          let bytes = node_page_bytes(&store.frames[c]);
+          let at = block_store_put(&mut store.bs, store.write_gen, victim_id, &bytes);
+          if at < 0 {
+            store.stats[5] = store.stats[5] + 1;
+            spill_ok = false;
+          } else {
+            store.stats[3] = store.stats[3] + 1;
+          }
+        }
+        if spill_ok {
+          f = c;
+          done = true;
+        }
+      }
+      steps = steps + 1;
+    }
+  }
+  if f < 0 { return false; }
+  store.frames[f] = node;
+  store.frame_ids[f] = id;
+  store.frame_dirty[f] = store.dirty[id];
+  store.frame_ref[f] = true;
+  store.slots[id] = f;
+  store.stats[2] = store.stats[2] + 1;
+  return true;
+}
+
+// Pathological fallback (IO failure / all frames unplaceable): grow the
+// cache by one so a write is never lost. Healthy workloads never take this.
+fn ns_force_place(store: &NodeStore, id: Int, node: BTreeNode) {
+  store.frames.push(node);
+  store.frame_ids.push(id);
+  store.frame_dirty.push(store.dirty[id]);
+  store.frame_ref.push(true);
+  store.capacity = store.capacity + 1;
+  store.slots[id] = store.capacity - 1;
+  store.stats[2] = store.stats[2] + 1;
+}
+
+// Read a node copy. Paged mode loads on miss; a corrupt/missing page counts
+// and yields an empty leaf (the checkpoint refuses to write a corrupt store).
 pub fn ns_get(store: &NodeStore, idx: Int) -> BTreeNode {
-  return store.nodes[idx];
+  if !store.paged {
+    return store.nodes[idx];
+  }
+  if idx < 0 || idx >= store.count {
+    store.stats[4] = store.stats[4] + 1;
+    return new_leaf_node();
+  }
+  let f = store.slots[idx];
+  if f >= 0 {
+    store.frame_ref[f] = true;
+    store.stats[0] = store.stats[0] + 1;
+    return store.frames[f];
+  }
+  store.stats[1] = store.stats[1] + 1;
+  match block_store_read(&store.bs, idx) {
+    Some(p) => {
+      match node_page_decode(&p.payload) {
+        Some(nd) => {
+          if ns_place(store, idx, nd) {
+            return store.frames[store.slots[idx]];
+          }
+          return nd;
+        }
+        None => {
+          store.stats[4] = store.stats[4] + 1;
+          return new_leaf_node();
+        }
+      }
+    }
+    None => {
+      store.stats[4] = store.stats[4] + 1;
+      return new_leaf_node();
+    }
+  }
 }
 
 // Overwrite a node in place and mark it dirty. M3 discipline: the target MUST
 // be writable for the current pin state -- i.e. it was produced by `ns_push`
 // (which stamps `pin_clock + 1`) or by `cow_shadow` in the same operation.
 pub fn ns_set(store: &mut NodeStore, idx: Int, node: BTreeNode) {
+  if store.paged {
+    var f = store.slots[idx];
+    if f < 0 {
+      if ns_place(store, idx, node) {
+        f = store.slots[idx];
+      } else {
+        ns_force_place(store, idx, node);
+        f = store.slots[idx];
+      }
+    }
+    store.frames[f] = node;
+    store.frame_dirty[f] = true;
+    store.frame_ref[f] = true;
+    store.dirty[idx] = true;
+    return;
+  }
   store.nodes[idx] = node;
   store.dirty[idx] = true;
 }
@@ -57,10 +293,20 @@ pub fn ns_set(store: &mut NodeStore, idx: Int, node: BTreeNode) {
 // Append a node (new nodes start dirty); returns its index. The birth epoch
 // `pin_clock + 1` marks it mutable until a newer pin exists (M3).
 pub fn ns_push(store: &mut NodeStore, node: BTreeNode) -> Int {
-  store.nodes.push(node);
+  let id = store.count;
+  store.count = store.count + 1;
   store.dirty.push(true);
   store.births.push(store.pin_clock + 1);
-  return store.nodes.len() - 1;
+  store.live.push(true);
+  if store.paged {
+    store.slots.push(-1);
+    if !ns_place(store, id, node) {
+      ns_force_place(store, id, node);
+    }
+  } else {
+    store.nodes.push(node);
+  }
+  return id;
 }
 
 // Deep copy of a node that OWNS its storage. Struct/Vec assignment shares
@@ -109,7 +355,7 @@ fn node_deep_copy(node: &BTreeNode) -> BTreeNode {
 fn cow_shadow(tree: &mut BTree, idx: Int) -> Int {
   if tree.store.pins.len() == 0 { return idx; }
   if idx < 0 { return idx; }
-  if idx >= tree.store.nodes.len() { return idx; }
+  if idx >= tree.store.count { return idx; }
   if tree.store.births[idx] > tree.store.pin_clock { return idx; }
   let base = ns_get(&tree.store, idx);
   let copy = node_deep_copy(&base);
@@ -119,9 +365,18 @@ fn cow_shadow(tree: &mut BTree, idx: Int) -> Int {
 // Mark every node clean after a successful snapshot commit (or after a load).
 pub fn ns_mark_clean(store: &mut NodeStore) {
   var i = 0;
-  while i < store.dirty.len() {
+  while i < store.count {
     store.dirty[i] = false;
     i = i + 1;
+  }
+  if store.paged {
+    var f = 0;
+    while f < store.capacity {
+      store.frame_dirty[f] = false;
+      store.frame_ref[f] = false;
+      f = f + 1;
+    }
+    store.write_gen = store.bs.header.committed_generation + 1;
   }
 }
 
@@ -174,9 +429,7 @@ pub fn btree_new(order: Int) -> BTree
   var nodes = Vec[BTreeNode].new();
   var dirty = Vec[Bool].new();
   var births = Vec[Int].new();
-  var pins = Vec[DBSnapshot].new();
-  var store = NodeStore{ nodes: nodes, dirty: dirty, births: births, pins: pins,
-                         pin_clock: 0, compaction_deferred: 0 };
+  var store = ns_new_resident(nodes, dirty, births);
   let leaf = new_leaf_node();
   // The initial leaf must be persisted by the first checkpoint.
   let _ = ns_push(&mut store, leaf);

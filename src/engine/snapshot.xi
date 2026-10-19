@@ -58,6 +58,8 @@ const SNAP_PAGE_MAX_BYTES: Int = 4096;
 pub const SNAP_PAGE_STRIDE: Int = 4294967296;
 // Compact once the raw log grows past node_count + this slack.
 const SNAP_COMPACT_SLACK: Int = 64;
+// M1.1b pager: node cache frames kept decoded per handle (4096-B pages).
+const SNAP_PAGER_CAPACITY: Int = 256;
 
 fn snap_page_id_for(gen: Int, node_idx: Int) -> Int {
   return gen * SNAP_PAGE_STRIDE + node_idx + 1;
@@ -179,14 +181,14 @@ fn snap_resolve_pages(pages: &Vec[Page], node_count: Int,
 fn snap_compact(path: Str, tree: &mut BTree, checkpoint_lsn: Int, gen: Int) -> Bool {
   var pages = Vec[Page].new();
   var i = 0;
-  while i < tree.store.nodes.len() {
-    let node = tree.store.nodes[i];
+  while i < ns_len(&tree.store) {
+    let node = ns_get(&tree.store, i);
     let data = node_page_bytes(&node);
     if data.len() > SNAP_PAGE_MAX_BYTES { return false; }
     pages.push(Page.new(snap_page_id_for(gen, i), data, page_compute_checksum(&data)));
     i = i + 1;
   }
-  let hdr = snap_header_page_bytes(tree.root, tree.order, tree.store.nodes.len(),
+  let hdr = snap_header_page_bytes(tree.root, tree.order, ns_len(&tree.store),
                                    checkpoint_lsn, gen);
   if hdr.len() > SNAP_PAGE_MAX_BYTES { return false; }
   pages.push(Page.new(0, hdr, page_compute_checksum(&hdr)));
@@ -235,7 +237,7 @@ fn snap_flush(path: Str, tree: &mut BTree, checkpoint_lsn: Int, allow_compact: B
 
   let gen = prior_gen + 1;
   let entries = page_log_len(&pf);
-  if entries > tree.store.nodes.len() + SNAP_COMPACT_SLACK {
+  if entries > ns_len(&tree.store) + SNAP_COMPACT_SLACK {
     if !allow_compact {
       // M3: compaction would rewrite one version per node, dropping the older
       // generations a live pin may still need. Defer; the next checkpoint
@@ -248,11 +250,11 @@ fn snap_flush(path: Str, tree: &mut BTree, checkpoint_lsn: Int, allow_compact: B
   }
 
   var i = 0;
-  while i < tree.store.nodes.len() {
+  while i < ns_len(&tree.store) {
     var should_write = write_all;
     if !should_write { should_write = tree.store.dirty[i]; }
     if should_write {
-      let node = tree.store.nodes[i];
+      let node = ns_get(&tree.store, i);
       let data = node_page_bytes(&node);
       if data.len() > SNAP_PAGE_MAX_BYTES { return -1; }
       let pg = Page.new(snap_page_id_for(gen, i), data, page_compute_checksum(&data));
@@ -261,7 +263,7 @@ fn snap_flush(path: Str, tree: &mut BTree, checkpoint_lsn: Int, allow_compact: B
     i = i + 1;
   }
 
-  let hdr = snap_header_page_bytes(tree.root, tree.order, tree.store.nodes.len(),
+  let hdr = snap_header_page_bytes(tree.root, tree.order, ns_len(&tree.store),
                                    checkpoint_lsn, gen);
   if hdr.len() > SNAP_PAGE_MAX_BYTES { return -1; }
   let hp = Page.new(0, hdr, page_compute_checksum(&hdr));
@@ -341,9 +343,7 @@ fn snap_load(path: Str) -> Option[Snapshot] {
     births.push(0);
     di = di + 1;
   }
-  var pins = Vec[DBSnapshot].new();
-  var store = NodeStore{ nodes: nodes, dirty: dirty, births: births, pins: pins,
-                         pin_clock: 0, compaction_deferred: 0 };
+  var store = ns_new_resident(nodes, dirty, births);
   var tree = BTree{ root: meta.root, order: meta.order, store: store };
   return Some(Snapshot{ tree: tree, checkpoint_lsn: meta.checkpoint_lsn, generation: meta.generation });
 }
@@ -386,13 +386,22 @@ fn snap_load_v2(path: Str) -> Option[Snapshot] {
   if root < 0 { return None; }
   if root >= node_count { return None; }
 
-  var nodes = Vec[BTreeNode].new();
+  // Strict validation pass: every node page must decode and every child
+  // pointer must be in range. Nodes are discarded -- the pager decodes on
+  // demand (M1.1b); only the block directory and O(n) metadata stay.
   var i = 0;
   while i < node_count {
     match block_store_read(&bs, i) {
       Some(p) => {
         match node_page_decode(&p.payload) {
-          Some(nd) => { nodes.push(nd); }
+          Some(nd) => {
+            var c = 0;
+            while c < nd.children.len() {
+              if nd.children[c] < 0 { return None; }
+              if nd.children[c] >= node_count { return None; }
+              c = c + 1;
+            }
+          }
           None => { return None; }
         }
       }
@@ -400,30 +409,7 @@ fn snap_load_v2(path: Str) -> Option[Snapshot] {
     }
     i = i + 1;
   }
-
-  var j = 0;
-  while j < nodes.len() {
-    let nd = nodes[j];
-    var c = 0;
-    while c < nd.children.len() {
-      if nd.children[c] < 0 { return None; }
-      if nd.children[c] >= node_count { return None; }
-      c = c + 1;
-    }
-    j = j + 1;
-  }
-
-  var dirty = Vec[Bool].new();
-  var births = Vec[Int].new();
-  var di = 0;
-  while di < nodes.len() {
-    dirty.push(false);
-    births.push(0);
-    di = di + 1;
-  }
-  var pins = Vec[DBSnapshot].new();
-  var store = NodeStore{ nodes: nodes, dirty: dirty, births: births, pins: pins,
-                         pin_clock: 0, compaction_deferred: 0 };
+  let store = ns_new_paged(bs, node_count, SNAP_PAGER_CAPACITY);
   var tree = BTree{ root: root, order: order, store: store };
   return Some(Snapshot{ tree: tree, checkpoint_lsn: bs.header.checkpoint_lsn,
                         generation: bs.header.committed_generation });
@@ -437,8 +423,8 @@ fn v2_rewrite_all(path: Str, tree: &mut BTree, gen: Int, checkpoint_lsn: Int) ->
   match io.remove_file(tmp) { Ok(_) => {} Err(_) => {} }
   var bs = block_store_open(tmp);
   var i = 0;
-  while i < tree.store.nodes.len() {
-    let node = tree.store.nodes[i];
+  while i < ns_len(&tree.store) {
+    let node = ns_get(&tree.store, i);
     let data = node_page_bytes(&node);
     if block_store_put(&mut bs, gen, i, &data) < 0 { return false; }
     i = i + 1;
@@ -446,7 +432,7 @@ fn v2_rewrite_all(path: Str, tree: &mut BTree, gen: Int, checkpoint_lsn: Int) ->
   let h = BlockHeader{
     root: tree.root,
     order: tree.order,
-    node_count: tree.store.nodes.len(),
+    node_count: ns_len(&tree.store),
     checkpoint_lsn: checkpoint_lsn,
     committed_generation: gen,
     block_count: bs.block_count,
@@ -456,6 +442,13 @@ fn v2_rewrite_all(path: Str, tree: &mut BTree, gen: Int, checkpoint_lsn: Int) ->
   match io.rename(tmp, path) {
     Ok(_) => {}
     Err(_) => { return false; }
+  }
+  // A paged tree read its nodes from THIS path; the rename replaced the
+  // inode, so rebind the pager to the fresh directory (same ids, new gen).
+  if tree.store.paged {
+    let fresh = block_store_open(path);
+    tree.store.bs = fresh;
+    tree.store.write_gen = fresh.header.committed_generation + 1;
   }
   return true;
 }
@@ -480,6 +473,50 @@ fn snap_flush_v2(path: Str, tree: &mut BTree, checkpoint_lsn: Int, allow_compact
     return -1;
   }
 
+  // M1.1b paged tree: the NodeStore owns the v2 container handle, so spills
+  // and checkpoint appends share one block_count (no dual-handle overwrite).
+  if tree.store.paged {
+    var pgen = 0;
+    if tree.store.bs.committed { pgen = tree.store.bs.header.committed_generation; }
+    let gen = pgen + 1;
+    if tree.store.bs.block_count > ns_len(&tree.store) + SNAP_COMPACT_SLACK {
+      if !allow_compact {
+        tree.store.compaction_deferred = tree.store.compaction_deferred + 1;
+      } else {
+        if v2_rewrite_all(path, tree, gen, checkpoint_lsn) {
+          ns_mark_clean(&mut tree.store);
+          return gen;
+        }
+        return -1;
+      }
+    }
+    // C-ORBIT-13 workaround: &mut tree.store.bs (3-level path) copies
+    // scalar/struct fields; mutate a local and write it back.
+    var bsw = tree.store.bs;
+    var pi = 0;
+    while pi < ns_len(&tree.store) {
+      if tree.store.dirty[pi] {
+        let pnode = ns_get(&tree.store, pi);
+        let pdata = node_page_bytes(&pnode);
+        if block_store_put(&mut bsw, gen, pi, &pdata) < 0 { return -1; }
+      }
+      pi = pi + 1;
+    }
+    let ph = BlockHeader{
+      root: tree.root,
+      order: tree.order,
+      node_count: ns_len(&tree.store),
+      checkpoint_lsn: checkpoint_lsn,
+      committed_generation: gen,
+      block_count: bsw.block_count,
+      next_page_id: 0,
+    };
+    if !block_store_commit(&mut bsw, &ph) { return -1; }
+    tree.store.bs = bsw;
+    ns_mark_clean(&mut tree.store);
+    return gen;
+  }
+
   var bs = block_store_open(path);
   var prior_gen = 0;
   var have_prior = false;
@@ -489,7 +526,7 @@ fn snap_flush_v2(path: Str, tree: &mut BTree, checkpoint_lsn: Int, allow_compact
   }
   let gen = prior_gen + 1;
 
-  if !have_prior || bs.block_count > tree.store.nodes.len() + SNAP_COMPACT_SLACK {
+  if !have_prior || bs.block_count > ns_len(&tree.store) + SNAP_COMPACT_SLACK {
     if have_prior && !allow_compact {
       // M3: the whole-file rewrite drops older block generations a live pin
       // may still need. Defer; append incrementally instead.
@@ -504,9 +541,9 @@ fn snap_flush_v2(path: Str, tree: &mut BTree, checkpoint_lsn: Int, allow_compact
   }
 
   var i = 0;
-  while i < tree.store.nodes.len() {
+  while i < ns_len(&tree.store) {
     if tree.store.dirty[i] {
-      let node = tree.store.nodes[i];
+      let node = ns_get(&tree.store, i);
       let data = node_page_bytes(&node);
       if block_store_put(&mut bs, gen, i, &data) < 0 { return -1; }
     }
@@ -515,7 +552,7 @@ fn snap_flush_v2(path: Str, tree: &mut BTree, checkpoint_lsn: Int, allow_compact
   let h = BlockHeader{
     root: tree.root,
     order: tree.order,
-    node_count: tree.store.nodes.len(),
+    node_count: ns_len(&tree.store),
     checkpoint_lsn: checkpoint_lsn,
     committed_generation: gen,
     block_count: bs.block_count,
@@ -596,7 +633,7 @@ pub fn db_file_checkpoint(db: &mut DBFile) -> Int {
 
   var payload = Vec[Int].new();
   payload.push(gen);
-  payload.push(db.tree.store.nodes.len());
+  payload.push(ns_len(&db.tree.store));
   payload.push(db.tree.order);
   let anchor = wal_file_append_tagged(&mut db.wal, WALOpKind.Checkpoint,
                                       snap_lsn, db.tree.root, payload, 0);

@@ -35,7 +35,7 @@ pub use xiom.db.engine.txn;
 // In-order walk collecting (key, payload) pairs of payload-bearing entries.
 fn collect_typed_inorder(tree: &BTree, node_idx: Int,
                          keys: &mut Vec[Int], pays: &mut Vec[Vec[Int]]) {
-  var node = tree.store.nodes[node_idx];
+  var node = ns_get(&tree.store, node_idx);
   if node.is_leaf {
     var i = 0;
     while i < node.keys.len() {

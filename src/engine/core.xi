@@ -681,7 +681,7 @@ pub fn db_file_guard(db: &DBFile) -> Bool {
 }
 // In-order (key, value) pair collection for index builds.
 pub fn btree_collect_pairs(tree: &BTree, node_idx: Int, keys: &mut Vec[Int], vals: &mut Vec[Int]) {
-  var node = tree.store.nodes[node_idx];
+  var node = ns_get(&tree.store, node_idx);
   if node.is_leaf {
     var i = 0;
     while i < node.keys.len() {

@@ -159,21 +159,23 @@ flowchart TD
 
 ## 7. Execution checklist
 
-- [ ] **A1 -- accessor-only refactor.** Replace all 47 direct
+- [x] **A1 -- accessor-only refactor.** Replace all 47 direct
   `tree.store.nodes[idx]` reads with `ns_get(&tree.store, idx)`; keep the
   resident implementation. Suite x1 both; no behavior change.
-- [ ] **A2 -- node codec move.** Move `SNAP_NODE_HEADER_BYTES`,
+- [x] **A2 -- node codec move.** Move `SNAP_NODE_HEADER_BYTES`,
   `snap_node_page_bytes`, `snap_decode_node` from `engine/snapshot.xi` to
   `index/btree.xi` (`btree_node_*`); snapshot calls the new names. Suite x1.
-- [ ] **A3 -- paged NodeStore.** Add `paged/bs/write_gen/slots/frames/...`;
+- [x] **A3 -- paged NodeStore.** Add `paged/bs/write_gen/slots/frames/...`;
   `ns_get/ns_set/ns_push/ns_len/ns_mark_clean` implement the read/write/spill
   paths. Keep `ns_new` resident default; add `ns_new_paged(bs, root, count,
   capacity)`. Suite x2 both + probe_pager (correctness + bounded counters).
-- [ ] **A4 -- snapshot integration.** `snap_load_v2` creates the paged store;
+- [x] **A4 -- snapshot integration.** `snap_load_v2` creates the paged store;
   `snap_flush_v2` uses `tree.store.bs` and writes dirty+live ids only;
   compaction skips retired ids. Crash windows: spill not committed after a
-  kill is ignored; committed checkpoint replays exactly. suite x2 both,
-  db_crash x2 both, fuzz.
+  kill is ignored; committed checkpoint replays exactly. Win suite 160/160
+  x2; keys 1..8 survive the second checkpoint/reopen. **C-ORBIT-13:**
+  &mut tree.store.bs (3-level path) copies -- use a local + write-back
+  (workaround landed). WSL suite + db_crash pending.
 - [ ] **A5 -- deferred free.** Retire points + `ns_release_pending` + pin
   epochs; probe asserts live count drops after checkpoint/compaction and
   snapshot reads stay exact. Suite x2 both + MVCC probe x2.
