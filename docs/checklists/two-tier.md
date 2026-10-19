@@ -17,20 +17,19 @@
 
 ## Gate G-START -- Station work may begin only when ALL of these hold
 
-- [~] **M1.1b pager** -- lazy node load + bounded cache + deferred-free
-      allocator over `read_at`/`write_at` (task order #3; the keystone for
-      both tiers). Design/checklist: `docs/checklists/m1-1b-pager.md`;
-      reference rows 1.1-1.3 re-crawled 2026-10-19.
-- [~] **M3 remainder** -- multi-process advisory locks (`file_lock`),
-      cross-process pin semantics, version GC tied to compaction
+- [~] **M1.1b pager** -- A1-A5 landed (lazy load, bounded cache, dirty
+      spill, deferred-free GC; pager suite 3/3). A6 = 1M-key memory soak +
+      BENCH memory row remains. Design: `docs/checklists/m1-1b-pager.md`.
+- [~] **M3 remainder** -- multi-process advisory locks (`file_lock`) +
+      cross-process pin semantics (version GC landed in M1.1b A5)
 - [x] **R1/R2 module split merged** -- engine facade + core/btree/snapshot/
       txn modules and the split suite + summing runners landed 2026-10-18
       (`08d351c`-`e04c3b9`; suite 160/160 x2 both at every step; zero
       consumer changes)
-- [ ] **Threads decision recorded** -- runtime threads (wave 139) vs
-      process-per-shard for station concurrency; one-page note in
-      `docs/ISOLATION.md`. Proposal: single engine actor + I/O threads,
-      process-per-shard for scale; in-engine threading later.
+- [x] **Threads decision recorded (2026-10-19)** -- engine-actor per
+      shard (no DBFile across threads) + process-per-shard scale; runtime
+      threads/mutex spike green both platforms (`probe_threads.xi`, 40k
+      increments). Note in `docs/ISOLATION.md`.
 
 ## Satellite track (product labeling; the engine itself is done per plan)
 

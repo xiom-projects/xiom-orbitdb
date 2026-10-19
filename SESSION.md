@@ -334,7 +334,18 @@ the v0.64.6 verdicts.
   (lane pin = v0.64.7 without the fix); at the next release adoption:
   merge `f779c23`, suite x2 both, close the item. Branch left in place.
   Relays head checked; no other lane items.
-**Updated:** 2026-10-19 (STATION ADMIN WEB UI -- phase 1 landed): the
+**Updated:** 2026-10-19 (ST0 THREADS DECISION RECORDED + runtime spike): the
+  Station concurrency decision is now explicit (docs/ISOLATION.md "Threads
+  decision"): **one engine-actor thread per `DBFile`/shard; a handle never
+  crosses threads**; scale-out is process-per-shard once M3 `file_lock` +
+  cross-process pins land; thread-per-connection sharing one handle is
+  deferred until in-engine synchronization + Send/Sync enforcement (m363).
+  Rationale: read paths mutate the pager cache, pins/txn state are
+  handle-local, and the stale-handle guard assumes one writer. Runtime
+  evidence: new `tests/probes/probe_threads.xi` -- 4 real OS threads x
+  10,000 mutex-guarded increments = 40,000 on **v0.64.8 Win + WSL**;
+  `xiom.thread.spawn` + `xiom.sync.mutex` are usable. G-START checklist:
+  threads decision [x]; remaining gates = M1.1b A6 soak + M3 file_lock.**Updated:** 2026-10-19 (STATION ADMIN WEB UI -- phase 1 landed): the
   owner approved the Pulse web admin as the recommended admin shape (a
   separate client, pgAdmin-style; native SDL3+ImGui deferred -- imgui is
   headless-only today). New `admin/` app source-composes the Satellite
@@ -2061,8 +2072,8 @@ documented fallback + re-test on the next release/package publish.
 5. **Station track (PLANNED, GATED -- `docs/checklists/two-tier.md`)**:
    satellite = today's release path; station (`station/`, ORBITWIRE v1,
    sessions, replication via WAL shipping, range sharding) may start only
-   after **G-START = M1.1b + M3 remainder (file_lock/cross-process pins) +
-   R1/R2 split + threads decision**; ST1 protocol spike -> ST2 single-node
+   after **G-START = M1.1b A6 + M3 remainder (file_lock/cross-process pins)
+   + R1/R2 split (done) + threads decision (done: engine-actor)**; ST1 protocol spike -> ST2 single-node
    core -> ST3 concurrency -> ST4 replication -> ST5 sharding -> ST6 ops ->
    ST7 league; optional ST8 PG-wire facade. Embedded release outranks it.
    ST1 begins with the Station reference crawl + matrix section 3 rows
