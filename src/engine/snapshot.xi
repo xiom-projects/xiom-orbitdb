@@ -9,6 +9,7 @@ module xiom.db.engine.snapshot
 
 use xiom.io;
 use xiom.db.wal_file;
+use xiom.db.index.node_page;
 use xiom.db.index.btree;
 use xiom.db.storage.page;
 use xiom.db.storage.page_file;
@@ -48,11 +49,8 @@ use xiom.db.engine;
 
 const SNAP_MAGIC: Int = 0x4F;       // 'O' -- snapshot page codec
 const SNAP_VERSION: Int = 1;        // header page version (unchanged)
-const SNAP_NODE_VERSION: Int = 2;   // node pages: + payload section (M5.3)
 const SNAP_KIND_HEADER: Int = 0x48; // 'H'
-const SNAP_KIND_NODE: Int = 0x4E;   // 'N'
 const SNAP_HEADER_BYTES: Int = 44;
-pub const SNAP_NODE_HEADER_BYTES: Int = 28;
 const SNAP_PAGE_MAX_BYTES: Int = 4096;
 // 2^32: page id = generation*STRIDE + node_idx + 1. The stride bounds a
 // generation's node ids; ids never collide across generations, so older
@@ -94,139 +92,6 @@ fn snap_header_page_bytes(root: Int, order: Int, node_count: Int,
   return out;
 }
 
-fn snap_node_page_bytes(node: &BTreeNode) -> Vec[Int] {
-  var out = Vec[Int].new();
-  out.push(SNAP_MAGIC);
-  out.push(SNAP_NODE_VERSION);
-  out.push(SNAP_KIND_NODE);
-  var leaf = 0;
-  if node.is_leaf { leaf = 1; }
-  out.push(leaf);
-  tuple_push_int_le(&mut out, node.keys.len());
-  tuple_push_int_le(&mut out, node.children.len());
-  tuple_push_int_le(&mut out, 0); // reserved
-  var i = 0;
-  while i < node.keys.len() {
-    tuple_push_int_le(&mut out, node.keys[i]);
-    i = i + 1;
-  }
-  i = 0;
-  while i < node.values.len() {
-    tuple_push_int_le(&mut out, node.values[i]);
-    i = i + 1;
-  }
-  i = 0;
-  while i < node.children.len() {
-    tuple_push_int_le(&mut out, node.children[i]);
-    i = i + 1;
-  }
-  // Payload section (node version 2): u64 LE count + per entry u64 LE length
-  // + bytes (the node-page family's integer width). Parallel to keys; empty
-  // = plain int entry.
-  tuple_push_int_le(&mut out, node.keys.len());
-  i = 0;
-  while i < node.keys.len() {
-    let p = node_payload(node, i);
-    tuple_push_int_le(&mut out, p.len());
-    var k = 0;
-    while k < p.len() {
-      out.push(p[k] & 0xFF);
-      k = k + 1;
-    }
-    i = i + 1;
-  }
-  return out;
-}
-
-// Strict decode: magic/version/kind, exact length, sane flags and counts.
-// Accepts node version 1 (legacy: no payload section -> empty payloads) and
-// version 2 (payload section). Returns None on any violation -- a snapshot
-// either restores whole or not.
-fn snap_decode_node(data: &Vec[Int]) -> Option[BTreeNode] {
-  if data.len() < SNAP_NODE_HEADER_BYTES { return None; }
-  if data[0] != SNAP_MAGIC { return None; }
-  let version = data[1];
-  if version != SNAP_VERSION && version != SNAP_NODE_VERSION { return None; }
-  if data[2] != SNAP_KIND_NODE { return None; }
-  let key_count = tuple_read_int_le(data, 4);
-  let child_count = tuple_read_int_le(data, 12);
-  if key_count < 0 { return None; }
-  if child_count < 0 { return None; }
-
-  let base = SNAP_NODE_HEADER_BYTES + 16 * key_count + 8 * child_count;
-  if version == SNAP_NODE_VERSION {
-    if data.len() < base + 8 { return None; }
-    let pcount = tuple_read_int_le(data, base);
-    if pcount != key_count { return None; }
-    var at = base + 8;
-    var j = 0;
-    while j < pcount {
-      if at + 8 > data.len() { return None; }
-      let plen = tuple_read_int_le(data, at);
-      if plen < 0 { return None; }
-      at = at + 8 + plen;
-      if at > data.len() { return None; }
-      j = j + 1;
-    }
-    if at != data.len() { return None; }
-  } else {
-    if data.len() != base { return None; }
-  }
-
-  var keys = Vec[Int].new();
-  var values = Vec[Int].new();
-  var children = Vec[Int].new();
-  var at = SNAP_NODE_HEADER_BYTES;
-  var i = 0;
-  while i < key_count {
-    keys.push(tuple_read_int_le(data, at));
-    at = at + 8;
-    i = i + 1;
-  }
-  i = 0;
-  while i < key_count {
-    values.push(tuple_read_int_le(data, at));
-    at = at + 8;
-    i = i + 1;
-  }
-  i = 0;
-  while i < child_count {
-    children.push(tuple_read_int_le(data, at));
-    at = at + 8;
-    i = i + 1;
-  }
-
-  var payloads = Vec[Vec[Int]].new();
-  if version == SNAP_NODE_VERSION {
-    var at2 = base + 8;
-    var j2 = 0;
-    while j2 < key_count {
-      let plen2 = tuple_read_int_le(data, at2);
-      at2 = at2 + 8;
-      var p = Vec[Int].new();
-      var k2 = 0;
-      while k2 < plen2 {
-        p.push(data[at2 + k2] & 0xFF);
-        k2 = k2 + 1;
-      }
-      payloads.push(p);
-      at2 = at2 + plen2;
-      j2 = j2 + 1;
-    }
-  } else {
-    var j3 = 0;
-    while j3 < key_count {
-      payloads.push(Vec[Int].new());
-      j3 = j3 + 1;
-    }
-  }
-
-  let leaf = data[3] == 1;
-  if leaf && child_count != 0 { return None; }
-  if !leaf && child_count == 0 { return None; }
-  return Some(BTreeNode{ keys: keys, values: values, payloads: payloads,
-                         children: children, is_leaf: leaf });
-}
 
 fn snap_decode_header(data: &Vec[Int]) -> Option[SnapshotMeta] {
   if data.len() < SNAP_HEADER_BYTES { return None; }
@@ -316,7 +181,7 @@ fn snap_compact(path: Str, tree: &mut BTree, checkpoint_lsn: Int, gen: Int) -> B
   var i = 0;
   while i < tree.store.nodes.len() {
     let node = tree.store.nodes[i];
-    let data = snap_node_page_bytes(&node);
+    let data = node_page_bytes(&node);
     if data.len() > SNAP_PAGE_MAX_BYTES { return false; }
     pages.push(Page.new(snap_page_id_for(gen, i), data, page_compute_checksum(&data)));
     i = i + 1;
@@ -388,7 +253,7 @@ fn snap_flush(path: Str, tree: &mut BTree, checkpoint_lsn: Int, allow_compact: B
     if !should_write { should_write = tree.store.dirty[i]; }
     if should_write {
       let node = tree.store.nodes[i];
-      let data = snap_node_page_bytes(&node);
+      let data = node_page_bytes(&node);
       if data.len() > SNAP_PAGE_MAX_BYTES { return -1; }
       let pg = Page.new(snap_page_id_for(gen, i), data, page_compute_checksum(&data));
       if !page_log_append(&pf, pg) { return -1; }
@@ -442,7 +307,7 @@ fn snap_load(path: Str) -> Option[Snapshot] {
   var i = 0;
   while i < meta.node_count {
     let pg = best[i];
-    let dec = snap_decode_node(&pg.data);
+    let dec = node_page_decode(&pg.data);
     match dec {
       None => { return None; }
       Some(n) => {
@@ -484,7 +349,7 @@ fn snap_load(path: Str) -> Option[Snapshot] {
 }
 
 // --- v2 snapshot container (byte blocks; M1.2 S3) --------------------------
-// The node payload codec is unchanged (`snap_node_page_bytes`); only the
+// The node payload codec is unchanged (`node_page_bytes`, node_page module); only the
 // container changes: node index = block page_id, snapshot generation = block
 // generation, and the block store's header slot carries the meta (root,
 // order, node_count, checkpoint_lsn). Reads auto-detect by first byte.
@@ -526,7 +391,7 @@ fn snap_load_v2(path: Str) -> Option[Snapshot] {
   while i < node_count {
     match block_store_read(&bs, i) {
       Some(p) => {
-        match snap_decode_node(&p.payload) {
+        match node_page_decode(&p.payload) {
           Some(nd) => { nodes.push(nd); }
           None => { return None; }
         }
@@ -574,7 +439,7 @@ fn v2_rewrite_all(path: Str, tree: &mut BTree, gen: Int, checkpoint_lsn: Int) ->
   var i = 0;
   while i < tree.store.nodes.len() {
     let node = tree.store.nodes[i];
-    let data = snap_node_page_bytes(&node);
+    let data = node_page_bytes(&node);
     if block_store_put(&mut bs, gen, i, &data) < 0 { return false; }
     i = i + 1;
   }
@@ -642,7 +507,7 @@ fn snap_flush_v2(path: Str, tree: &mut BTree, checkpoint_lsn: Int, allow_compact
   while i < tree.store.nodes.len() {
     if tree.store.dirty[i] {
       let node = tree.store.nodes[i];
-      let data = snap_node_page_bytes(&node);
+      let data = node_page_bytes(&node);
       if block_store_put(&mut bs, gen, i, &data) < 0 { return -1; }
     }
     i = i + 1;

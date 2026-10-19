@@ -17,6 +17,7 @@ use xiom.db.storage.page_file;
 use xiom.db.storage.block;
 use xiom.db.storage.block_store;
 use xiom.db.storage.byte_io;
+use xiom.db.index.node_page;
 use xiom.db.storage.tuple;
 use xiom.db.error;
 use xiom.db.contracts;
@@ -438,7 +439,7 @@ pub fn db_file_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
 pub fn db_file_typed_payload_max(order: Int) -> Int {
   if order < 3 { return 0; }
   let keys = order - 1;
-  let overhead = SNAP_NODE_HEADER_BYTES + 24 * keys + 8 * order;
+  let overhead = NODE_PAGE_HEADER_BYTES + 24 * keys + 8 * order;
   let room = block.block_payload_capacity() - overhead;
   if room <= 0 { return 0; }
   let per = room / keys;

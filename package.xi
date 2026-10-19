@@ -37,6 +37,7 @@ package xiom_orbitdb {
     "xiom.db.error",
     "xiom.db.ids",
     "xiom.db.index.btree",
+    "xiom.db.index.node_page",
     "xiom.db.legacy.btree",
     "xiom.db.legacy.btree_stdlib",
     "xiom.db.legacy.query",
