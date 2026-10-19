@@ -415,24 +415,93 @@ fn snap_load_v2(path: Str) -> Option[Snapshot] {
                         generation: bs.header.committed_generation });
 }
 
-// Full v2 write from the TREE (all nodes + header commit) into a temp file,
-// then one atomic rename. Used for migration (v1 -> v2), format flips, and
-// compaction. The original file is untouched until the rename succeeds.
+// Full v2 write from the TREE into a temp file, then one atomic rename. Used
+// for migration (v1 -> v2), format flips, and compaction. For a paged tree
+// with no pins this is a GC compaction: only nodes reachable from the live
+// root are written, with dense ids (retired/abandoned nodes are dropped);
+// the pager is reset to the new id space. Resident trees keep the all-node
+// rewrite (v1 legacy handles; the next reopen loads a paged store).
 fn v2_rewrite_all(path: Str, tree: &mut BTree, gen: Int, checkpoint_lsn: Int) -> Bool {
   let tmp = path + ".rw";
   match io.remove_file(tmp) { Ok(_) => {} Err(_) => {} }
   var bs = block_store_open(tmp);
+  let n = ns_len(&tree.store);
+  let do_gc = tree.store.paged && tree.store.pins.len() == 0;
+  var new_root = tree.root;
+  var new_count = n;
   var i = 0;
-  while i < ns_len(&tree.store) {
-    let node = ns_get(&tree.store, i);
-    let data = node_page_bytes(&node);
-    if block_store_put(&mut bs, gen, i, &data) < 0 { return false; }
-    i = i + 1;
+
+  if do_gc {
+    var reach = Vec[Bool].new();
+    i = 0;
+    while i < n {
+      reach.push(false);
+      i = i + 1;
+    }
+    // BFS from the live root (a growing stack + cursor; Vec.pop is Option).
+    var stack = Vec[Int].new();
+    stack.push(tree.root);
+    var si = 0;
+    while si < stack.len() {
+      let idx = stack[si];
+      si = si + 1;
+      if idx < 0 || idx >= n { return false; }
+      if !reach[idx] {
+        reach[idx] = true;
+        let node = ns_get(&tree.store, idx);
+        var c = 0;
+        while c < node.children.len() {
+          stack.push(node.children[c]);
+          c = c + 1;
+        }
+      }
+    }
+    var remap = Vec[Int].new();
+    i = 0;
+    while i < n {
+      remap.push(-1);
+      i = i + 1;
+    }
+    new_count = 0;
+    i = 0;
+    while i < n {
+      if reach[i] {
+        remap[i] = new_count;
+        new_count = new_count + 1;
+      }
+      i = i + 1;
+    }
+    if new_count < 1 { return false; }
+    new_root = remap[tree.root];
+    if new_root < 0 { return false; }
+    i = 0;
+    while i < n {
+      if reach[i] {
+        var node = ns_get(&tree.store, i);
+        var c = 0;
+        while c < node.children.len() {
+          node.children[c] = remap[node.children[c]];
+          c = c + 1;
+        }
+        let data = node_page_bytes(&node);
+        if block_store_put(&mut bs, gen, remap[i], &data) < 0 { return false; }
+      }
+      i = i + 1;
+    }
+  } else {
+    i = 0;
+    while i < n {
+      let node = ns_get(&tree.store, i);
+      let data = node_page_bytes(&node);
+      if block_store_put(&mut bs, gen, i, &data) < 0 { return false; }
+      i = i + 1;
+    }
   }
+
   let h = BlockHeader{
-    root: tree.root,
+    root: new_root,
     order: tree.order,
-    node_count: ns_len(&tree.store),
+    node_count: new_count,
     checkpoint_lsn: checkpoint_lsn,
     committed_generation: gen,
     block_count: bs.block_count,
@@ -443,9 +512,13 @@ fn v2_rewrite_all(path: Str, tree: &mut BTree, gen: Int, checkpoint_lsn: Int) ->
     Ok(_) => {}
     Err(_) => { return false; }
   }
-  // A paged tree read its nodes from THIS path; the rename replaced the
-  // inode, so rebind the pager to the fresh directory (same ids, new gen).
-  if tree.store.paged {
+  if do_gc {
+    let fresh = block_store_open(path);
+    ns_reset_paged(&mut tree.store, fresh, new_count);
+    tree.root = new_root;
+  } else if tree.store.paged {
+    // A paged tree read its nodes from THIS path; the rename replaced the
+    // inode, so rebind the pager to the fresh directory (same ids, new gen).
     let fresh = block_store_open(path);
     tree.store.bs = fresh;
     tree.store.write_gen = fresh.header.committed_generation + 1;
@@ -490,15 +563,16 @@ fn snap_flush_v2(path: Str, tree: &mut BTree, checkpoint_lsn: Int, allow_compact
         return -1;
       }
     }
-    // C-ORBIT-13 workaround: &mut tree.store.bs (3-level path) copies
-    // scalar/struct fields; mutate a local and write it back.
-    var bsw = tree.store.bs;
+    // Every append goes through the store's REAL BlockStore (ns_bs_*): cache
+    // evictions during this loop spill and bump the same block_count, so the
+    // checkpoint's header and blocks stay consistent. (C-ORBIT-13 forbids a
+    // direct `&mut tree.store.bs` at this depth; the helpers are 2-level.)
     var pi = 0;
     while pi < ns_len(&tree.store) {
       if tree.store.dirty[pi] {
         let pnode = ns_get(&tree.store, pi);
         let pdata = node_page_bytes(&pnode);
-        if block_store_put(&mut bsw, gen, pi, &pdata) < 0 { return -1; }
+        if ns_bs_put(&tree.store, gen, pi, &pdata) < 0 { return -1; }
       }
       pi = pi + 1;
     }
@@ -508,12 +582,12 @@ fn snap_flush_v2(path: Str, tree: &mut BTree, checkpoint_lsn: Int, allow_compact
       node_count: ns_len(&tree.store),
       checkpoint_lsn: checkpoint_lsn,
       committed_generation: gen,
-      block_count: bsw.block_count,
+      block_count: ns_bs_block_count(&tree.store),
       next_page_id: 0,
     };
-    if !block_store_commit(&mut bsw, &ph) { return -1; }
-    tree.store.bs = bsw;
+    if !ns_bs_commit(&tree.store, &ph) { return -1; }
     ns_mark_clean(&mut tree.store);
+    ns_release_pending(&mut tree.store);
     return gen;
   }
 
@@ -560,6 +634,7 @@ fn snap_flush_v2(path: Str, tree: &mut BTree, checkpoint_lsn: Int, allow_compact
   };
   if !block_store_commit(&mut bs, &h) { return -1; }
   ns_mark_clean(&mut tree.store);
+  ns_release_pending(&mut tree.store);
   return gen;
 }
 
@@ -698,15 +773,15 @@ fn db_file_pin_index(db: &DBFile, id: Int) -> Int {
 pub fn db_file_snapshot_begin(db: &mut DBFile) -> DBSnapshot {
   db.tree.store.pin_clock = db.tree.store.pin_clock + 1;
   var pin = DBSnapshot{ id: db.tree.store.pin_clock, root: db.tree.root,
+                        pin_epoch: db.tree.store.pin_clock,
                         lsn: wal_file_next_lsn(&db.wal) - 1,
                         generation: db.snap_generation };
   db.tree.store.pins.push(pin);
   return pin;
 }
 
-// Release a pin (false for an unknown id). Writes may then mutate its
-// versions in place again; the arena keeps the old nodes as garbage until the
-// M1.1b free list exists.
+// Release a pin (false for an unknown id). Retired versions may now be
+// released; a later checkpoint GC-compacts them out of the v2 file.
 pub fn db_file_snapshot_end(db: &mut DBFile, id: Int) -> Bool {
   let at = db_file_pin_index(db, id);
   if at < 0 { return false; }
@@ -716,6 +791,7 @@ pub fn db_file_snapshot_end(db: &mut DBFile, id: Int) -> Bool {
     i = i + 1;
   }
   db.tree.store.pins.pop();
+  btree_release_pending(&mut db.tree);
   return true;
 }
 

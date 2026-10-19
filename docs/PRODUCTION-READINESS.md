@@ -374,8 +374,11 @@ Scoreboard changelog:
   + x2 WSL**, db_crash 25/25 x2 both, probes x2 both, fuzz both, hybrid
   full 36 x2 both + crash 5/5 x2 both. **C-ORBIT-13** found and worked
   around (3-level `&mut` path copies; filed `REL-20261019-1209-orbitdb`).
-  A5 row stays WIP: deferred free/version GC (A5) and the 1M-key memory
-  soak are still open.
+  **A5 deferred free/version GC landed (same day):** retire points + pin
+  epochs + reachability GC with dense renumbering; pager suite is now 3/3
+  (pin churn -> release -> GC shrink -> reopen) and the full battery is
+  suite **163/163 x2 both**, db_crash 25/25 x2 both, probes/fuzz/hybrid
+  green. A5 row stays WIP only for the 1M-key memory soak.
 
 ## A. Correctness & data structures (20)
 
@@ -385,7 +388,7 @@ Scoreboard changelog:
 | A2 | B-tree delete borrow/merge invariants (all key counts valid, uniform leaf depth) | 4 | OK | `probe_btree_churn` structural validator; 20k ops x orders 3/4/5/6 + seed matrix (order-3 empty-chain regime fixed 2026-10-10: predecessor/successor OOB, fill_child merge, min/max; reproducer order 3 / keyspace 16 / seed 777) |
 | A3 | Byte-packed tuple codec with strict decode + budget | 4 | OK | `probe_tuple_codec` KAT/extremes/rejects; suite 99/99 |
 | A4 | Free-space map hardening (best-fit, invariants, model soak) | 4 | OK | `probe_fsm` (use/release/find vs model, invariant checks, 50k ops x 256 pages) + suite best-fit/clamp tests |
-| A5 | Node-per-page B-tree | 4 | WIP | durable node pages + incremental generation-committed flush; **v2 pager (M1.1b A1-A4, 2026-10-19)**: lazy load + 256-frame clock cache + dirty spill, suite pager 2/2. Open: deferred free/version GC + 1M-key memory soak |
+| A5 | Node-per-page B-tree | 4 | WIP | durable node pages + incremental generation-committed flush; **v2 pager (M1.1b A1-A5, 2026-10-19)**: lazy load + 256-frame cache + dirty spill + deferred-free GC compaction (reachability renumber), pager suite 3/3. Open: 1M-key memory soak |
 | | *Partial credit:* CRC32C integrity aids A3/A5 | +0 | -- | counted in B |
 
 ## B. Durability & crash safety (20)

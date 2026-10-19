@@ -146,15 +146,21 @@ flowchart TD
 
 ## 6. Deferred free
 
-- Retire points: `cow_shadow` (old id), delete/merge/borrow that drops a node
-  id (if any), and snapshot-version GC. Retire records
-  `pending_epoch = pin_clock` and `live[id] = false`.
-- `ns_release_pending(store)` runs at `db_file_snapshot_end`, at checkpoint
-  commit, and on open: release ids whose `pending_epoch < min(active
-  pin_epochs)` (or all when no pins). Released ids stay `live = false` and
-  are skipped by the dirty scan and by compaction.
-- `block_store_compact` iterates only live ids; `block_count` shrinks to
-  `2 + live_count`. Node ids remain monotone; no ABA against pinned roots.
+**As built (A5, 2026-10-19).**
+
+- Retire points: `cow_shadow` (old id), `split_root` (old root),
+  `merge_children` (folded right child + collapsed root). Retire records
+  `pending_epoch = pin_clock` and `live[id] = false`. **Dirty is NOT cleared**
+  on retire: a conservative retire must never suppress a flush. Retired ids
+  keep their page valid until GC.
+- `ns_release_pending(store)` runs at `db_file_snapshot_end` (via
+  `btree_release_pending(&mut db.tree)` — a 3-level `&mut db.tree.store`
+  would copy under C-ORBIT-13) and after checkpoint commits: release ids
+  whose `pending_epoch < min(active pin_epochs)` (or all when no pins).
+- GC compaction (`v2_rewrite_all` for a paged tree with no pins): BFS from
+  the live root, dense id remap, write only reachable nodes, commit, rename,
+  `ns_reset_paged`. Reachability — not the `live` hint — decides what is
+  dropped, so a wrong retire cannot lose a reachable node.
 - `NodeStore.dirty.len()` / metadata remain O(n) (bool + int vectors); the
   node STRUCTS are the bounded part. A 1M-node tree keeps ~24-32 MB of
   metadata, well below the full arena.
@@ -178,10 +184,10 @@ flowchart TD
   x2; keys 1..8 survive the second checkpoint/reopen. **C-ORBIT-13:**
   &mut tree.store.bs (3-level path) copies -- use a local + write-back
   (workaround landed). WSL suite + db_crash pending.
-- [ ] **A5 -- deferred free (NEXT).** Retire points + `ns_release_pending` + pin
+- [x] **A5 -- deferred free.** Retire points + `ns_release_pending` + pin
   epochs; probe asserts live count drops after checkpoint/compaction and
   snapshot reads stay exact. Suite x2 both + MVCC probe x2.
-- [~] **A6 -- evidence + docs.** (battery green; BENCH-1/soak note pending) probe_pager + suite pager coverage; update
+- [~] **A6 -- evidence + docs.** (battery green: suite 163/163 x2 both, crash 25/25 x2 both, probes/fuzz/hybrid; 1M-key soak + BENCH-1 memory row pending) probe_pager + suite pager coverage; update
   ARCHITECTURE (NodeStore contract), MVCC (pin epochs), READINESS changelog;
   BENCH-1 memory note (bounded cache) and a soak at the wrap. Suite x2 both,
   crash x2 both, fuzz, hybrid guard.

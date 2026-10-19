@@ -20,6 +20,7 @@ pub type DBSnapshot = {
   root: Int;
   lsn: Int;
   generation: Int;
+  pin_epoch: Int;
 }
 
 // NodeStore: the node arena behind a B-tree. `dirty[i]` marks node i as
@@ -314,6 +315,119 @@ pub fn ns_push(store: &mut NodeStore, node: BTreeNode) -> Int {
   return id;
 }
 
+// M1.1b deferred free. A retired id is no longer referenced by the LIVE tree
+// (COW shadow replaced it, a split_root/merge_children abandoned it). It may
+// still be reachable from a pin, so compaction only drops it once every pin
+// with `pin_epoch <= pending_epoch` has ended. `live=false` immediately keeps
+// dead nodes out of flushes; the id is never reused (no ABA).
+pub fn ns_retire(store: &mut NodeStore, idx: Int) {
+  if idx < 0 { return; }
+  if idx >= store.count { return; }
+  if !store.live[idx] { return; }
+  store.live[idx] = false;
+  // Do NOT clear dirty: a conservatively retired id may still be reachable;
+  // flushing it keeps its page valid until the reachability-based GC runs.
+  store.pending_free.push(idx);
+  store.pending_epoch.push(store.pin_clock);
+}
+
+// Drop pending entries that no live pin can reference. Released ids stay
+// `live=false`; their pages are reclaimed by the next GC compaction.
+pub fn ns_release_pending(store: &mut NodeStore) {
+  if store.pending_free.len() == 0 { return; }
+  var min_ep = store.pin_clock + 1;
+  var p = 0;
+  while p < store.pins.len() {
+    if store.pins[p].pin_epoch < min_ep { min_ep = store.pins[p].pin_epoch; }
+    p = p + 1;
+  }
+  var kept_free = Vec[Int].new();
+  var kept_ep = Vec[Int].new();
+  var i = 0;
+  while i < store.pending_free.len() {
+    let ep = store.pending_epoch[i];
+    if store.pins.len() > 0 && ep >= min_ep {
+      kept_free.push(store.pending_free[i]);
+      kept_ep.push(ep);
+    }
+    i = i + 1;
+  }
+  store.pending_free = kept_free;
+  store.pending_epoch = kept_ep;
+}
+
+// Block-store write/commit helpers. They keep the pager and the checkpoint on
+// ONE BlockStore instance: snapshot.xi cannot call lock_store_put(&mut
+// tree.store.bs, ...) directly because C-ORBIT-13 makes a >=3-level &mut
+// path operate on a copy (spills would then bump a different block_count).
+pub fn ns_bs_put(store: &NodeStore, generation: Int, page_id: Int,
+                      data: &Vec[Int]) -> Int {
+  return block_store_put(&mut store.bs, generation, page_id, data);
+}
+
+pub fn ns_bs_commit(store: &NodeStore, h: &BlockHeader) -> Bool {
+  return block_store_commit(&mut store.bs, h);
+}
+
+pub fn ns_bs_block_count(store: &NodeStore) -> Int {
+  return store.bs.block_count;
+}
+
+// BTree-level wrapper: callers holding a DBFile cannot pass
+// `&mut db.tree.store` (3-level &mut copies, C-ORBIT-13).
+pub fn btree_release_pending(tree: &mut BTree) {
+  ns_release_pending(&mut tree.store);
+}
+
+pub fn ns_live_count(store: &NodeStore) -> Int {
+  var n = 0;
+  var i = 0;
+  while i < store.count {
+    if store.live[i] { n = n + 1; }
+    i = i + 1;
+  }
+  return n;
+}
+
+pub fn ns_pending_count(store: &NodeStore) -> Int {
+  return store.pending_free.len();
+}
+
+// Rebuild the paged store around a GC-compacted container: dense ids
+// 0..count-1, no pins/dead metadata, empty cache. Node bodies reload lazily.
+pub fn ns_reset_paged(store: &mut NodeStore, bs: BlockStore, count: Int) {
+  store.bs = bs;
+  store.count = count;
+  store.write_gen = bs.header.committed_generation + 1;
+  var slots = Vec[Int].new();
+  var dirty = Vec[Bool].new();
+  var births = Vec[Int].new();
+  var live = Vec[Bool].new();
+  var i = 0;
+  while i < count {
+    slots.push(-1);
+    dirty.push(false);
+    births.push(0);
+    live.push(true);
+    i = i + 1;
+  }
+  store.slots = slots;
+  store.dirty = dirty;
+  store.births = births;
+  store.live = live;
+  store.pending_free = Vec[Int].new();
+  store.pending_epoch = Vec[Int].new();
+  var f = 0;
+  while f < store.capacity {
+    store.frames[f] = new_leaf_node();
+    store.frame_ids[f] = -1;
+    store.frame_dirty[f] = false;
+    store.frame_ref[f] = false;
+    f = f + 1;
+  }
+  store.hand = 0;
+}
+
 // Deep copy of a node that OWNS its storage. Struct/Vec assignment shares
 // nested Vec buffers and element assignment through a copied handle writes
 // through to the source buffer (C-ORBIT-09, docs/repro/vec-copy-alias/), so a
@@ -364,7 +478,9 @@ fn cow_shadow(tree: &mut BTree, idx: Int) -> Int {
   if tree.store.births[idx] > tree.store.pin_clock { return idx; }
   let base = ns_get(&tree.store, idx);
   let copy = node_deep_copy(&base);
-  return ns_push(&mut tree.store, copy);
+  let shadow_idx = ns_push(&mut tree.store, copy);
+  ns_retire(&mut tree.store, idx);
+  return shadow_idx;
 }
 
 // Mark every node clean after a successful snapshot commit (or after a load).
@@ -529,6 +645,7 @@ pub fn btree_insert_payload(tree: &mut BTree, key: Int, value: Int,
 }
 
 fn split_root(tree: &mut BTree) {
+  let old_root_idx = tree.root;
   var old_root = ns_get(&tree.store, tree.root);
   var new_root = new_internal_node();
   var mid = old_root.keys.len() / 2;
@@ -577,6 +694,7 @@ fn split_root(tree: &mut BTree) {
 
   var root_idx = ns_push(&mut tree.store, new_root);
   tree.root = root_idx;
+  ns_retire(&mut tree.store, old_root_idx);
 }
 
 fn insert_nonfull(tree: &mut BTree, node_idx: Int, key: Int, value: Int,
@@ -977,8 +1095,13 @@ fn merge_children(tree: &mut BTree, parent_idx: Int, pos: Int) -> Int {
 
   ns_set(&mut tree.store, parent_idx, parent);
 
+  // The right child is folded into the left; the old root (when it collapses)
+  // is abandoned too. Both may still be visible to pins until release.
+  ns_retire(&mut tree.store, right_idx);
+
   if parent.keys.len() == 0 && parent_idx == tree.root {
     tree.root = left_idx;
+    ns_retire(&mut tree.store, parent_idx);
   }
   return left_idx;
 }

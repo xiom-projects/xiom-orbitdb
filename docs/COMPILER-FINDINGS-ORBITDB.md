@@ -714,7 +714,14 @@ Found while landing M1.1b: `snap_flush_v2` committed via
 same block, and dropped the header update -- the checkpoint returned success
 but replayed keys were lost on reopen (typed_mvcc 14/15). **Workaround stays**
 in `snap_flush_v2` (local copy + write-back) until a release carries a fix;
-re-run the repro + suite on the next archive.
+re-run the repro + suite on the next archive. **Additional hit (A5):**
+`&mut db.tree.store` (also 3 levels) silently copied in
+`db_file_snapshot_end`, so `ns_release_pending` saw 655 pending entries stay
+forever; fixed with BTree-level wrappers (`btree_release_pending`,
+`ns_bs_put`/`ns_bs_commit`). The checkpoint workaround moved from a copied
+BlockStore to these helpers because a copied store loses cache-spill
+`block_count` updates and the two writers overwrite blocks once evictions
+occur (caught by the new GC suite test).
 
 ## Bump procedure used by this lane
 

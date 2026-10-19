@@ -112,6 +112,81 @@ fn test_pager_dirty_spill_checkpoint() -> TestResult {
   return assert(false, "pager: spill/checkpoint failed rc=" + int_to_str(rc));
 }
 
+// Pin churn retires COW shadows; after the pin ends and a checkpoint crosses
+// the compaction threshold, the GC rewrite drops every unreachable node and
+// renumbers the live tree to dense ids. The reopened file must stay exact.
+fn run_pager_gc_compaction() -> Int {
+  let path = "orbitdb-suite-pager-gc.wal";
+  pager_cleanup(path);
+  var db0 = db_file_open_cfg(path, 4, 2);
+  var i = 1;
+  while i <= 200 {
+    if !db_file_put(&mut db0, i, i * 10) { return 1; }
+    i = i + 1;
+  }
+  if db_file_checkpoint(&mut db0) < 0 { return 2; }
+  var db = db_file_open(path, 4);
+  if !db.tree.store.paged { return 3; }
+  let s1 = db_file_snapshot_begin(&mut db);
+  i = 2;
+  while i <= 200 {
+    if !db_file_put(&mut db, i, i * 100) { return 4; }
+    i = i + 2;
+  }
+  i = 201;
+  while i <= 220 {
+    if !db_file_put(&mut db, i, i * 100) { return 5; }
+    i = i + 1;
+  }
+  // Pinned view is untouched by the COW churn.
+  match db_file_snapshot_get(&db, s1.id, 2) {
+    None => { return 6; }
+    Some(v) => { if v != 20 { return 7; } }
+  }
+  if db_file_checkpoint(&mut db) < 0 { return 8; }
+  // Two more pinned generations: the in-place updates re-append the dirty
+  // nodes, so block_count crosses node_count + SNAP_COMPACT_SLACK and the
+  // checkpoint defers compaction (counted).
+  var cycle = 0;
+  while cycle < 2 {
+    i = 2;
+    while i <= 200 {
+      if !db_file_put(&mut db, i, i * 100) { return 81; }
+      i = i + 2;
+    }
+    if db_file_checkpoint(&mut db) < 0 { return 82; }
+    cycle = cycle + 1;
+  }
+  if db_file_compaction_deferrals(&db) < 1 { return 9; }
+  let high_water = db.tree.store.count;
+  if !db_file_snapshot_end(&mut db, s1.id) { return 10; }
+  if ns_pending_count(&db.tree.store) != 0 { return 11; }
+  // Second checkpoint (no pins) crosses the threshold -> GC compaction.
+  if db_file_checkpoint(&mut db) < 0 { return 12; }
+  if db.tree.store.count >= high_water { return 13; }
+  var db2 = db_file_open(path, 4);
+  if db_file_size(&db2) != 220 { return 14; }
+  match db_file_get(&db2, 2) {
+    None => { return 15; }
+    Some(v) => { if v != 200 { return 16; } }
+  }
+  match db_file_get(&db2, 3) {
+    None => { return 17; }
+    Some(v) => { if v != 30 { return 18; } }
+  }
+  match db_file_get(&db2, 220) {
+    None => { return 19; }
+    Some(v) => { if v != 22000 { return 20; } }
+  }
+  pager_cleanup(path);
+  return 0;
+}
+
+fn test_pager_gc_compaction() -> TestResult {
+  let rc = run_pager_gc_compaction();
+  if rc == 0 { return assert(true, "pager: deferred free + GC compaction (pin churn released, ids renumbered)"); }
+  return assert(false, "pager: GC compaction failed rc=" + int_to_str(rc));
+}
 fn main() -> Int {
   io.println("=== XIOM DB Conformance: pager ===");
   var failed: Int = 0;
@@ -120,6 +195,8 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r1.passed, r1.name);
   let r2 = test_pager_dirty_spill_checkpoint();
   total = total + 1; failed = failed + report(r2.passed, r2.name);
+  let r3 = test_pager_gc_compaction();
+  total = total + 1; failed = failed + report(r3.passed, r3.name);
   let passed = total - failed;
   io.println("XIOM DB Conformance [pager]: " + int_to_str(passed) + "/" + int_to_str(total) + " passed" + (if failed > 0 { " (" + int_to_str(failed) + " FAILED)" } else { "" }));
   return failed;

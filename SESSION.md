@@ -334,7 +334,32 @@ the v0.64.6 verdicts.
   (lane pin = v0.64.7 without the fix); at the next release adoption:
   merge `f779c23`, suite x2 both, close the item. Branch left in place.
   Relays head checked; no other lane items.
-**Updated:** 2026-10-19 (M1.1b A1-A4 LANDED -- v2 pager live, battery
+**Updated:** 2026-10-19 (M1.1b A5 LANDED -- deferred free + GC compaction,
+  battery green): **A1-A5 complete.** Retire points: `cow_shadow`,
+  `split_root`, `merge_children` (folded child + collapsed root), epoch =
+  `pin_clock`, `live=false` but **dirty is NOT cleared** (a conservative
+  retire must never suppress a flush). `ns_release_pending` runs at
+  `db_file_snapshot_end` and after checkpoint commits; GC compaction in
+  `v2_rewrite_all` (paged, no pins) BFS-walks the live root, remaps to dense
+  ids, writes only reachable nodes, commits/renames, and `ns_reset_paged`.
+  Reachability -- not the `live` hint -- decides what is dropped.
+  **Three implementation traps found and fixed:** (1) skipping dead ids in
+  the dirty scan lost data when a retire was conservative -- flushes now
+  write every dirty id; (2) the C-ORBIT-13 workaround copied the BlockStore,
+  so cache spills during the checkpoint bumped a different `block_count`
+  and the two writers overwrote blocks once evictions occurred (new GC test
+  exposed it) -- fixed with `ns_bs_put`/`ns_bs_commit`/`ns_bs_block_count`
+  helpers on the REAL store; (3) `&mut db.tree.store` is a 3-level path and
+  also copies -- `ns_release_pending` never ran (655 stale pending) until
+  `btree_release_pending(&mut db.tree)`. **Evidence:** suite **163/163 x2
+  Win + x2 WSL** (pager 3/3 incl. GC shrink + reopen), db_crash 25/25 x2
+  both, probes x2 both, fuzz both, hybrid full 36 x2 both + crash 5/5 x2
+  both. **Compiler:** v0.64.8 cut GO (`REL-20261019-1432-compiler-2`) --
+  includes C-ORBIT-12/13; NO ACTION until the stdlib tag is live, then
+  adopt, re-run the repros + suite, drop the C-ORBIT-12 tuple workaround and
+  the C-ORBIT-13 helpers (keep the API shapes), and re-run the battery.
+  **NEXT: A6 -- 1M-key memory soak + BENCH-1 memory row; then Station on
+  G-START.****Updated:** 2026-10-19 (M1.1b A1-A4 LANDED -- v2 pager live, battery
   green): **`docs/checklists/m1-1b-pager.md` is the design of record.**
   A1: all node reads route through `ns_get`. A2: node page codec moved to
   `xiom.db.index.node_page`. A3: `NodeStore` gained a paged mode --
@@ -1855,11 +1880,12 @@ sha `592aa125...`, zip `16a436c4...` verified; WSL LANE-LOCAL
 shared canonical stays v0.64.6 for ops; stdlib = bundled RELEASE v0.64.7
 `stdlib-v0.64.7`/`1271dd5`). Battery on the pin: suite **162/162 x2 both**,
 db_crash 25/25 x2, probes x2, fuzz; hybrid re-run GREEN (probe 36 + crash
-5/5 x2 both on xvector `72db35e`). **M1.1b A1-A4 DONE 2026-10-19:** v2
+5/5 x2 both on xvector `72db35e`). **M1.1b A1-A5 DONE 2026-10-19:** v2
 lazy load + 256-frame clock cache + dirty spill + owned-block-store
-checkpoint; `index/node_page`; pager suite 2/2; **C-ORBIT-13 open**
-(3-level `&mut` copies; relay `REL-20261019-1209-orbitdb`; local-copy
-workaround); A5 deferred free + 1M-key soak NEXT. **R1/R2 DONE
+checkpoint + deferred-free GC compaction; `index/node_page`; pager suite
+3/3; **C-ORBIT-13 open** (3-level `&mut` copies; relay
+`REL-20261019-1209-orbitdb`; `ns_bs_*`/`btree_release_pending` helpers);
+A6 = 1M-key soak + BENCH memory row NEXT. **R1/R2 DONE
 2026-10-18:** module split
 (`engine.xi` facade 677 lines + `index/btree` + `engine/{core,snapshot,txn}`,
 `pub use`-re-exported, zero consumer changes) and suite split
@@ -1974,19 +2000,21 @@ documented fallback + re-test on the next release/package publish.
    runners `scripts/suite.ps1` / `scripts/suite.sh` -> 160/160 x2 both (now 162 with pager).
    The old single-file suite and its run command are RETIRED (use
    `scripts/suite.*`).
-4. **M1.1b pager -- A1-A4 DONE 2026-10-19; A5 NEXT.** Reference rows
+4. **M1.1b pager -- A1-A5 DONE 2026-10-19; A6 (soak/BENCH) NEXT.** Reference rows
    1.1-1.3 re-crawled with verified line numbers; design/checklist in
    `docs/checklists/m1-1b-pager.md`. Landed: lazy v2 node load (validate
    then discard), 256-frame clock cache (`slots`/`frames`), dirty-frame
    spill at the uncommitted generation, checkpoint via the store's owned
    `BlockStore`, `index/node_page` codec module, pager suite (1200-key
-   lazy/eviction + 1400-key spill/checkpoint). **A5 = deferred free /
-   version GC** (pending-free + live set + compaction skip/renumber; pin
-   epochs) and the **1M-key memory soak**; then the BENCH-1 memory row.
+   lazy/eviction + 1400-key spill/checkpoint + GC compaction). **A5 DONE:**
+   deferred free (retire points + pin epochs + `ns_release_pending`),
+   reachability GC with dense renumbering (`ns_reset_paged`); **A6 = 1M-key
+   memory soak + BENCH-1 memory row** next.
    **C-ORBIT-13 open** (`REL-20261019-1209-orbitdb`): 3-level `&mut` path
-   copies; workaround (local copy + write-back) stays until a release
-   carries the fix; re-run `docs/repro/nested-mut-path/repro.xi` + suite
-   on the next archive. v1 snapshots remain resident (auto-detect).
+   copies; workaround (`ns_bs_*` + `btree_release_pending` helpers; local
+   copy only inside btree) stays until v0.64.8; re-run
+   `docs/repro/nested-mut-path/repro.xi` + suite on the next archive. v1
+   snapshots remain resident (auto-detect).
 5. **Station track (PLANNED, GATED -- `docs/checklists/two-tier.md`)**:
    satellite = today's release path; station (`station/`, ORBITWIRE v1,
    sessions, replication via WAL shipping, range sharding) may start only
