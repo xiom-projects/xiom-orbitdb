@@ -334,6 +334,25 @@ the v0.64.6 verdicts.
   (lane pin = v0.64.7 without the fix); at the next release adoption:
   merge `f779c23`, suite x2 both, close the item. Branch left in place.
   Relays head checked; no other lane items.
+**Updated:** 2026-10-19 (v0.64.8 verification DONE -- C-ORBIT-12/13 CLOSED):
+  the released v0.64.8 archive (tag `4d040604b`; Windows zip `c31d9c46...`
+  verified -> `%LOCALAPPDATA%\xiom-0.64.8` exe `ee3ee902...`; WSL
+  `~/.local/share/xiom-0.64.8` bin `7c5b3482...`) fixes BOTH our compiler
+  findings. **C-ORBIT-12 acceptance:** natural position tuple restored
+  (cherry-pick of `f779c23` -> `0e92131`, comment conflict resolved), split
+  suite **163/163 x2 Windows + 163/163 x2 WSL on a CLEAN HEAD worktree**,
+  zero `Tuple__TValue__Int` warnings -- workaround retired; item CLOSED.
+  **C-ORBIT-13:** `docs/repro/nested-mut-path/repro.xi` prints
+  two-level/three-level/workaround all PASS (rc 1 by design = defect
+  absent) on the archive; the pager's natural nested `&mut tree.store.bs`
+  checkpoint is in the adopted tree -- verified + CLOSED. The v0.64.8 check
+  row is filled (relays `6caa783`). **Ownership note:** the pin re-point
+  (`dev-env.*` -> `xiom-0.64.8`) and the pager working-tree edits
+  (snapshot/btree/repro) belong to the PARALLEL session (uncommitted at
+  18:20Z) -- this session verified a clean HEAD in a separate worktree and
+  did NOT touch those edits; the adoption commit is theirs to land.
+  Pending after that: full battery re-run on the final tree
+  (crash/probes/fuzz/hybrid) + BENCH rows at the pin move.
 **Updated:** 2026-10-19 (M1.1b A5 LANDED -- deferred free + GC compaction,
   battery green): **A1-A5 complete.** Retire points: `cow_shadow`,
   `split_root`, `merge_children` (folded child + collapsed root), epoch =
