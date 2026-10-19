@@ -334,7 +334,26 @@ the v0.64.6 verdicts.
   (lane pin = v0.64.7 without the fix); at the next release adoption:
   merge `f779c23`, suite x2 both, close the item. Branch left in place.
   Relays head checked; no other lane items.
-**Updated:** 2026-10-19 (A6 SOAK: GC lifetime fix + scale memory finding):
+**Updated:** 2026-10-19 (NIGHTLY WRAP -- owner away, work stopped; tree
+  clean at `159e7ae`): session results after the v0.64.8 adoption:
+  **admin web UI phase 1+2** (`admin/`, Pulse 0.3.1: dashboard, status,
+  range pairs, lookup, token-gated put/delete/checkpoint; runners
+  `scripts/admin.ps1|sh`; smoke green; new `db_file_range_pairs` API),
+  **ST0 threads decision** (engine-actor per shard; real-thread/mutex spike
+  40k increments x2 both), and **A6 soak** (GC store-reset lifetime fix;
+  15k green; 200k at order 64 + 8192 cache = 252 ms engine, exact verify,
+  19.9 MB snapshot, but **940 MB peak RSS and ~251 s teardown**; order 4
+  = 57.8 GB/600 s). A6/1M is **BLOCKED on per-op allocation retention**,
+  filed `REL-20261019-2206-orbitdb` (pushed `561e713`) -- compiler/runtime
+  reclaim is the next unblocker (probe `tests/probes/probe_soak.xi`).
+  **Final battery after the GC fix: suite 164/164 x2 Win + x2 WSL (ext4),
+  db_crash 25/25 x2 both, probes (mvcc/fault/io/threads) x2 both, fuzz
+  both, hybrid full 36 x2 both + crash 5/5 x2 both.** WSL `/mnt/e` DrvFs
+  still stalls in `p9_client_rpc` on large snapshot I/O -- run the WSL
+  battery from an ext4 copy. The 3h doorbell is intentionally STOPPED for
+  the night; re-create on resume. Next: runtime memory reclaim -> 1M soak
+  + BENCH memory row; admin phase 3 (sessions/ORBITWIRE attach) after ST1;
+  G-START still needs M3 `file_lock`/cross-process pins.**Updated:** 2026-10-19 (A6 SOAK: GC lifetime fix + scale memory finding):
   the A6 soak (`tests/probes/probe_soak.xi`, chunked build -> paged reopen
   -> chunked growth -> sample verify) exposed and fixed a **GC store-reset
   lifetime bug**: `ns_reset_paged` installed a local `BlockStore` into the
