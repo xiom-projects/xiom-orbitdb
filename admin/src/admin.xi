@@ -33,6 +33,9 @@ const ROUTE_INDEX: Int = 1;
 const ROUTE_STATUS: Int = 2;
 const ROUTE_RANGE: Int = 3;
 const ROUTE_GET: Int = 4;
+const ROUTE_PUT: Int = 5;
+const ROUTE_DELETE: Int = 6;
+const ROUTE_CHECKPOINT: Int = 7;
 
 // The PULSE handler is a non-capturing fn, so the engine handle lives in a
 // one-element process-global (PULSE itself keeps its route table this way).
@@ -165,6 +168,49 @@ fn get_out(m: &PulseRoute) -> HandlerOut {
   }
 }
 
+fn writes_disabled() -> HandlerOut {
+  return app.out_json(403, "{\"error\":\"writes disabled: set ORBITDB_ADMIN_TOKEN\"}");
+}
+
+fn authorized_write(req: &PulseRequest) -> Bool {
+  if g_token.len() == 0 { return false; }
+  return http.header_get(req, "X-Admin-Token") == g_token;
+}
+
+fn put_out(req: &PulseRequest, m: &PulseRoute) -> HandlerOut {
+  if g_token.len() == 0 { return writes_disabled(); }
+  if !authorized_write(req) { return unauthorized(); }
+  let key = qint(m, "key", 0);
+  let value = qint(m, "value", 0);
+  var db = g_dbs[0];
+  let ok = db_file_put(&mut db, key, value);
+  g_dbs[0] = db;
+  return app.out_json(200, "{\"ok\":" + convert.bool_to_string(ok)
+    + ",\"key\":" + convert.int_to_string(key)
+    + ",\"value\":" + convert.int_to_string(value) + "}");
+}
+
+fn delete_out(req: &PulseRequest, m: &PulseRoute) -> HandlerOut {
+  if g_token.len() == 0 { return writes_disabled(); }
+  if !authorized_write(req) { return unauthorized(); }
+  let key = qint(m, "key", 0);
+  var db = g_dbs[0];
+  let ok = db_file_delete(&mut db, key);
+  g_dbs[0] = db;
+  return app.out_json(200, "{\"ok\":" + convert.bool_to_string(ok)
+    + ",\"key\":" + convert.int_to_string(key) + "}");
+}
+
+fn checkpoint_out(req: &PulseRequest) -> HandlerOut {
+  if g_token.len() == 0 { return writes_disabled(); }
+  if !authorized_write(req) { return unauthorized(); }
+  var db = g_dbs[0];
+  let lsn = db_file_checkpoint(&mut db);
+  g_dbs[0] = db;
+  return app.out_json(200, "{\"ok\":" + convert.bool_to_string(lsn >= 0)
+    + ",\"anchor_lsn\":" + convert.int_to_string(lsn) + "}");
+}
+
 fn not_found(msg: Str) -> HandlerOut {
   return app.out_json(404, "{\"error\":\"" + json_escape(msg) + "\"}");
 }
@@ -181,6 +227,9 @@ fn handler(req: &PulseRequest, m: &PulseRoute, _body: Str) -> HandlerOut {
   if m.route_id == ROUTE_STATUS { return status_out(); }
   if m.route_id == ROUTE_RANGE { return range_out(m); }
   if m.route_id == ROUTE_GET { return get_out(m); }
+  if m.route_id == ROUTE_PUT { return put_out(req, m); }
+  if m.route_id == ROUTE_DELETE { return delete_out(req, m); }
+  if m.route_id == ROUTE_CHECKPOINT { return checkpoint_out(req); }
   return not_found("route");
 }
 
@@ -196,6 +245,9 @@ pub fn main() -> Int {
   let _ = app.register("GET", "/api/status");
   let _ = app.register("GET", "/api/range");
   let _ = app.register("GET", "/api/get");
+  let _ = app.register("POST", "/api/put");
+  let _ = app.register("POST", "/api/delete");
+  let _ = app.register("POST", "/api/checkpoint");
   let bind = env.var_or("PULSE_BIND", "127.0.0.1");
   let port = env.var_or("PULSE_PORT", "8080");
   io.println("orbitdb-admin: http://" + bind + ":" + port + "  db=" + path);

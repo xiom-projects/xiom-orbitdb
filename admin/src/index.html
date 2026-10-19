@@ -77,6 +77,22 @@
   </section>
 
   <section>
+    <h2>Write (token required)</h2>
+    <div class="row">
+      <label style="width:220px">admin token <input id="token" type="password"
+        placeholder="ORBITDB_ADMIN_TOKEN" style="width:220px"></label>
+      <label>key <input id="wkey" type="number" value="41"></label>
+      <label>value <input id="wval" type="number" value="410"></label>
+      <button id="put">Put</button>
+      <button id="del">Delete</button>
+      <button id="ckpt">Checkpoint</button>
+    </div>
+    <div class="muted">Writes are refused unless the server was started with
+      <code>ORBITDB_ADMIN_TOKEN</code>; send that value in the token box.</div>
+    <div id="wout" class="muted"></div>
+  </section>
+
+  <section>
     <h2>Links</h2>
     <div class="muted">APIs:
       <a href="/api/status">/api/status</a> &middot;
@@ -87,6 +103,8 @@
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
+const tok = () => sessionStorage.getItem("orbitdb-admin-token") || "";
+const hdrs = () => { const t = tok(); return t ? { "X-Admin-Token": t } : {}; };
 const cards = [
   ["path", "path"], ["keys", "keys"], ["size", "size"], ["order", "order"],
   ["page format", "page_format"], ["durability", "durability"],
@@ -101,7 +119,8 @@ const cards = [
 function esc(v) { return String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
 async function refresh() {
   try {
-    const r = await fetch("/api/status", { cache: "no-store" });
+    const r = await fetch("/api/status", { cache: "no-store", headers: hdrs() });
+    if (!r.ok) { $("err").textContent = "status HTTP " + r.status + (r.status === 401 ? " — enter the admin token" : ""); return; }
     const s = await r.json();
     $("cards").innerHTML = cards.map(([label, k]) => {
       let v = s[k];
@@ -115,7 +134,8 @@ async function refresh() {
 }
 async function loadRange() {
   const q = new URLSearchParams({ low: $("low").value, high: $("high").value, limit: $("limit").value });
-  const r = await fetch("/api/range?" + q, { cache: "no-store" });
+  const r = await fetch("/api/range?" + q, { cache: "no-store", headers: hdrs() });
+  if (!r.ok) { $("err").textContent = "range HTTP " + r.status; return; }
   const d = await r.json();
   if (!r.ok) { $("err").textContent = d.error || "range error"; return; }
   $("err").textContent = "";
@@ -124,13 +144,27 @@ async function loadRange() {
   $("rangeInfo").textContent = d.keys.length + " row(s) of " + d.total + " in range";
 }
 async function getKey() {
-  const r = await fetch("/api/get?key=" + encodeURIComponent($("key").value), { cache: "no-store" });
+  const r = await fetch("/api/get?key=" + encodeURIComponent($("key").value), { cache: "no-store", headers: hdrs() });
+  if (!r.ok) { $("getOut").textContent = "HTTP " + r.status; $("getOut").className = "bad"; return; }
   const d = await r.json();
   $("getOut").textContent = d.found ? ("value = " + d.value) : "not found";
   $("getOut").className = d.found ? "ok" : "muted";
 }
+async function callWrite(path) {
+  const r = await fetch(path, { method: "POST", cache: "no-store", headers: hdrs() });
+  const t = await r.text();
+  $("wout").textContent = "HTTP " + r.status + "  " + t;
+  $("wout").className = r.ok ? "ok" : "bad";
+  refresh(); loadRange();
+}
 $("load").addEventListener("click", loadRange);
 $("get").addEventListener("click", getKey);
+$("put").addEventListener("click", () => callWrite("/api/put?key=" + encodeURIComponent($("wkey").value) + "&value=" + encodeURIComponent($("wval").value)));
+$("del").addEventListener("click", () => callWrite("/api/delete?key=" + encodeURIComponent($("wkey").value)));
+$("ckpt").addEventListener("click", () => callWrite("/api/checkpoint"));
+const tin = $("token");
+tin.value = tok();
+tin.addEventListener("change", () => { sessionStorage.setItem("orbitdb-admin-token", tin.value); refresh(); loadRange(); });
 loadRange(); refresh(); setInterval(refresh, 5000);
 </script>
 </body>

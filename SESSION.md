@@ -340,15 +340,18 @@ the v0.64.6 verdicts.
   headless-only today). New `admin/` app source-composes the Satellite
   engine (`../src`) + `xiom.pulse` 0.3.1: `admin/xiom.toml`,
   `admin/src/admin.xi`, `admin/src/index.html`, `admin/tests/seed_demo.xi`,
-  `admin/README.md`. **GET-only phase 1:** `/` dashboard, `/api/status`
-  (file/engine/pager), `/api/range` key/value pairs, `/api/get`; localhost
-  bind, optional `ORBITDB_ADMIN_TOKEN`, clean shutdown via `X-Pulse-Quit`.
+  `admin/README.md`. **Phase 1 + token-gated writes:** `/` dashboard, `/api/status`
+  (file/engine/pager), `/api/range` key/value pairs, `/api/get`; POST
+  `/api/put`/`/api/delete`/`/api/checkpoint` require `ORBITDB_ADMIN_TOKEN`
+  (`X-Admin-Token`; reads are open on localhost unless a token is set).
+  Localhost bind; clean shutdown via `X-Pulse-Quit`.
   New additive engine API **`db_file_range_pairs`** (the int range API
   returns values only) in `index/btree` + `engine.xi`, with dbfile suite
   coverage (24/24; suite total **164**). Runners `scripts/admin.ps1`
   (`-Database`; `-Db` collides with PowerShell's Debug alias) and
-  `scripts/admin.sh`. Smoke: status/range/get/html 200 with exact JSON and
-  the quit seam (`pulse: shutdown served=3`). **Phase 1 owns the DB file**
+  `scripts/admin.sh`. Smoke: status/range/get/html 200 with exact JSON; token matrix
+  (no token 401, token 200), put/get/delete/checkpoint exact, writes
+  without the token 401, quit seam served (server exits). **Phase 1 owns the DB file**
   (no read-only open / cross-process pins yet -- M3 remainder); the Station
   will attach the same UI over ORBITWIRE at ST1. Reference rows added to
   REFERENCE-MATRIX 3.1; RUNBOOK admin section. Next: auth/session + query
