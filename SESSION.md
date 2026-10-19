@@ -1828,6 +1828,12 @@ larger-program RED; residual filed); the v0.64.7 row carries the same.**
 2026-10-18** -- battery + hybrid guard green; the C-ORBIT-12 regression
 re-run is DONE (still red, see above); the v0.64.7 check row carries the
 verdict. (The stdlib m353 tag block was cleared by the r2 re-gate.)
+**v0.64.8 CUT GO (2026-10-19T14:32Z, `REL-20261019-1432-compiler-2`; stdlib
+gate in progress, candidate `9b88b46`)** -- it is expected to carry the
+C-ORBIT-12 fix (`c6b3362ef`): AT ADOPTION merge the staged drop
+`fix/c-orbit-12-position-tuple` (`f779c23`), suite x2 both, then close
+`REL-20261017-1154-orbitdb` (currently verified). Watch for the release
+announcement + assets.
 Engine integration intent + the packages standing registry pipeline acked
 (see the wrap entry + `docs/checklists/two-tier.md`). **Compiler batch plan
 `REL-20261011-1342-compiler`: batches 1+3 satisfied and closed.** PULSE's
