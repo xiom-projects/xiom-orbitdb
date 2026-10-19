@@ -111,7 +111,8 @@ fn cow_shadow(tree: &mut BTree, idx: Int) -> Int {
   if idx < 0 { return idx; }
   if idx >= tree.store.nodes.len() { return idx; }
   if tree.store.births[idx] > tree.store.pin_clock { return idx; }
-  let copy = node_deep_copy(&tree.store.nodes[idx]);
+  let base = ns_get(&tree.store, idx);
+  let copy = node_deep_copy(&base);
   return ns_push(&mut tree.store, copy);
 }
 
@@ -194,7 +195,7 @@ pub fn btree_search_payload(tree: &BTree, key: Int) -> Option[Vec[Int]] {
 }
 
 pub fn search_payload_node(tree: &BTree, node_idx: Int, key: Int) -> Option[Vec[Int]] {
-  var node = tree.store.nodes[node_idx];
+  var node = ns_get(&tree.store, node_idx);
   var i = 0;
   while i < node.keys.len() {
     if key == node.keys[i] {
@@ -221,7 +222,7 @@ pub fn search_payload_node(tree: &BTree, node_idx: Int, key: Int) -> Option[Vec[
 }
 
 pub fn search_node(tree: &BTree, node_idx: Int, key: Int) -> Option[Int] {
-  var node = tree.store.nodes[node_idx];
+  var node = ns_get(&tree.store, node_idx);
   var i = 0;
   while i < node.keys.len() {
     if key == node.keys[i] {
@@ -258,7 +259,7 @@ pub fn btree_insert_payload(tree: &mut BTree, key: Int, value: Int,
     None => {}
   }
   var max_keys = tree.order - 1;
-  if tree.store.nodes[tree.root].keys.len() >= max_keys {
+  if ns_get(&tree.store, tree.root).keys.len() >= max_keys {
     // split_root only READS the old root and pushes fresh halves, so a pinned
     // root can be split safely without a shadow copy.
     split_root(tree);
@@ -270,7 +271,7 @@ pub fn btree_insert_payload(tree: &mut BTree, key: Int, value: Int,
 }
 
 fn split_root(tree: &mut BTree) {
-  var old_root = tree.store.nodes[tree.root];
+  var old_root = ns_get(&tree.store, tree.root);
   var new_root = new_internal_node();
   var mid = old_root.keys.len() / 2;
 
@@ -322,7 +323,7 @@ fn split_root(tree: &mut BTree) {
 
 fn insert_nonfull(tree: &mut BTree, node_idx: Int, key: Int, value: Int,
                   payload: Vec[Int]) -> Bool {
-  var node = tree.store.nodes[node_idx];
+  var node = ns_get(&tree.store, node_idx);
   var max_keys = tree.order - 1;
 
   if node.is_leaf {
@@ -341,19 +342,19 @@ fn insert_nonfull(tree: &mut BTree, node_idx: Int, key: Int, value: Int,
 
   if pos < node.children.len() {
     var child_idx = node.children[pos];
-    if tree.store.nodes[child_idx].keys.len() >= max_keys {
+    if ns_get(&tree.store, child_idx).keys.len() >= max_keys {
       split_child(tree, node_idx, pos);
-      var up_node = tree.store.nodes[node_idx];
+      var up_node = ns_get(&tree.store, node_idx);
       if pos < up_node.keys.len() && up_node.keys[pos] < key {
         pos = pos + 1;
       }
     }
-    var new_child_idx = tree.store.nodes[node_idx].children[pos];
+    var new_child_idx = ns_get(&tree.store, node_idx).children[pos];
     // M3: the descended child will be mutated; make it writable first and
     // persist the shadowed index into this (already writable) parent.
     var shadowed_child = cow_shadow(tree, new_child_idx);
     if shadowed_child != new_child_idx {
-      var parent = tree.store.nodes[node_idx];
+      var parent = ns_get(&tree.store, node_idx);
       parent.children[pos] = shadowed_child;
       ns_set(&mut tree.store, node_idx, parent);
       new_child_idx = shadowed_child;
@@ -364,17 +365,17 @@ fn insert_nonfull(tree: &mut BTree, node_idx: Int, key: Int, value: Int,
 }
 
 fn split_child(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
-  var child_idx = tree.store.nodes[parent_idx].children[child_pos];
+  var child_idx = ns_get(&tree.store, parent_idx).children[child_pos];
   // M3: the child is truncated and re-written below; shadow it first and fix
   // the (already writable) parent so both halves are fresh.
   var shadowed_child = cow_shadow(tree, child_idx);
   if shadowed_child != child_idx {
-    var p = tree.store.nodes[parent_idx];
+    var p = ns_get(&tree.store, parent_idx);
     p.children[child_pos] = shadowed_child;
     ns_set(&mut tree.store, parent_idx, p);
     child_idx = shadowed_child;
   }
-  var child = tree.store.nodes[child_idx];
+  var child = ns_get(&tree.store, child_idx);
   var mid = child.keys.len() / 2;
 
   var new_child = new_leaf_node();
@@ -421,7 +422,7 @@ fn split_child(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
   // silent no-op, which orphaned the new sibling and corrupted the tree at
   // the first internal split (product defect found by probe_core_diag:
   // insert failed from key 8, size=6 of 100).
-  var parent = tree.store.nodes[parent_idx];
+  var parent = ns_get(&tree.store, parent_idx);
   parent.children.push(0);
   var j = parent.children.len() - 1;
   while j > child_pos + 1 {
@@ -434,7 +435,7 @@ fn split_child(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
 
 fn insert_at_pos(tree: &mut BTree, node_idx: Int, pos: Int, key: Int, value: Int,
                  payload: Vec[Int]) {
-  var node = tree.store.nodes[node_idx];
+  var node = ns_get(&tree.store, node_idx);
   node.keys.push(0);
   node.values.push(0);
   node.payloads.push(Vec[Int].new());
@@ -464,7 +465,7 @@ pub fn btree_delete(tree: &mut BTree, key: Int) -> Bool {
 }
 
 fn delete_from_node(tree: &mut BTree, node_idx: Int, key: Int) -> Bool {
-  var node = tree.store.nodes[node_idx];
+  var node = ns_get(&tree.store, node_idx);
   // Split scheme: a full node has order-1 keys and splits into halves that
   // differ by one, so the true floor is (order-2)/2 (same as the old formula
   // for even orders, one lower for odd orders -- the old value left order-5
@@ -490,7 +491,7 @@ fn delete_from_node(tree: &mut BTree, node_idx: Int, key: Int) -> Bool {
   if idx >= node.children.len() { return false; }
   var child_idx = node.children[idx];
 
-  if tree.store.nodes[child_idx].keys.len() <= min_keys {
+  if ns_get(&tree.store, child_idx).keys.len() <= min_keys {
     // fill_child returns the NODE INDEX of the (possibly relocated) target
     // child: a merge at child_pos-1 shifts it left. Recursing with the old
     // position instead descended an unrelated node (churn repro op=148).
@@ -501,7 +502,7 @@ fn delete_from_node(tree: &mut BTree, node_idx: Int, key: Int) -> Bool {
     // (already writable) parent.
     var shadowed_child = cow_shadow(tree, child_idx);
     if shadowed_child != child_idx {
-      var parent = tree.store.nodes[node_idx];
+      var parent = ns_get(&tree.store, node_idx);
       parent.children[idx] = shadowed_child;
       ns_set(&mut tree.store, node_idx, parent);
       child_idx = shadowed_child;
@@ -512,7 +513,7 @@ fn delete_from_node(tree: &mut BTree, node_idx: Int, key: Int) -> Bool {
 }
 
 fn remove_from_leaf(tree: &mut BTree, node_idx: Int, pos: Int) {
-  var node = tree.store.nodes[node_idx];
+  var node = ns_get(&tree.store, node_idx);
   var i = pos;
   while i < node.keys.len() - 1 {
     node.keys[i] = node.keys[i + 1];
@@ -527,7 +528,7 @@ fn remove_from_leaf(tree: &mut BTree, node_idx: Int, pos: Int) {
 }
 
 fn remove_from_internal(tree: &mut BTree, node_idx: Int, pos: Int, min_keys: Int) {
-  var node = tree.store.nodes[node_idx];
+  var node = ns_get(&tree.store, node_idx);
   var key = node.keys[pos];
   var left_child_idx = node.children[pos];
   var right_child_idx = node.children[pos + 1];
@@ -539,7 +540,7 @@ fn remove_from_internal(tree: &mut BTree, node_idx: Int, pos: Int, min_keys: Int
   // donor read above sees identical content in the shadow copy, so the
   // predecessor is computed BEFORE the donor is shadowed for the delete
   // descent.
-  if tree.store.nodes[left_child_idx].keys.len() > min_keys {
+  if ns_get(&tree.store, left_child_idx).keys.len() > min_keys {
     match get_predecessor(tree, left_child_idx) {
       Some(pred) => {
         node.keys[pos] = pred.key;
@@ -558,7 +559,7 @@ fn remove_from_internal(tree: &mut BTree, node_idx: Int, pos: Int, min_keys: Int
     }
   }
 
-  if tree.store.nodes[right_child_idx].keys.len() > min_keys {
+  if ns_get(&tree.store, right_child_idx).keys.len() > min_keys {
     match get_successor(tree, right_child_idx) {
       Some(succ) => {
         node.keys[pos] = succ.key;
@@ -589,7 +590,7 @@ fn remove_from_internal(tree: &mut BTree, node_idx: Int, pos: Int, min_keys: Int
 // chains appear only when min_keys == 0; walking them repeatedly is fine at
 // this scale (depth-bounded, and merges keep the tree shallow).
 fn subtree_has_key(tree: &BTree, node_idx: Int) -> Bool {
-  let node = tree.store.nodes[node_idx];
+  let node = ns_get(&tree.store, node_idx);
   if node.keys.len() > 0 { return true; }
   if node.is_leaf { return false; }
   var i = 0;
@@ -618,7 +619,7 @@ fn get_predecessor(tree: &BTree, node_idx: Int) -> Option[NodeEntry] {
   var guard = 0;
   while guard < 64 {
     guard = guard + 1;
-    let node = tree.store.nodes[cur];
+    let node = ns_get(&tree.store, cur);
     if node.is_leaf {
       if node.keys.len() == 0 { return None; }
       let last = node.keys.len() - 1;
@@ -643,7 +644,7 @@ fn get_successor(tree: &BTree, node_idx: Int) -> Option[NodeEntry] {
   var guard = 0;
   while guard < 64 {
     guard = guard + 1;
-    let node = tree.store.nodes[cur];
+    let node = ns_get(&tree.store, cur);
     if node.is_leaf {
       if node.keys.len() == 0 { return None; }
       return Some(NodeEntry{ key: node.keys[0], value: node.values[0],
@@ -666,7 +667,7 @@ fn get_successor(tree: &BTree, node_idx: Int) -> Option[NodeEntry] {
 // and stays untouched for pinned views; it becomes live-garbage). Returns the
 // fresh index of the merged child so callers can descend into it.
 fn merge_children(tree: &mut BTree, parent_idx: Int, pos: Int) -> Int {
-  var parent = tree.store.nodes[parent_idx];
+  var parent = ns_get(&tree.store, parent_idx);
   var left_idx = parent.children[pos];
   var shadowed_left = cow_shadow(tree, left_idx);
   if shadowed_left != left_idx {
@@ -675,8 +676,8 @@ fn merge_children(tree: &mut BTree, parent_idx: Int, pos: Int) -> Int {
   }
   var right_idx = parent.children[pos + 1];
 
-  var left = tree.store.nodes[left_idx];
-  var right = tree.store.nodes[right_idx];
+  var left = ns_get(&tree.store, left_idx);
+  var right = ns_get(&tree.store, right_idx);
 
   left.keys.push(parent.keys[pos]);
   left.values.push(parent.values[pos]);
@@ -725,7 +726,7 @@ fn merge_children(tree: &mut BTree, parent_idx: Int, pos: Int) -> Int {
 }
 
 fn fill_child(tree: &mut BTree, parent_idx: Int, child_pos: Int, min_keys: Int) -> Int {
-  var parent = tree.store.nodes[parent_idx];
+  var parent = ns_get(&tree.store, parent_idx);
 
   // A keyless parent is a pass-through node (only possible when min_keys ==
   // 0, i.e. order 3): there is no sibling arrangement to borrow from and no
@@ -736,7 +737,7 @@ fn fill_child(tree: &mut BTree, parent_idx: Int, child_pos: Int, min_keys: Int) 
     var through_idx = parent.children[child_pos];
     var shadowed_through = cow_shadow(tree, through_idx);
     if shadowed_through != through_idx {
-      var pp = tree.store.nodes[parent_idx];
+      var pp = ns_get(&tree.store, parent_idx);
       pp.children[child_pos] = shadowed_through;
       ns_set(&mut tree.store, parent_idx, pp);
       through_idx = shadowed_through;
@@ -746,30 +747,30 @@ fn fill_child(tree: &mut BTree, parent_idx: Int, child_pos: Int, min_keys: Int) 
 
   if child_pos > 0 {
     var left_sib_idx = parent.children[child_pos - 1];
-    if tree.store.nodes[left_sib_idx].keys.len() > min_keys {
+    if ns_get(&tree.store, left_sib_idx).keys.len() > min_keys {
       borrow_from_left(tree, parent_idx, child_pos);
-      return tree.store.nodes[parent_idx].children[child_pos];
+      return ns_get(&tree.store, parent_idx).children[child_pos];
     }
   }
 
   if child_pos < parent.children.len() - 1 {
     var right_sib_idx = parent.children[child_pos + 1];
-    if tree.store.nodes[right_sib_idx].keys.len() > min_keys {
+    if ns_get(&tree.store, right_sib_idx).keys.len() > min_keys {
       borrow_from_right(tree, parent_idx, child_pos);
-      return tree.store.nodes[parent_idx].children[child_pos];
+      return ns_get(&tree.store, parent_idx).children[child_pos];
     }
   }
 
   if child_pos > 0 {
     let _ = merge_children(tree, parent_idx, child_pos - 1);
-    return tree.store.nodes[parent_idx].children[child_pos - 1];
+    return ns_get(&tree.store, parent_idx).children[child_pos - 1];
   }
   let _ = merge_children(tree, parent_idx, child_pos);
-  return tree.store.nodes[parent_idx].children[child_pos];
+  return ns_get(&tree.store, parent_idx).children[child_pos];
 }
 
 fn borrow_from_left(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
-  var parent = tree.store.nodes[parent_idx];
+  var parent = ns_get(&tree.store, parent_idx);
   var child_idx = parent.children[child_pos];
   var left_idx = parent.children[child_pos - 1];
   // M3: both participants are re-written below; shadow them and fix the
@@ -784,8 +785,8 @@ fn borrow_from_left(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
     parent.children[child_pos - 1] = shadowed_left;
     left_idx = shadowed_left;
   }
-  var child = tree.store.nodes[child_idx];
-  var left = tree.store.nodes[left_idx];
+  var child = ns_get(&tree.store, child_idx);
+  var left = ns_get(&tree.store, left_idx);
   var left_last = left.keys.len() - 1;
 
   child.keys.push(0);
@@ -830,7 +831,7 @@ fn borrow_from_left(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
 }
 
 fn borrow_from_right(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
-  var parent = tree.store.nodes[parent_idx];
+  var parent = ns_get(&tree.store, parent_idx);
   var child_idx = parent.children[child_pos];
   var right_idx = parent.children[child_pos + 1];
   // M3: both participants are re-written below; shadow them and fix the
@@ -845,8 +846,8 @@ fn borrow_from_right(tree: &mut BTree, parent_idx: Int, child_pos: Int) {
     parent.children[child_pos + 1] = shadowed_right;
     right_idx = shadowed_right;
   }
-  var child = tree.store.nodes[child_idx];
-  var right = tree.store.nodes[right_idx];
+  var child = ns_get(&tree.store, child_idx);
+  var right = ns_get(&tree.store, right_idx);
 
   child.keys.push(parent.keys[child_pos]);
   child.values.push(parent.values[child_pos]);
@@ -894,7 +895,7 @@ pub fn btree_range_query(tree: &BTree, low: Int, high: Int) -> Vec[Int]
 }
 
 pub fn collect_range(tree: &BTree, node_idx: Int, low: Int, high: Int, results: &mut Vec[Int]) {
-  var node = tree.store.nodes[node_idx];
+  var node = ns_get(&tree.store, node_idx);
   if node.is_leaf {
     var i = 0;
     while i < node.keys.len() {
@@ -929,7 +930,7 @@ pub fn btree_size(tree: &BTree) -> Int {
 }
 
 pub fn count_keys(tree: &BTree, node_idx: Int) -> Int {
-  var node = tree.store.nodes[node_idx];
+  var node = ns_get(&tree.store, node_idx);
   var total = node.keys.len();
   if !node.is_leaf {
     var i = 0;
@@ -968,7 +969,7 @@ pub fn btree_to_vec(tree: &BTree) -> Vec[Int] {
 }
 
 fn traverse_inorder(tree: &BTree, node_idx: Int, results: &mut Vec[Int]) {
-  var node = tree.store.nodes[node_idx];
+  var node = ns_get(&tree.store, node_idx);
   if node.is_leaf {
     var i = 0;
     while i < node.keys.len() {
