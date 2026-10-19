@@ -37,6 +37,7 @@ deps/
 # --- database runtime artifacts (probe stores; never commit) ----------------
 *.db
 *.wal
+*.wal.snap
 *.kv
 orbitdb-*.store
 *.tmp
