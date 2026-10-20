@@ -370,7 +370,22 @@ the v0.64.6 verdicts.
   `REL-20261020-1222-orbitdb` (compiler m375); pushed. The pager will adopt
   a direct byte-level page reader as the fallback if the runtime cannot
   reclaim. **A6/1M remains blocked on m375**; next is the BENCH-1 rerun at
-  the v0.64.8 pin move.**Updated:** 2026-10-19 (NIGHTLY WRAP -- owner away, work stopped; tree
+  the v0.64.8 pin move.**Updated:** 2026-10-20 (stdlib `read_at_into` acked; adoption STAGED):
+  stdlib landed `io.read_at_into(path, offset, buf: &mut Vec[UInt8], len)`
+  on main (commit `9bad232`) -- the m375/A6 caller-buffer page-reader
+  fallback -- and notified us (`REL-20261020-1731-stdlib`, acked). The
+  compiler also acked `REL-20261019-2206-orbitdb` as m375, root cause
+  measured: **Vec drop elaboration (not the arena)**; `read_at_into` is
+  their low-risk fallback. **Adoption is STAGED, not landed:** our policy
+  pins the RELEASED stdlib (v0.64.8), which lacks the API, so switching the
+  pager read path now would break the default build. Plan: (a) add
+  `byteio_read_at_into` + switch `block_store_open`'s scan/header reads to
+  a reused UInt8 buffer at the NEXT stdlib release; (b) early-warning
+  validate the 200k A6 soak with `XIOM_STDLIB=E:\xiom-lang\stdlib` (checkout
+  has it at `xiom/io/io.xi:1087`); (c) report measured RSS/teardown on the
+  stdlib item. m375 (compiler) remains the root fix. State: tree clean at
+  `eb7c12a`; no other lane items.
+**Updated:** 2026-10-19 (NIGHTLY WRAP -- owner away, work stopped; tree
   clean at `159e7ae`): session results after the v0.64.8 adoption:
   **admin web UI phase 1+2** (`admin/`, Pulse 0.3.1: dashboard, status,
   range pairs, lookup, token-gated put/delete/checkpoint; runners
