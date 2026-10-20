@@ -20,6 +20,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 DB_PATH="${DB:-orbitdb-admin.wal}"
 PORT_NUM="${PORT:-8787}"
+MAX_RAM_GB="${MAX_RAM_GB:-2}"
 
 export PULSE_BIND="${PULSE_BIND:-127.0.0.1}"
 export PULSE_PORT="$PORT_NUM"
@@ -30,4 +31,21 @@ BIN="$REPO_ROOT/out/orbitdb-admin"
 "$XIOM_COMPILER" -o "$BIN" "$REPO_ROOT/admin/src/admin.xi" || exit 1
 
 cd "$REPO_ROOT" || exit 1
-exec "$BIN"
+"$BIN" &
+pid=$!
+peak=0
+start=$(date +%s)
+while kill -0 "$pid" 2>/dev/null; do
+  rss=$(awk '/VmRSS/{print $2}' /proc/$pid/status 2>/dev/null)
+  if [ -n "$rss" ]; then
+    if [ "$rss" -gt $((MAX_RAM_GB * 1024 * 1024)) ]; then
+      echo "RAM-CAP [orbitdb-admin]: killed at $((rss / 1024)) MB (cap ${MAX_RAM_GB} GB)"
+      kill -9 "$pid" 2>/dev/null; wait "$pid" 2>/dev/null; exit 137
+    fi
+    [ "$rss" -gt "$peak" ] && peak=$rss
+  fi
+  sleep 0.5
+done
+wait "$pid"; rc=$?
+echo "RAM-CAP [orbitdb-admin]: exit=$rc peak=$((peak / 1024)) MB (cap ${MAX_RAM_GB} GB)"
+exit $rc

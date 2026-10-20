@@ -15,7 +15,8 @@
 [CmdletBinding()]
 param(
     [string]$Database = "orbitdb-admin.wal",
-    [int]$Port = 8787
+    [int]$Port = 8787,
+    [int]$MaxRAMGB = 2
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,7 +37,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Push-Location $repoRoot
 try {
-    & $exe
+    & (Join-Path $PSScriptRoot "run_capped.ps1") -FilePath $exe -MaxRAMGB $MaxRAMGB -Description "orbitdb-admin"
     exit $LASTEXITCODE
 } finally {
     Pop-Location

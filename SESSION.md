@@ -334,7 +334,17 @@ the v0.64.6 verdicts.
   (lane pin = v0.64.7 without the fix); at the next release adoption:
   merge `f779c23`, suite x2 both, close the item. Branch left in place.
   Relays head checked; no other lane items.
-**Updated:** 2026-10-20 (M3 SHARD LOCK LANDED -- file_lock integrated):
+**Updated:** 2026-10-20 (RAM-CAP DIRECTIVE IMPLEMENTED -- owner, all lanes):
+  every app/soak/bench probe that can allocate without bound now runs
+  through a capped wrapper. New `scripts/run_capped.ps1` and
+  `scripts/run_capped.sh` (WorkingSet/VmRSS sampled every 500 ms; kill at
+  `-MaxRAMGB`/`MAX_RAM_GB`, exit 137; optional timeout, exit 124; prints
+  peak). The admin runner uses the cap (2 GB default:
+  `scripts/admin.ps1 -MaxRAMGB`, `MAX_RAM_GB` in `admin.sh`). **Verified:**
+  the m375 mem-read probe was killed at **1,052 MB / exit 137** with a 1 GB
+  cap (no host pressure); seed-demo runs clean under the cap. RUNBOOK has
+  the policy + usage. Do not run `probe_mem_read`/`probe_soak`/benches
+  uncapped while other lanes are active.**Updated:** 2026-10-20 (M3 SHARD LOCK LANDED -- file_lock integrated):
   the stdlib station asks are verified and **closed**
   (`REL-20261016-1128-orbitdb`: file_lock wave 152, TLS/ALPN server,
   KDF/CSPRNG, monotonic clock, TCP ergonomics). ORBITDB integration:
