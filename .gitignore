@@ -38,6 +38,7 @@ deps/
 *.db
 *.wal
 *.wal.snap
+orbitdb-*.bin
 *.kv
 orbitdb-*.store
 *.tmp
