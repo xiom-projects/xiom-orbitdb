@@ -54,11 +54,11 @@ shutdown seam), or Ctrl+C.
 - Binds to `127.0.0.1` by default; keep it local. `ORBITDB_ADMIN_TOKEN`
   enables a shared-token check for `/api/*` (`X-Admin-Token: <token>`) and
   is REQUIRED for writes (without it they return 403).
-- **The admin owns the database file while it runs.** The engine has no
-  read-only open or cross-process pin contract yet (M3 remainder), and
-  opening replays/heals the WAL. Do not point the admin at a DB that another
-  process has open; the Station mode (ORBITWIRE session) removes this
-  limitation.
+- **The admin owns the database file while it runs** (enforced): it opens
+  with `db_file_open_locked_checked` (M3 shard lock), so a second admin on
+  the same DB fails fast; the lock is released when the process exits.
+  There is still no read-only open; the Station mode (ORBITWIRE session)
+  removes this limitation.
 - Reads are GET-only. Writes require the token header (custom headers are
   not settable by cross-site forms, so the CSRF surface stays closed).
   Backups/metrics/sessions come after the Station protocol freeze.

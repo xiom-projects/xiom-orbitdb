@@ -20,8 +20,11 @@
 - [~] **M1.1b pager** -- A1-A5 landed (lazy load, bounded cache, dirty
       spill, deferred-free GC; pager suite 3/3). A6 = 1M-key memory soak +
       BENCH memory row remains. Design: `docs/checklists/m1-1b-pager.md`.
-- [~] **M3 remainder** -- multi-process advisory locks (`file_lock`) +
-      cross-process pin semantics (version GC landed in M1.1b A5)
+- [x] **M3 remainder (2026-10-20)** -- `file_lock` integrated:
+      `db_file_open_locked_checked[_cfg]` + `db_file_unlock`/`is_locked`,
+      release-or-die, cross-process probe PASS Win+WSL, dbfile suite
+      test. Cross-process pins contract: readers live in the owning
+      actor / use snapshot copies; version GC in A5.
 - [x] **R1/R2 module split merged** -- engine facade + core/btree/snapshot/
       txn modules and the split suite + summing runners landed 2026-10-18
       (`08d351c`-`e04c3b9`; suite 160/160 x2 both at every step; zero

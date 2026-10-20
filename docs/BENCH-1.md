@@ -212,6 +212,32 @@ R4 WSL (N=10000, vals=100, point-only, sync=1),
 833,333 / 109 -- typed 100 B and bbolt raw 100 B are in the same league
 on this path.
 
+### 4e. 2026-10-20 pin-move rerun on v0.64.8 (pre-m375)
+
+Same host, same harness, v0.64.8 (exe `ee3ee902...`), no lane compiles
+during the rows. Raw logs: `probe-logs/bench-cross-20261020-152253.txt`
+(R1), `-152653` (R2), `-153229` (R3), `-152441` (R4).
+
+| row | load | read | update | scan | delete | verify |
+|---|---:|---:|---:|---:|---:|---:|
+| R1 (10k, sync=1) | 936 | 1,428,571 | 895 | 50,000 | 998 | 9056 |
+| R2 (50k, batch=100) | 559 | 231,481 | 336 | 23,809 | 1,079 | 45263 |
+| R3 (50k, sync=0) | 667 | 297,619 | 785 | 17,857 | 984 | 45263 |
+| R4 (10k typed 100B) | 579 | 270,270 | 430 | -- | -- | 10000 |
+
+vs the v0.64.7 recalibration (§4a): **R1 and R4 are stable or better**
+(R1 load 947 -> 936, update 866 -> 895, delete 784 -> 998; R4 load
+464 -> 579, update 483 -> 430 within run noise). **R2/R3 regress hard on
+writes at N=50k**: R2 update **1,551 -> 336 (-78%)**, load 1,552 -> 559,
+delete 1,483 -> 1,079; R3 update **1,389 -> 785 (-43%)**, load 1,435 ->
+667, delete 1,776 -> 984.
+
+The YCSB probe opens one resident handle and never checkpoints/reopens, so
+this is **not** the pager: it is consistent with the per-operation
+allocation retention at scale reported as **m375** (~read_at path; the same
+arena/guard retention grows with op count and pressures the 50k rows).
+R1/R4 at 10k ops are unaffected. Treat the R2/R3 v0.64.8 rows as
+**pre-m375**; re-run after the reclaim lands.
 ## 5. Findings (actionable)
 
 1. **Windows write path is syscall-bound, not fsync-bound.** ORBITDB

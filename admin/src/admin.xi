@@ -240,7 +240,13 @@ pub fn main() -> Int {
     Ok(s) => { g_html = s; }
     Err(_) => { g_html = "<!doctype html><h1>ORBITDB Admin</h1><p>admin/src/index.html is missing; run from the repo root.</p>"; }
   }
-  g_dbs.push(db_file_open(path, 4));
+  match db_file_open_locked_checked(path, 4) {
+    Ok(db) => { g_dbs.push(db); }
+    Err(_) => {
+      io.println("orbitdb-admin: cannot lock " + path + " (another process owns it)");
+      return 1;
+    }
+  }
   let _ = app.register("GET", "/");
   let _ = app.register("GET", "/api/status");
   let _ = app.register("GET", "/api/range");

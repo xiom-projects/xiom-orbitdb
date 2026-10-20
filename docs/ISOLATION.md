@@ -77,6 +77,26 @@ Until the deferred parts land, correctness comes from serializing writers; a
 reader that needs a frozen view opens its own handle or pins a snapshot
 in-process.
 
+## Cross-process shard ownership (M3, landed 2026-10-20)
+
+- `db_file_open_locked_checked[_cfg]` takes an exclusive **whole-file
+  advisory lock** on a dedicated `<path>.lock` sentinel (`xiom.os.lock`,
+  stdlib wave 152). One lock per process; a second locked open returns
+  `Err(StorageError)`; release with `db_file_unlock(path)` or by exiting the
+  process (release-or-die).
+- The sentinel is created once and **never deleted while a lock may be
+  held**: the lock is attached to the inode, so renaming/deleting the path
+  detaches it. The DB/WAL/snapshot files are never locked -- checkpoints
+  rename the snapshot.
+- Advisory only: a non-cooperating process can still read/write the file;
+  the embedded `db_file_open` keeps the optimistic stale-handle guard. The
+  Station opens each shard with the locked API (one writer per shard).
+- **Cross-process readers/pins are not supported.** A reader that needs a
+  frozen view uses a snapshot copy/backup, or lives inside the owning process
+  (the Station's engine actor captures pins). This is the M3 contract.
+- Evidence: `tests/probes/probe_lock.xi` (parent holds -> child sees HELD;
+  release -> child acquires; child acquires and exits -> parent reacquires)
+  PASS on Windows + WSL; `tests/suite/dbfile.xi` locked-open test.
 ## Detectable vs undetectable (tests)
 
 `tests/suite/dbfile.xi` (stale-handle test) + `tests/suite/typed_mvcc.xi` pin the behavior: the stale-handle test (two

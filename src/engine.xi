@@ -23,11 +23,18 @@ use xiom.db.error;
 use xiom.db.contracts;
 use xiom.db.secondary_index;
 use xiom.db.catalog.schema;
+use xiom.os.lock;
 
 pub use xiom.db.index.btree;
 pub use xiom.db.engine.core;
 pub use xiom.db.engine.snapshot;
 pub use xiom.db.engine.txn;
+
+// M3 shard ownership: at most one held whole-file advisory lock per process
+// (the Station opens one DB per shard). FileLock is non-Clone and owns its
+// fd, so the registry is a one-element Vec that pop() moves into release.
+var g_lock: Vec[FileLock] = Vec[FileLock].new();
+var g_lock_path: Str = "";
 
 
 
@@ -386,6 +393,95 @@ pub fn db_file_open_checked_cfg(path: Str, order: Int, page_format: Int) -> Resu
     return Err(DbError.ConstraintViolation);
   }
   return Ok(db_file_open_cfg(path, order, page_format));
+}
+
+// ---------------------------------------------------------------------------
+// M3 shard ownership: exclusive cross-process open.
+//
+// The Station opens one DB per shard; `file_lock` (xiom.os.lock, stdlib wave
+// 152) gives cooperating processes a whole-file advisory lock. We lock a
+// dedicated `<path>.lock` sentinel, never the DB/WAL/snapshot: checkpoints
+// rename the snapshot, and a lock attached to an inode detaches on rename.
+// The sentinel is created once and kept (never deleted while a lock may be
+// held). Advisory only: a process that does not cooperate can still open the
+// file; the embedded `db_file_open` keeps the optimistic stale-handle guard.
+//
+// One lock per process (the shard model); a second locked open while held
+// returns Err(StorageError), including on POSIX where same-process fds do
+// not contend. Release with `db_file_unlock(path)` or by exiting the process.
+// ---------------------------------------------------------------------------
+
+fn db_lock_sentinel(path: Str) -> Str {
+  return path + ".lock";
+}
+
+fn db_lock_ensure_sentinel(lp: Str) -> Bool {
+  match io.file_size(lp) {
+    Some(_) => { return true; }
+    None => {
+      match io.write_file(lp, "") {
+        Ok(_) => { return true; }
+        Err(_) => { return false; }
+      }
+    }
+  }
+}
+
+pub fn db_file_open_locked_checked(path: Str, order: Int) -> Result[DBFile, DbError] {
+  return db_file_open_locked_checked_cfg(path, order, 2);
+}
+
+// Exclusive shard open. Err(StorageError) means the lock is held elsewhere,
+// this process already holds one, or the sentinel could not be created.
+pub fn db_file_open_locked_checked_cfg(path: Str, order: Int,
+                                        page_format: Int) -> Result[DBFile, DbError] {
+  if !db_path_valid(path) { return Err(DbError.ConstraintViolation); }
+  if !valid_btree_order(order) { return Err(DbError.ConstraintViolation); }
+  if page_format != 1 && page_format != 2 { return Err(DbError.ConstraintViolation); }
+  if g_lock.len() > 0 { return Err(DbError.StorageError); }
+  let lp = db_lock_sentinel(path);
+  if !db_lock_ensure_sentinel(lp) { return Err(DbError.StorageError); }
+  match lock.file_lock_try(lp) {
+    Ok(held) => {
+      g_lock.push(held);
+      g_lock_path = lp;
+    }
+    Err(_) => { return Err(DbError.StorageError); }
+  }
+  match db_file_open_checked_cfg(path, order, page_format) {
+    Ok(db) => { return Ok(db); }
+    Err(e) => {
+      let _ = db_file_unlock(path);
+      return Err(e);
+    }
+  }
+}
+
+// Release this process's shard lock (false when it does not hold one).
+pub fn db_file_unlock(path: Str) -> Bool {
+  let lp = db_lock_sentinel(path);
+  if g_lock_path != lp { return false; }
+  let held = g_lock.pop();
+  match held {
+    Some(l) => {
+      lock.file_lock_release(l);
+      // Vec.pop may leave the element in the type-level vector (copy-without-
+      // remove for a non-Clone element); reset it so it cannot block the next
+      // locked open. The released FileLock's fd is already closed.
+      g_lock = Vec[FileLock].new();
+      g_lock_path = "";
+      return true;
+    }
+    None => {
+      g_lock = Vec[FileLock].new();
+      g_lock_path = "";
+      return false;
+    }
+  }
+}
+
+pub fn db_file_is_locked(path: Str) -> Bool {
+  return g_lock_path == db_lock_sentinel(path);
 }
 
 

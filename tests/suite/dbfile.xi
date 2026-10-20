@@ -1298,6 +1298,51 @@ fn test_db_file_range_pairs() -> TestResult {
   return assert(false, "db_file: range_pairs failed rc=" + int_to_str(rc));
 }
 
+// M3 shard ownership: exclusive locked open is single-holder per process and
+// releases on db_file_unlock (the cross-process half is tests/probes/probe_lock).
+fn run_db_file_locked_open() -> Int {
+  let path = "orbitdb-suite-locked.wal";
+  let snap = "orbitdb-suite-locked.wal.snap";
+  let lck = "orbitdb-suite-locked.wal.lock";
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  let _ = io.remove_file(lck);
+  match db_file_open_locked_checked(path, 4) {
+    Err(_) => { return 1; }
+    Ok(db) => {
+      var d = db;
+      if !db_file_put(&mut d, 1, 10) { return 2; }
+    }
+  }
+  if !db_file_is_locked(path) { return 3; }
+  match db_file_open_locked_checked(path, 4) {
+    Ok(_) => { return 4; }
+    Err(_) => {}
+  }
+  if !db_file_unlock(path) { return 5; }
+  if db_file_is_locked(path) { return 6; }
+  match db_file_open_locked_checked(path, 4) {
+    Err(_) => { return 7; }
+    Ok(db) => {
+      match db_file_get(&db, 1) {
+        Some(v) => { if v != 10 { return 8; } }
+        None => { return 9; }
+      }
+    }
+  }
+  let _ = db_file_unlock(path);
+  let _ = io.remove_file(path);
+  let _ = io.remove_file(snap);
+  let _ = io.remove_file(lck);
+  return 0;
+}
+
+fn test_db_file_locked_open() -> TestResult {
+  let rc = run_db_file_locked_open();
+  if rc == 0 { return assert(true, "db_file: locked open is exclusive + release/reacquire (M3 shard lock)"); }
+  return assert(false, "db_file: locked open failed rc=" + int_to_str(rc));
+}
+
 fn main() -> Int {
   io.println("=== XIOM DB Conformance: dbfile ===");
   var failed: Int = 0;
@@ -1318,6 +1363,8 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r96.passed, r96.name);
   let r96b = test_db_file_range_pairs();
   total = total + 1; failed = failed + report(r96b.passed, r96b.name);
+  let r96c = test_db_file_locked_open();
+  total = total + 1; failed = failed + report(r96c.passed, r96c.name);
   let r97a = test_db_file_incremental_checkpoint();
   total = total + 1; failed = failed + report(r97a.passed, r97a.name);
   let r97b = test_db_file_uncommitted_generation();

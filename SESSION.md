@@ -334,7 +334,23 @@ the v0.64.6 verdicts.
   (lane pin = v0.64.7 without the fix); at the next release adoption:
   merge `f779c23`, suite x2 both, close the item. Branch left in place.
   Relays head checked; no other lane items.
-**Updated:** 2026-10-20 (m375 MINIMAL REPRO PROVIDED): the compiler lane
+**Updated:** 2026-10-20 (M3 SHARD LOCK LANDED -- file_lock integrated):
+  the stdlib station asks are verified and **closed**
+  (`REL-20261016-1128-orbitdb`: file_lock wave 152, TLS/ALPN server,
+  KDF/CSPRNG, monotonic clock, TCP ergonomics). ORBITDB integration:
+  **`db_file_open_locked_checked[_cfg]` + `db_file_unlock`/`db_file_is_locked`**
+  -- an exclusive whole-file advisory lock on a dedicated `<path>.lock`
+  sentinel (one lock per process, release-or-die, sentinel never deleted
+  while held; the DB/WAL/snapshot are never locked because checkpoints
+  rename the snapshot). Cross-process probe `tests/probes/probe_lock.xi`:
+  parent holds -> child refused; release -> child acquires; child acquires
+  and exits -> parent reacquires (**PASS Windows + WSL**). dbfile gained a
+  locked-open test (25/25; suite **165**). The web admin now opens with the
+  shard lock and fails fast on a second instance (verified: second exits 1;
+  quit releases; next start serves). Cross-process pin contract documented
+  in ISOLATION: external readers use snapshot copies; Station readers live
+  in the owning engine actor. **G-START: M3 [x], threads [x], R1/R2 [x];
+  only M1.1b A6 (m375) remains** before ST1.**Updated:** 2026-10-20 (m375 MINIMAL REPRO PROVIDED): the compiler lane
   acked the A6 memory report as **m375** and asked for a minimal
   `io.read_at` repro. Added `tests/probes/probe_mem_read.xi` (64 MiB file,
   rotating 4 KiB reads, env-selectable `io.read_at` vs `byteio_read_at`):
@@ -2121,8 +2137,8 @@ documented fallback + re-test on the next release/package publish.
 5. **Station track (PLANNED, GATED -- `docs/checklists/two-tier.md`)**:
    satellite = today's release path; station (`station/`, ORBITWIRE v1,
    sessions, replication via WAL shipping, range sharding) may start only
-   after **G-START = M1.1b A6 + M3 remainder (file_lock/cross-process pins)
-   + R1/R2 split (done) + threads decision (done: engine-actor)**; ST1 protocol spike -> ST2 single-node
+   after **G-START = M1.1b A6 only** (M3 shard lock landed 2026-10-20,
+   threads decision done, R1/R2 done); ST1 protocol spike -> ST2 single-node
    core -> ST3 concurrency -> ST4 replication -> ST5 sharding -> ST6 ops ->
    ST7 league; optional ST8 PG-wire facade. Embedded release outranks it.
    ST1 begins with the Station reference crawl + matrix section 3 rows
