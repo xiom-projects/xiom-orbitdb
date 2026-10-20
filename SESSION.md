@@ -334,7 +334,17 @@ the v0.64.6 verdicts.
   (lane pin = v0.64.7 without the fix); at the next release adoption:
   merge `f779c23`, suite x2 both, close the item. Branch left in place.
   Relays head checked; no other lane items.
-**Updated:** 2026-10-19 (NIGHTLY WRAP -- owner away, work stopped; tree
+**Updated:** 2026-10-20 (m375 MINIMAL REPRO PROVIDED): the compiler lane
+  acked the A6 memory report as **m375** and asked for a minimal
+  `io.read_at` repro. Added `tests/probes/probe_mem_read.xi` (64 MiB file,
+  rotating 4 KiB reads, env-selectable `io.read_at` vs `byteio_read_at`):
+  **100,000 x read_at -> 3,103 MB peak (~31 KB/read)**; **50,000 x
+  byteio_read_at -> 3,127 MB (~62 KB/read)**; results exact, no frees until
+  exit (WorkingSet sampled at 200 ms). Inline source + numbers relayed as
+  `REL-20261020-1222-orbitdb` (compiler m375); pushed. The pager will adopt
+  a direct byte-level page reader as the fallback if the runtime cannot
+  reclaim. **A6/1M remains blocked on m375**; next is the BENCH-1 rerun at
+  the v0.64.8 pin move.**Updated:** 2026-10-19 (NIGHTLY WRAP -- owner away, work stopped; tree
   clean at `159e7ae`): session results after the v0.64.8 adoption:
   **admin web UI phase 1+2** (`admin/`, Pulse 0.3.1: dashboard, status,
   range pairs, lookup, token-gated put/delete/checkpoint; runners

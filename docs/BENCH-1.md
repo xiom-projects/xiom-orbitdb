@@ -316,3 +316,12 @@ ORBITDB_SOAK_KEYS=15000 ORBITDB_SOAK_FIRST=5000 ORBITDB_SOAK_CHUNK=5000 \
   I/O Vecs). Filed `REL-20261019-2206-orbitdb`; **1M-key soak blocked**
   until the runtime reclaim lands. `ORBITDB_PAGER_CAPACITY` now overrides
   the 256-frame default; the soak defaults to order 64.
+
+**m375 minimal repro (2026-10-20):** `tests/probes/probe_mem_read.xi` isolates
+the pager hot path (64 MiB file, rotating 4 KiB reads):
+`io.read_at` x 100,000 -> **peak 3,103 MB (~31 KB/read)**;
+`byteio_read_at` (with `u8_to_bytes`) x 50,000 -> **3,127 MB (~62 KB/read)**.
+The result Vec alone would be 400 MB / 1.6 GB, so the rest is per-call
+retention. Inline source relayed to the compiler lane as
+`REL-20261020-1222-orbitdb` (m375); the pager adopts a direct byte reader
+as the fallback if the runtime cannot reclaim.
