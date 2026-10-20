@@ -370,7 +370,19 @@ the v0.64.6 verdicts.
   `REL-20261020-1222-orbitdb` (compiler m375); pushed. The pager will adopt
   a direct byte-level page reader as the fallback if the runtime cannot
   reclaim. **A6/1M remains blocked on m375**; next is the BENCH-1 rerun at
-  the v0.64.8 pin move.**Updated:** 2026-10-20 (stdlib `read_at_into` acked; adoption STAGED):
+  the v0.64.8 pin move.**Updated:** 2026-10-20 (stdlib read_at_into FALLBACK MEASURED -- branch
+  ready, not merged): implemented the staged plan on
+  **`feat/read-at-into-open`** (`b3707b3`, based on `f2ad364`; main stays
+  on the released pin because v0.64.8 lacks the API):
+  `byteio_read_at_into` + byte-level block/header decoders, and
+  `block_store_open` now scans with ONE reused `Vec[UInt8]` buffer (no
+  per-block Vec/payload). Early-warning 200k soak (order 64, 8192 cache,
+  `XIOM_STDLIB=E:\\xiom-lang\\stdlib`, RAM-capped 4 GB): **engine 153 ms,
+  exact verify, peak 895 MB, teardown 153 s** vs 940 MB / 251 s before.
+  The scan/read path is fixed, but the plateau is **write-path/COW
+  (Vec-drop elaboration)** -> m375 remains the root fix. Merge the branch
+  at the next stdlib release; reported to stdlib + compiler. Main tree
+  clean at `f2ad364`.**Updated:** 2026-10-20 (stdlib `read_at_into` acked; adoption STAGED):
   stdlib landed `io.read_at_into(path, offset, buf: &mut Vec[UInt8], len)`
   on main (commit `9bad232`) -- the m375/A6 caller-buffer page-reader
   fallback -- and notified us (`REL-20261020-1731-stdlib`, acked). The
