@@ -212,6 +212,95 @@ pub fn block_decode_header(bytes: &Vec[Int]) -> Option[BlockHeader] {
   }
 }
 
+// Raw-byte decoders used by the block-store scan (m375 fallback): the scan
+// reads one page into a REUSED caller buffer (io.read_at_into) and validates
+// it here without converting the 4 KiB page to Vec[Int] or allocating a
+// payload. Fields are 8-byte little-endian.
+fn rd8(data: &Vec[UInt8], off: Int) -> Int {
+  var v = 0;
+  var i = 7;
+  while i >= 0 {
+    v = (v << 8) | (data[off + i] as Int);
+    i = i - 1;
+  }
+  return v;
+}
+
+fn zero_pad_ok(data: &Vec[UInt8], from: Int) -> Bool {
+  var i = from;
+  while i < BLOCK_BYTES {
+    if data[i] != 0u8 { return false; }
+    i = i + 1;
+  }
+  return true;
+}
+
+pub fn block_kind_is_free_bytes(bytes: &Vec[UInt8]) -> Bool {
+  if bytes.len() != BLOCK_BYTES { return false; }
+  if bytes[0] != 79u8 || bytes[1] != 80u8 || bytes[2] != 71u8 || bytes[3] != 50u8 {
+    return false;
+  }
+  if bytes[4] != 2u8 { return false; }
+  return bytes[5] == 70u8;
+}
+
+// Page metadata (generation, page_id) with full CRC/padding validation.
+pub fn block_decode_page_meta_bytes(bytes: &Vec[UInt8]) -> Option[(Int, Int)] {
+  if bytes.len() != BLOCK_BYTES { return None; }
+  if bytes[0] != 79u8 || bytes[1] != 80u8 || bytes[2] != 71u8 || bytes[3] != 50u8 {
+    return None;
+  }
+  if bytes[4] != 2u8 { return None; }
+  if bytes[5] != 80u8 { return None; }
+  if bytes[6] != 0u8 || bytes[7] != 0u8 { return None; }
+  let gen = rd8(bytes, 8);
+  let pid = rd8(bytes, 16);
+  let plen = rd8(bytes, 24);
+  let crc = rd8(bytes, 32);
+  if plen < 0 || plen > BLOCK_PAYLOAD_CAPACITY { return None; }
+  if !zero_pad_ok(bytes, BLOCK_HEADER_BYTES + plen) { return None; }
+  if page_checksum_bytes(bytes, BLOCK_HEADER_BYTES, plen) != crc { return None; }
+  return Some((gen, pid));
+}
+
+pub fn block_decode_header_bytes(bytes: &Vec[UInt8]) -> Option[BlockHeader] {
+  if bytes.len() != BLOCK_BYTES { return None; }
+  if bytes[0] != 79u8 || bytes[1] != 80u8 || bytes[2] != 71u8 || bytes[3] != 50u8 {
+    return None;
+  }
+  if bytes[4] != 2u8 { return None; }
+  if bytes[5] != 72u8 { return None; }
+  if bytes[6] != 0u8 || bytes[7] != 0u8 { return None; }
+  let gen = rd8(bytes, 8);
+  let pid = rd8(bytes, 16);
+  let plen = rd8(bytes, 24);
+  let crc = rd8(bytes, 32);
+  if pid != 0 { return None; }
+  if plen != HEADER_PAYLOAD_BYTES { return None; }
+  if !zero_pad_ok(bytes, BLOCK_HEADER_BYTES + plen) { return None; }
+  if page_checksum_bytes(bytes, BLOCK_HEADER_BYTES, plen) != crc { return None; }
+  let base = BLOCK_HEADER_BYTES;
+  if bytes[base] != 79u8 || bytes[base + 1] != 72u8
+     || bytes[base + 2] != 68u8 || bytes[base + 3] != 50u8 {
+    return None;
+  }
+  if bytes[base + 60] != 0u8 || bytes[base + 61] != 0u8
+     || bytes[base + 62] != 0u8 || bytes[base + 63] != 0u8 {
+    return None;
+  }
+  let committed = rd8(bytes, base + 36);
+  if committed != gen { return None; }
+  return Some(BlockHeader{
+    root: rd8(bytes, base + 4),
+    order: rd8(bytes, base + 12),
+    node_count: rd8(bytes, base + 20),
+    checkpoint_lsn: rd8(bytes, base + 28),
+    committed_generation: committed,
+    block_count: rd8(bytes, base + 44),
+    next_page_id: rd8(bytes, base + 52),
+  });
+}
+
 // Fast path for the block store's scan: a dead block is skipped without the
 // CRC/padding validation (kind is not covered by the payload CRC).
 pub fn block_kind_is_free(bytes: &Vec[Int]) -> Bool {

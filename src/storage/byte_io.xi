@@ -69,6 +69,19 @@ pub fn byteio_read_at(path: Str, offset: Int, len: Int) -> Option[Vec[Int]] {
   }
 }
 
+// Caller-buffer read: io.read_at_into clears/reuses `buf` and allocates no
+// fresh Vec per call (stdlib main 9bad232; REL-20261020-1731-orbitdb). Used
+// by the block-store scan so a large v2 file does not retain one page buffer
+// per block (m375 fallback). Returns true only for a full-length read.
+pub fn byteio_read_at_into(path: Str, offset: Int, buf: &mut Vec[UInt8],
+                           len: Int) -> Bool {
+  if offset < 0 || len < 0 { return false; }
+  match io.read_at_into(path, offset, buf, len) {
+    Ok(n) => { return n == len; }
+    Err(_) => { return false; }
+  }
+}
+
 // Write at offset (creates the file, zero-fills a gap past EOF). The fault
 // gate can skip, shorten (torn write) or fail the operation.
 pub fn byteio_write_at(path: Str, offset: Int, data: &Vec[Int]) -> Bool {
