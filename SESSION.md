@@ -370,7 +370,16 @@ the v0.64.6 verdicts.
   `REL-20261020-1222-orbitdb` (compiler m375); pushed. The pager will adopt
   a direct byte-level page reader as the fallback if the runtime cannot
   reclaim. **A6/1M remains blocked on m375**; next is the BENCH-1 rerun at
-  the v0.64.8 pin move.**Updated:** 2026-10-20 (stdlib read_at_into FALLBACK MEASURED -- branch
+  the v0.64.8 pin move.**Updated:** 2026-10-20 (m375 write-path isolation): added
+  `tests/probes/probe_mem_write.xi` and measured the two write sides in
+  isolation on the released pin (RAM-capped 2 GB): **200k B-tree inserts
+  (order 64) peak 18.1 MB / 0.6 s**; **200k `wal_file_append_sync` peak
+  202.8 MB / 46.5 s**. The 200k A6 soak (895 MB) is therefore dominated by
+  **page encode/write buffers** (`block_encode_page` builds a 4096-int
+  Vec[Int] + `bytes_to_u8` per dirty page; ~5.8k dirty pages on the run) and
+  the runtime's Vec-drop retention -- not the B-tree, not the read scan
+  (fixed on `feat/read-at-into-open`). m375 remains the root fix; the
+  isolation is filed to the compiler lane.**Updated:** 2026-10-20 (stdlib read_at_into FALLBACK MEASURED -- branch
   ready, not merged): implemented the staged plan on
   **`feat/read-at-into-open`** (`b3707b3`, based on `f2ad364`; main stays
   on the released pin because v0.64.8 lacks the API):
