@@ -62,6 +62,11 @@
 
 ## ST0 -- prerequisites (no new code; re-verify the gate)
 
+- [~] **ST1 protocol crawl seeded (2026-10-20)** -- verified h11/
+      fastify/gin/knex/bullmq anchors + ORBITWIRE decisions in
+      `docs/REFERENCE-MATRIX.md` 3.2; conversion waits for G-START
+      (A6/m375).
+
 - [ ] G-START fully green with committed evidence
 - [ ] Station manifest scaffold `station/xiom.toml` (source-roots `../src` +
       `src`) + a hello-station probe composing the engine (hybrid pattern)

@@ -97,6 +97,21 @@ filled when ST1 freezes the ORBITWIRE surface; do not convert before G-START.
 | HTTP/1.1 server core with parser, keep-alive loop, routes and JSON builders | `E:\xiom-packages\packages\xiom-pulse\src\server.xi`: `register` l.447, `out_json` l.212, `out_text` l.218, `out_html` l.224, `serve` l.868, `serve_with` l.877; `router.xi`: `PulseRoute` l.26, `parse_query` l.101; `http.xi`: `header_get` l.258; `config.xi`: `PULSE_PORT` default 8080 l.76 | adopt | `admin/` is a separate app: `xiom.pulse` 0.3.1 + the Satellite engine via source-roots. Localhost bind, GET-only phase 1; token via `ORBITDB_ADMIN_TOKEN`; `X-Pulse-Quit: 1` clean shutdown. |
 | Native desktop admin (pgAdmin-like local panel) | `xiom.imgui` README: vendored headless core, no SDL/GLFW/Vulkan backend or widgets yet (Phase 3); `xiom.sdl3` 0.20.0: window/renderer/texture/events | defer | optional later client; the web UI is the primary admin and works headless/remote. Revisit when imgui ships a backend. |
 | Admin shape: separate client, not a server-embedded GUI | pgAdmin is a separate application over PostgreSQL; PostgreSQL itself has no GUI | adopt (shape) | the admin is its own program in the same repo; against a Station it attaches over ORBITWIRE (ST1) instead of opening the file. |
+### 3.2 ORBITWIRE protocol crawl (ST1 prep, 2026-10-20; conversion waits for G-START)
+
+Verified anchors on the cloned references. ORBITWIRE is a typed binary session
+protocol, not HTTP; PULSE already covers the HTTP/admin plane, so these rows
+shape session framing, dispatch order, backpressure and promotion locks.
+
+| Mechanic | Verified reference | Decision | ORBITWIRE conversion |
+|---|---|---|---|
+| Explicit connection state machine; feed bytes, pull events; EOF/keep-alive handled as states | `E:\repos\h11\h11\_connection.py`: `Connection` l.151, `receive_data` l.364, `next_event` l.438, `send` l.514; `_state.py` `ConnectionState` (DONE l.125, CLOSED l.127) | adopt | a small `SessionState` enum + `feed(bytes)`/`next_frame()` split per session; typed, length-prefixed frames with hard max-frame/header limits; EOF transitions to a graceful close; no HTTP chunked encoding |
+| Fixed hook order around a request; send pipeline; response finalization | `E:\repos\fastify\lib\hooks.js`: `hookRunnerGenerator` l.230-231, `onSendHookRunner` l.278; `reply.js`: `Reply` l.66, `Reply.prototype.send` l.156, `onSendEnd` l.599 | adopt (order) | session pipeline: auth -> rate/metrics -> parse -> dispatch -> outbound queue; one terminal send per command; hooks must not capture the socket |
+| Context chain with explicit next/abort; per-request values | `E:\repos\gin\context.go`: `Context.Next` l.197, `Abort` l.216, `Set` l.285 | adapt | command context with abort + typed metadata (principal, request id); avoid reflection binding; binary commands decode explicitly |
+| Builder -> compiler -> runner split (no raw SQL in the executor) | `E:\repos\knex\lib\query\querybuilder.js`: `Builder` l.58, `toSQL` l.83, `then` l.1786; `lib\query\querycompiler.js`; `lib\execution\runner.js` `Runner` l.13; `lib\client.js` `query` l.174 | adopt (boundary) | ORBITWIRE command -> typed plan -> executor; reuse the existing Query/planner/executor seam; the wire carries plan intent, never SQL text |
+| Token-based job lock with renewal; atomic lock/release scripts | `E:\repos\bullmq\src\classes\lock-manager.ts`: `LockManager` l.17, `extendLocks` l.46; `worker.ts` lock manager l.217/431; `src\commands\moveToActive-11.lua`, `extendLocks-1.lua`, `extendLock-2.lua`, `releaseLock-1.lua` | adapt | shard ownership uses our `file_lock` + epoch; replica promotion needs a lease token with periodic renewal and a fencing check on commit (ST4); no Redis/Lua |
+| Credit/backpressure and partial-write resumption | h11 `PAUSED`/`NEED_DATA` events + fastify `onSend` lifecycle (above) | adopt (shape) | per-session outbound byte budget; pause reads when the queue is over budget; resumable writes; bounded frame queue |
+
 ## 4. Blocker ledger (relay items opened from crawl findings)
 
 | Slice | Blocker | Relay item | Status |
