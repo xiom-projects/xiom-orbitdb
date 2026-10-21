@@ -36,6 +36,7 @@ const ROUTE_GET: Int = 4;
 const ROUTE_PUT: Int = 5;
 const ROUTE_DELETE: Int = 6;
 const ROUTE_CHECKPOINT: Int = 7;
+const ROUTE_BACKUP: Int = 8;
 
 // The PULSE handler is a non-capturing fn, so the engine handle lives in a
 // one-element process-global (PULSE itself keeps its route table this way).
@@ -211,6 +212,58 @@ fn checkpoint_out(req: &PulseRequest) -> HandlerOut {
     + ",\"anchor_lsn\":" + convert.int_to_string(lsn) + "}");
 }
 
+// Copy src over dst via a temp + rename (best-effort replace). The admin owns
+// the lock and has just checkpointed, so both files are stable.
+fn copy_atomic(src: Str, dst: Str) -> Bool {
+  let tmp = dst + ".tmp";
+  let _ = io.remove_file(tmp);
+  match io.copy_file(src, tmp) {
+    Ok(_) => {}
+    Err(_) => { return false; }
+  }
+  let _ = io.remove_file(dst);
+  match io.rename(tmp, dst) {
+    Ok(_) => { return true; }
+    Err(_) => { return false; }
+  }
+}
+
+// POST /api/backup -- checkpoint, then copy <db> and <db>.snap to
+// <db>.backup.wal / <db>.backup.snap (atomic per file). Restore by copying
+// them back to the original names while no handle is open.
+fn backup_out(req: &PulseRequest) -> HandlerOut {
+  if g_token.len() == 0 { return writes_disabled(); }
+  if !authorized_write(req) { return unauthorized(); }
+  var db = g_dbs[0];
+  let anchor = db_file_checkpoint(&mut db);
+  g_dbs[0] = db;
+  if anchor < 0 {
+    return app.out_json(500, "{\"error\":\"checkpoint failed\"}");
+  }
+  let path = g_dbs[0].path;
+  let snap = path + ".snap";
+  let bwal = path + ".backup.wal";
+  let bsnap = path + ".backup.snap";
+  if !copy_atomic(path, bwal) {
+    return app.out_json(500, "{\"error\":\"wal backup copy failed\"}");
+  }
+  var snap_bytes = 0;
+  match io.file_size(snap) {
+    Some(_) => {
+      if !copy_atomic(snap, bsnap) {
+        return app.out_json(500, "{\"error\":\"snapshot backup copy failed\"}");
+      }
+      snap_bytes = file_size_or(bsnap, 0);
+    }
+    None => {}
+  }
+  let wal_bytes = file_size_or(bwal, 0);
+  return app.out_json(200, "{\"ok\":true,\"anchor_lsn\":" + convert.int_to_string(anchor)
+    + ",\"snap_generation\":" + convert.int_to_string(db_file_snap_generation(&g_dbs[0]))
+    + ",\"wal_bytes\":" + convert.int_to_string(wal_bytes)
+    + ",\"snap_bytes\":" + convert.int_to_string(snap_bytes) + "}");
+}
+
 fn not_found(msg: Str) -> HandlerOut {
   return app.out_json(404, "{\"error\":\"" + json_escape(msg) + "\"}");
 }
@@ -230,6 +283,7 @@ fn handler(req: &PulseRequest, m: &PulseRoute, _body: Str) -> HandlerOut {
   if m.route_id == ROUTE_PUT { return put_out(req, m); }
   if m.route_id == ROUTE_DELETE { return delete_out(req, m); }
   if m.route_id == ROUTE_CHECKPOINT { return checkpoint_out(req); }
+  if m.route_id == ROUTE_BACKUP { return backup_out(req); }
   return not_found("route");
 }
 
@@ -254,6 +308,7 @@ pub fn main() -> Int {
   let _ = app.register("POST", "/api/put");
   let _ = app.register("POST", "/api/delete");
   let _ = app.register("POST", "/api/checkpoint");
+  let _ = app.register("POST", "/api/backup");
   let bind = env.var_or("PULSE_BIND", "127.0.0.1");
   let port = env.var_or("PULSE_PORT", "8080");
   io.println("orbitdb-admin: http://" + bind + ":" + port + "  db=" + path);

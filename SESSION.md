@@ -370,7 +370,15 @@ the v0.64.6 verdicts.
   `REL-20261020-1222-orbitdb` (compiler m375); pushed. The pager will adopt
   a direct byte-level page reader as the fallback if the runtime cannot
   reclaim. **A6/1M remains blocked on m375**; next is the BENCH-1 rerun at
-  the v0.64.8 pin move.**Updated:** 2026-10-21 (A6 1M attempt -- cap-protected, blocked on m375):
+  the v0.64.8 pin move.**Updated:** 2026-10-21 (admin backup/restore landed): `POST /api/backup`
+  (token-gated) checkpoints, then atomically copies `<db>` ->
+  `<db>.backup.wal` and `<db>.snap` -> `<db>.backup.snap` (temp+rename).
+  **Verified end-to-end:** backup of a 40-key DB returned
+  `anchor_lsn=42, snap_generation=2, wal_bytes=20, snap_bytes=172032`;
+  copying the pair to `restore.wal`/`.snap` reopened with keys=40,
+  `get(5)=50`, paged=true, gen 2. UI has a Backup button; README/RUNBOOK
+  document restore (copy back while no handle is open). Admin remains
+  localhost-only + token/CSRF discipline; it holds the M3 shard lock.**Updated:** 2026-10-21 (A6 1M attempt -- cap-protected, blocked on m375):
   ran the 1M soak under the owner's 4 GB cap (order 64, 8192 cache). It was
   **killed at 4,173 MB / exit 137** with a 55.6 MB snapshot (~435k keys,
   ~9.6 KB/key at that point) -- superlinear vs the 200k result (607 MB,

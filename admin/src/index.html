@@ -86,6 +86,7 @@
       <button id="put">Put</button>
       <button id="del">Delete</button>
       <button id="ckpt">Checkpoint</button>
+      <button id="backup">Backup</button>
     </div>
     <div class="muted">Writes are refused unless the server was started with
       <code>ORBITDB_ADMIN_TOKEN</code>; send that value in the token box.</div>
@@ -162,6 +163,7 @@ $("get").addEventListener("click", getKey);
 $("put").addEventListener("click", () => callWrite("/api/put?key=" + encodeURIComponent($("wkey").value) + "&value=" + encodeURIComponent($("wval").value)));
 $("del").addEventListener("click", () => callWrite("/api/delete?key=" + encodeURIComponent($("wkey").value)));
 $("ckpt").addEventListener("click", () => callWrite("/api/checkpoint"));
+$("backup").addEventListener("click", () => callWrite("/api/backup"));
 const tin = $("token");
 tin.value = tok();
 tin.addEventListener("change", () => { sessionStorage.setItem("orbitdb-admin-token", tin.value); refresh(); loadRange(); });

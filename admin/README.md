@@ -45,6 +45,7 @@ Open `http://127.0.0.1:8787/`.
 | `POST /api/put?key=&value=` | upsert (token required) |
 | `POST /api/delete?key=` | delete (token required) |
 | `POST /api/checkpoint` | commit a checkpoint (token required) |
+| `POST /api/backup` | checkpoint + copy `<db>.backup.wal` / `<db>.backup.snap` (token required) |
 
 Stop the server with any request carrying `X-Pulse-Quit: 1` (PULSE's clean
 shutdown seam), or Ctrl+C.
@@ -76,3 +77,11 @@ admin/
 The engine addition this needed: `db_file_range_pairs` (keys + values; the
 existing `db_file_range` returns values only) in `src/index/btree.xi` +
 `src/engine.xi`, with `dbfile` suite coverage.
+
+## Backup / restore
+
+`POST /api/backup` checkpoints, then atomically copies `<db>` to
+`<db>.backup.wal` and `<db>.snap` to `<db>.backup.snap`. Restore while no
+handle is open: copy the two backup files back to the original names
+(`<db>` and `<db>.snap`). The admin owns the lock, so the pair is stable.
+This is a local file-level backup, not a remote/restic integration.
