@@ -640,7 +640,7 @@ fn bs_compare(path: Str, hid: &Vec[Int], hpay: &Vec[Int], hgen: &Vec[Int], commi
 }
 
 fn fuzz_blockstore(seed: Int, gens: Int, dir: Str) -> Int {
-  let path = dir + "/fuzz-block-store.bv2";
+  let path = dir + "/fuzz-block-store-" + convert.int_to_string(seed) + ".bv2";
   match io.remove_file(path) { Ok(_) => {} Err(_) => {} }
   match io.remove_file(path + ".tmp") { Ok(_) => {} Err(_) => {} }
   var state = seed + 999;
@@ -784,7 +784,7 @@ fn query_where_int(q: &mut Query, op: Int, v: Int) {
 }
 
 fn fuzz_query(seed: Int, iters: Int, dir: Str) -> Int {
-  let path = dir + "/fuzz-query.wal";
+  let path = dir + "/fuzz-query-" + convert.int_to_string(seed) + ".wal";
   match io.remove_file(path) { Ok(_) => {} Err(_) => {} }
   match io.remove_file(path + ".snap") { Ok(_) => {} Err(_) => {} }
   var state = seed + 7777;
@@ -814,7 +814,10 @@ fn fuzz_query(seed: Int, iters: Int, dir: Str) -> Int {
       let k = rand_mod(&mut state, 50);
       let ok = db_file_delete(&mut db, k);
       let mok = model_delete(&mut keys, &mut vals, k);
-      if ok != mok { return 2; }
+      if ok != mok {
+        io.println("DBG-del-mismatch key=" + convert.int_to_string(k) + " ok=" + convert.bool_to_string(ok) + " mok=" + convert.bool_to_string(mok) + " size=" + convert.int_to_string(db_file_size(&db)) + " model=" + convert.int_to_string(keys.len()));
+        return 2;
+      }
     } else {
       let ncond = rand_mod(&mut state, 3);
       var ops = Vec[Int].new();
@@ -1241,7 +1244,7 @@ fn fuzz_schema_row(seed: Int, iters: Int) -> Int {
 // including after recovery. Model payloads are append-only (offsets into a
 // flat byte vec) so no nested-vec element writes are involved.
 fn fuzz_db_typed(seed: Int, iters: Int, dir: Str) -> Int {
-  let path = dir + "/fuzz-typed.wal";
+  let path = dir + "/fuzz-typed-" + convert.int_to_string(seed) + ".wal";
   let _ = io.remove_file(path);
   let _ = io.remove_file(path + ".snap");
   var state = seed;
@@ -1410,7 +1413,7 @@ fn tq_engine_op(op: Int) -> QueryOp {
 }
 
 fn fuzz_typed_query(seed: Int, iters: Int, dir: Str) -> Int {
-  let path = dir + "/fuzz-tquery.wal";
+  let path = dir + "/fuzz-tquery-" + convert.int_to_string(seed) + ".wal";
   let _ = io.remove_file(path);
   let _ = io.remove_file(path + ".snap");
   var state = seed;
@@ -1604,7 +1607,7 @@ fn fuzz_pins_expected(m: &Vec[Int]) -> Vec[Int] {
 }
 
 fn fuzz_db_pins(seed: Int, iters: Int, dir: Str) -> Int {
-  let path = dir + "/fuzz-mvcc.wal";
+  let path = dir + "/fuzz-mvcc-" + convert.int_to_string(seed) + ".wal";
   let _ = io.remove_file(path);
   let _ = io.remove_file(path + ".snap");
   let n = 48;

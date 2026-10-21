@@ -486,6 +486,14 @@ pub fn db_file_is_locked(path: Str) -> Bool {
   return g_lock_path == db_lock_sentinel(path);
 }
 
+// Release the held append fd (the handle stays usable; the next write
+// reopens lazily). Call this before deleting/renaming a DB file from the
+// same process: a held fd keeps the WAL open and blocks the delete on
+// Windows.
+pub fn db_file_close(db: &mut DBFile) {
+  db_close_append_fd(db);
+}
+
 
 // Upsert with WAL-before-ack: append (Insert for new keys, Update for
 // existing), then apply. Returns false when the log write fails.

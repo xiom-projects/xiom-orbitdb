@@ -42,6 +42,7 @@ layout: `<path>` = WAL segment, `<path>.snap` = snapshot page log.
 | `db_file_migrate_snapshot(path)` | `Bool` | Migrate an existing v1 snapshot to v2 in place (idempotent; absent/already-v2 is a trivial success). |
 | `db_path_valid(path)` | `Bool` | Non-empty, `<= 4096` chars, no CR/LF (the codecs are line-oriented). |
 | `db_file_open_checked(path, order)` | `Result[DBFile, DbError]` | Validated open; `Err(ConstraintViolation)` on an invalid path or `order < 3`, else `Ok` from `db_file_open`. |
+| `db_file_close(db)` | `Unit` | Release the held append fd (the handle stays usable; the next write reopens lazily). Call before deleting/renaming the DB file from the same process. |
 | `db_file_open_checked_cfg(path, order, page_format)` | `Result[DBFile, DbError]` | Validated open with an explicit snapshot container (`1`/`2`); reads still auto-detect. |
 | `db_file_open_locked_checked(path, order)` / `db_file_open_locked_checked_cfg(path, order, page_format)` | `Result[DBFile, DbError]` | **M3 shard open:** takes an exclusive whole-file advisory lock on `<path>.lock` (one holder per process; `Err(StorageError)` when held), then the checked open. Release with `db_file_unlock(path)` or process exit. |
 | `db_file_unlock(path)` / `db_file_is_locked(path)` | `Bool` | Release / query this process's shard lock. |

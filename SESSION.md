@@ -370,7 +370,18 @@ the v0.64.6 verdicts.
   `REL-20261020-1222-orbitdb` (compiler m375); pushed. The pager will adopt
   a direct byte-level page reader as the fallback if the runtime cannot
   reclaim. **A6/1M remains blocked on m375**; next is the BENCH-1 rerun at
-  the v0.64.8 pin move.**Updated:** 2026-10-21 (WRITE-PATH FALLBACK LANDED -- bench restored):
+  the v0.64.8 pin move.**Updated:** 2026-10-21 (held-fd follow-up -- fuzz isolation + close API):
+  the held append fd keeps the WAL open, so a test that reuses a FIXED DB
+  path across fuzz seeds cannot delete it on Windows and silently reopens
+  the previous seed's DB (this false-failed fuzz seed 1097 with a
+  delete-presence mismatch). Fixes: fuzz DB paths are seed-specific; new
+  **`db_file_close(db)`** releases the fd without invalidating the handle
+  (next write reopens lazily); call it before deleting/renaming a DB file
+  from the same process. Debug prints removed. **Fuzz 4/4 seeds green;
+  suite 166/166 x2 Win + x2 WSL, crash 25/25 x2 both, probes x2 both,
+  hybrid full 36 x2 both + crash 5/5 x2 both.** m375 remains for the
+  memory/teardown plateau (200k soak 607 MB / 151 s); write throughput is
+  restored engine-side (R2 update 336 -> 1,409; R3 1,786, beats v0.64.7).**Updated:** 2026-10-21 (WRITE-PATH FALLBACK LANDED -- bench restored):
   byte-native page encoding (`block_encode_page_into`, byte-identical KAT),
   reused node-page payload (`node_page_bytes_into`), **one held append fd
   per handle for auto-commit writes** (the txn-window shape; closed before
