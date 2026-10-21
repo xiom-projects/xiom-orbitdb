@@ -63,32 +63,35 @@
 
 ## ST0 -- prerequisites (no new code; re-verify the gate)
 
-- [~] **ST1 protocol crawl seeded (2026-10-20)** -- verified h11/
+- [x] **ST1 protocol crawl seeded (2026-10-20)** -- verified h11/
       fastify/gin/knex/bullmq anchors + ORBITWIRE decisions in
-      `docs/REFERENCE-MATRIX.md` 3.2; G-START is green, ST1 protocol
-      spike/conversion is next.
+      `docs/REFERENCE-MATRIX.md` 3.2; converted 2026-10-21 (ST1 below).
 
 - [x] G-START fully green (2026-10-21): M1.1b A6, M3 shard lock,
       threads decision and R1/R2 all hold with committed evidence.
-- [ ] Station manifest scaffold `station/xiom.toml` (source-roots `../src` +
+- [x] Station manifest scaffold `station/xiom.toml` (source-roots `../src` +
       `src`) + a hello-station probe composing the engine (hybrid pattern)
 
 ## ST1 -- ORBITWIRE v1 protocol spike (loopback only)
 
-- [ ] Wire spec draft in `station/docs/ORBITWIRE.md`: length-prefixed frames,
+- [x] Wire spec draft in `station/docs/ORBITWIRE.md`: length-prefixed frames,
       text + binary encodings, handshake (protocol version + auth slot),
       request/response ids, error taxonomy mapped from `DbError`
-- [ ] Ops frozen: HELLO / AUTH / PREPARE / EXECUTE / FETCH / CLOSE / PING
-      over the engine's typed-rows and query APIs
-- [ ] Loopback conformance suite: round-trip all `TValue` kinds incl.
-      payload limits (`db_file_typed_payload_max`) + query/ORDER/LIMIT paths
-- [ ] Interop with `xiom.postgres.wire` (client-side reference; no PG-wire
+- [x] Ops frozen: HELLO / AUTH / PING / BEGIN / PUT / GET / RANGE / QUERY /
+      COMMIT / ABORT / CLOSE (+ additive DELETE / CHECKPOINT) over the
+      engine's typed-rows and query APIs
+- [x] Loopback conformance suite: round-trip all `TValue` kinds incl. payload
+      limits (`db_file_typed_payload_max`) + query/ORDER/LIMIT paths
+- [~] Interop with `xiom.postgres.wire` (client-side reference; no PG-wire
       commitment): surface CONFIRMED reusable + documented 2026-10-16
       (`REL-20261016-1150-packages-3`; `xiom.postgres.wire` module: frame
-      builders + read primitives + `wire_decode` + SPEC.md tables) -- file
-      the co-run item at protocol freeze (loopback, read-only fixture side)
-- [ ] `docs/FORMATS.md` gains the ORBITWIRE v1 section (versioning policy)
-- [ ] Evidence: station suite x2 Win + x2 WSL; protocol KAT file committed
+      builders + read primitives + `wire_decode` + SPEC.md tables) -- the
+      frame/read-primitive discipline is reused; a co-run item is filed at
+      protocol freeze (`REL-20261021-1154-orbitdb`, packages) for a
+      read-only fixture probe. ORBITWIRE does not reuse PG's frame format.
+- [x] `docs/FORMATS.md` gains the ORBITWIRE v1 section (versioning policy)
+- [x] Evidence: station suite x2 Win + x2 WSL (169 checks x2 both); protocol
+      KAT pinned in `station/docs/ORBITWIRE.md` + `protocol_suite.xi`
 
 ## ST2 -- single-node server core
 

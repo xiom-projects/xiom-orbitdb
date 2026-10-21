@@ -405,6 +405,22 @@ Scoreboard changelog:
   crash 5/5 x2 both; BENCH-1 section 7. **Score 77.5 -> 82.5** (A 16->18,
   C 11->14; A5 row OK). G-START is green; Station ST1 conversion is
   unblocked.
+
+- 2026-10-21 (ST1 ORBITWIRE protocol + hello-station): the Station tier
+  landed its frozen v1 wire protocol (`station/docs/ORBITWIRE.md`), typed
+  frame codec, session state machine, single-writer actor, loopback TCP
+  server and three conformance suites. **169 checks x2 Windows + x2 WSL**
+  (protocol 33, session 28, loopback 108): frame KAT/CRC parity, partial and
+  pipelined ingress, bounded-queue backpressure, CRUD/RANGE/QUERY
+  order/limit/offset, txn visibility/isolation, typed rows all `TValue`
+  kinds + payload limit, auth/lockout, framing errors, CHECKPOINT/CLOSE.
+  **No Satellite score change (82.5)**: the Station is a separate tier and
+  ST1 is a protocol spike; ST2 (crash-safe server core) is the next gate.
+  Found and filed **C-ORBIT-14** (`REL-20261021-1136-orbitdb`): a `let`/`var`
+  initializer of a Vec from a `match`/`Result` truncates silently; the
+  codec uses the declare-then-assign workaround and the repro bundle is
+  `docs/repro/vec-match-binding/`. Also filed the packages interop co-run
+  (`REL-20261021-1154-orbitdb`).
 ## A. Correctness & data structures (20)
 
 | # | Item | Pts | Status | Evidence / gate |

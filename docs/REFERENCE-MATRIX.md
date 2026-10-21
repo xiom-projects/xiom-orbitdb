@@ -112,6 +112,16 @@ shape session framing, dispatch order, backpressure and promotion locks.
 | Token-based job lock with renewal; atomic lock/release scripts | `E:\repos\bullmq\src\classes\lock-manager.ts`: `LockManager` l.17, `extendLocks` l.46; `worker.ts` lock manager l.217/431; `src\commands\moveToActive-11.lua`, `extendLocks-1.lua`, `extendLock-2.lua`, `releaseLock-1.lua` | adapt | shard ownership uses our `file_lock` + epoch; replica promotion needs a lease token with periodic renewal and a fencing check on commit (ST4); no Redis/Lua |
 | Credit/backpressure and partial-write resumption | h11 `PAUSED`/`NEED_DATA` events + fastify `onSend` lifecycle (above) | adopt (shape) | per-session outbound byte budget; pause reads when the queue is over budget; resumable writes; bounded frame queue |
 
+**Converted 2026-10-21 (ST1, G-START green):** every row above is now
+implemented in `station/src/` and frozen in `station/docs/ORBITWIRE.md` --
+h11 state machine -> `STATE_*` + `session_feed`/`session_pull`; fastify hook
+order -> the dispatch gates (auth -> state -> parse -> engine -> one queued
+response); gin abort -> error frames/terminal close (no exceptions); knex
+builder/executor -> QUERY typed plan fields -> `Query` -> `db_file_query`
+(no SQL text); bullmq lock -> M3 `file_lock` with replica lease/fencing
+deferred to ST4; credit/backpressure -> bounded queue + read pause + partial
+send resume. Evidence: station suites 169/169 x2 Win + x2 WSL.
+
 ## 4. Blocker ledger (relay items opened from crawl findings)
 
 | Slice | Blocker | Relay item | Status |
@@ -120,3 +130,4 @@ shape session framing, dispatch order, backpressure and promotion locks.
 | M1.1b pager | lazy load needs `read_at`/`write_at` (landed waves 115/118) | adopted in S4; no new ask | closed |
 | Station ST4 | log-shipping local leg on `xiom.durable` (fsync honesty check) | `REL-20261016-1128-orbitdb-2` / packages reply `-1150-packages-3` | tracked |
 | Station ST6 | TLS server side / ALPN | stdlib `REL-20261016-1128-orbitdb`; packages TLS binding | tracked (xiom.ssl building) |
+| Station ST1 codec | `let`/`var` initializer of a Vec from a `match`/`Result` truncates silently (C-ORBIT-14) | `REL-20261021-1136-orbitdb` | fixed on compiler main `478e06f8b`; v0.64.8 predates it -- workaround stays, re-test on release |

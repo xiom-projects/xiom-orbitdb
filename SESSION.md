@@ -376,6 +376,44 @@ the v0.64.6 verdicts.
   reclaim. **A6/1M remains blocked on m375**; next is the BENCH-1 rerun at
   the v0.64.8 pin move.
 
+**Updated:** 2026-10-21 (ST1 ORBITWIRE v1 LANDED -- hello-station GREEN):
+  `station/` is a new source-composed project (`xiom.toml`: `../src` + `src`)
+  with the frozen wire spec `station/docs/ORBITWIRE.md`, a pure typed frame
+  codec (`protocol.xi`: "OBW1" magic, version/kind/flags, u32 header/payload
+  lengths, typed field dictionary, CRC32C over `[4,end-4)`, row/value
+  streams), session buffers + bounded outbound queue/backpressure
+  (`session.xi`), the single-writer `StationActor` + session state machine
+  (`dispatch.xi`: NEW/GREETED/READY/TXN/CLOSING/CLOSED; HELLO/AUTH/PING/
+  BEGIN/PUT/GET/RANGE/QUERY/COMMIT/ABORT/CLOSE + additive DELETE/CHECKPOINT;
+  `DbError` -> stable codes), and a single-threaded TCP poll loop
+  (`server.xi` + `hello_station.xi`; 127.0.0.1:7767, `_PORT=0` -> first free
+  17867+). **No DBFile across threads**; one txn window per shard with
+  `txn_owner`; non-owner writes -> TXN_ACTIVE; disconnect/CLOSE aborts the
+  owner's window. Auth = shared token (`ORBITDB_STATION_TOKEN`), 3-failure
+  lockout. Limits: 1 MiB frame / 64 KiB header / 512 KiB payload / 4 MiB
+  queue / 64 sessions / 500 default range (1000 max) / 5000 query / 10k txn
+  ops. Tests: `station/tests/{protocol,session,loopback}_suite.xi` =
+  33+28+108 = **169/169 x2 Win + x2 WSL** (`scripts/station_suite.*`; WSL
+  via `wsl_ext4.sh`, which now copies `station/`). Loopback covers
+  HELLO/AUTH/lockout, CRUD, RANGE, QUERY order/limit/offset, txn
+  invisibility/isolation, typed rows with all TValue kinds + payload limit,
+  framing LIMIT+close, CHECKPOINT, CLOSE. **Compiler findings filed:**
+  C-ORBIT-14 `REL-20261021-1136-orbitdb` -- `let`/`var x = match` over a
+  Result truncates a Vec silently (38-byte header -> 1; workaround
+  declare-then-assign; repro `docs/repro/vec-match-binding/`); C-ORBIT-15
+  `REL-20261021-1157-orbitdb` -- a UTF-8 BOM on a module whose declared path
+  != file name breaks catalog discovery (silent unresolved import; repro
+  `docs/repro/utf8-bom-module/`; save sources BOM-free). **Doorbell 12:00Z:**
+  the compiler lane **fixed C-ORBIT-14 on main the same day (`478e06f8b`,
+  m1136)** -- not in v0.64.8, so the workaround stays until the next archive;
+  latest release still v0.64.8 (2026-10-19), `io.read_at_into` still not in a
+  tag. Docs: FORMATS 7 +
+  lock-file row, REFERENCE-MATRIX 3.2 conversion + blocker ledger, two-tier
+  checklist ST0/ST1, RUNBOOK 7, station README, readiness changelog (score
+  unchanged 82.5 -- Station is a separate tier, ST1 is a spike). Interop
+  co-run filed `REL-20261021-1154-orbitdb` (packages). Next: ST2 server core
+  + crash harness; **ST1 did not touch `src/`**.
+
 **Updated:** 2026-10-21 (SESSION WRAP -- context window full; owner
   request): **A6 1M PASS / G-START GREEN.** 1M keys with
   `ORBITDB_PAGER_CAPACITY=65536` under the 4 GB cap: exact 1,004-sample
@@ -2040,7 +2078,7 @@ Ops rules:
 ```
 You are the ORBITDB session for E:\xiom-projects\xiom-orbitdb -- embedded XIOM
 database engine (Satellite = registry tier, Station = server/HTTP tier). Read
-SESSION.md first (the top Updated entry = the 2026-10-21 wrap), then
+SESSION.md first (the top Updated entry = the 2026-10-21 ST1 entry), then
 README/SPEC/ARCHITECTURE and docs/ (REFERENCE-MATRIX, BENCH-1, TWO-TIER,
 PRODUCTION-READINESS, RUNBOOK, checklists/m1-1b-pager). Consumer lane: never
 edit E:\xiom-lang\stdlib, E:\xiom-lang\xiom, E:\xiom-packages\packages. Repo
@@ -2064,37 +2102,43 @@ checked 2026-10-21 = v0.64.8 -- WATCH for the next archive/stdlib tag
 FRESHNESS: at start and after any pin move run the battery (suite x2 both,
 crash x2 both, probes x2 both, fuzz, hybrid x2 both) and relay reds.
 
-STATE (2026-10-21): **A6 1M soak PASS / G-START GREEN.** 1M keys with
-ORBITDB_PAGER_CAPACITY=65536 under the 4 GB cap: exact 1,004-sample verify,
-32,260 nodes, peak 2,494.7 MB; 200k 607 MB/151 s. Readiness 82.5 (A5 OK).
-Write-path fallback fixed the v0.64.8 R2/R3 regression (R2 update 1,409; R3
-1,786; BENCH-1 4f). Admin phase 1+2 + backup/restore in admin/ (Pulse 0.3.1).
-M3 shard lock + threads decision done. Suite 166/166 x2 both, crash 25/25 x2
-both, probes/fuzz/hybrid green. m375 remaining: 880 s exit-reclaim at 1M +
-default-cache thrash (wishlist filed). Branch feat/read-at-into-open
-(b3707b3) waits for a stdlib release. Relays filed at wrap (2026-10-21):
-global Vec.pop BUG `REL-20261021-1122-orbitdb`, m375 wishlist `-2`, stdlib
-release wishlist `-3`, packages 0.3.0 candidate `-4`, all-lanes ops INFO
-`-5`.
+STATE (2026-10-21, after ST1): **A6 1M soak PASS / G-START GREEN / ST1
+ORBITWIRE v1 GREEN.** 1M keys with ORBITDB_PAGER_CAPACITY=65536 under the
+4 GB cap: exact 1,004-sample verify, 32,260 nodes, peak 2,494.7 MB; 200k
+607 MB/151 s. Readiness 82.5 (A5 OK; Station is a separate tier, ST1 is a
+spike -- no Satellite score change). Write-path fallback fixed the v0.64.8
+R2/R3 regression (R2 update 1,409; R3 1,786; BENCH-1 4f). Admin phase 1+2 +
+backup/restore in admin/ (Pulse 0.3.1). M3 shard lock + threads decision
+done. Suite 166/166 x2 both, crash 25/25 x2 both, probes/fuzz/hybrid green.
+**Station:** `station/` + frozen `station/docs/ORBITWIRE.md`; station suites
+**169/169 x2 Win + x2 WSL** (protocol 33/session 28/loopback 108); runners
+`scripts/station*.{ps1,sh}`; WSL ext4 copies `station/`. m375 remaining:
+880 s exit-reclaim at 1M + default-cache thrash (wishlist filed). Branch
+feat/read-at-into-open (b3707b3) waits for a stdlib release. Relays filed
+2026-10-21: global Vec.pop `REL-20261021-1122-orbitdb`, m375 wishlist `-2`,
+stdlib release `-3`, packages 0.3.0 `-4`, all-lanes ops `-5`, **C-ORBIT-14
+let/var match Vec truncation `-1136`**, **C-ORBIT-15 BOM catalog `-1157`**,
+packages interop co-run `-1154`.
 
 TASK ORDER:
-1. **ST1 ORBITWIRE protocol** (G-START green): the crawl is seeded in
-   REFERENCE-MATRIX 3.2 (h11/fastify/gin/knex/bullmq). Define the typed frame
-   format, session state machine, op set (HELLO/AUTH/PING/BEGIN/PUT/GET/
-   RANGE/QUERY/COMMIT/ABORT/CLOSE), error codes, limits and backpressure;
-   spike a hello-station server over the chosen transport composing the
-   engine through the single-writer actor; tests x2 both. Do not share a
-   DBFile across threads.
+1. **ST2 Station single-node server core** (ST1 done): harden the session
+   loop, graceful shutdown/handle discipline, and add the station crash
+   harness (`scripts/station_crash_test.{ps1,sh}`: kill mid-commit -> restart
+   -> replay -> qverify) mirroring the engine harness style (delete-sharing
+   polls, unique `-o` binaries). Add the RUNBOOK station recovery recipe and
+   station suite/crash evidence x2 both. Do not share a DBFile across
+   threads. ST3 (reader snapshots + mixed reader/writer) follows; admin
+   phase 3 attaches over ORBITWIRE after ST2/ST3.
 2. **m375 follow-up**: if a compiler release lands, re-run the 1M soak
    (BENCH section 7) and check exit teardown + default-cache thrash; update
    the wishlist/relays.
 3. **read_at_into release**: when the stdlib tag lands, merge
    feat/read-at-into-open, bump dev-env pins, run the full battery + 1M
    soak, then retire the branch note.
-4. **Station ST2+**: sessions/auth, typed queries, crash-safe restart, then
-   replication/sharding/ops (ST4-ST7); admin phase 3 attaches over ORBITWIRE
-   after ST1. Package 0.3.0 candidate is filed to packages (hold publish for
-   owner approval + final battery).
+4. **Station ST3+**: reader snapshots via engine pins, mixed reader/writer
+   harness, then replication/sharding/ops (ST4-ST7); admin phase 3 attaches
+   over ORBITWIRE. Package 0.3.0 candidate is filed to packages (hold
+   publish for owner approval + final battery).
 5. **Satellite P-rc**: hardware power-loss matrix (owner/hardware), then
    release notes + the 0.3.0 publish; README/SPEC tier label.
 6. Hygiene: RAM-cap every app/soak (scripts/run_capped.*, 4 GB default,
@@ -2105,4 +2149,7 @@ TASK ORDER:
 
 Known API additions: db_file_open_locked_checked[_cfg]/db_file_unlock/
 db_file_is_locked, db_file_range_pairs, db_file_close, admin /api/backup.
+Station API (new): station/src/{protocol,session,dispatch,server}.xi +
+hello_station.xi; frozen spec station/docs/ORBITWIRE.md; runners
+scripts/station*.{ps1,sh}; station suites 169 checks x2 both.
 ```

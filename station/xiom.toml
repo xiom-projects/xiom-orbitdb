@@ -1,0 +1,19 @@
+# XIOM ORBITDB -- Station (server tier) project manifest.
+# Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+# SPDX-License-Identifier: MIT OR Apache-2.0
+#
+# The Station source-composes the Satellite engine (../src): it never forks
+# it, and it only calls the public `db_file_*` surface documented in
+# docs/API.md. The compiler resolves imports against the nearest manifest
+# walking up from the entry file; for station/src/*.xi and station/tests/*.xi
+# this file is that manifest.
+[project]
+name = "orbitdb-station"
+version = "0.1.0"
+root = "."
+source-roots = [
+  "../src",
+  "src",
+]
+
+# Zero registry dependencies: the Station composes the engine plus xiom.std.

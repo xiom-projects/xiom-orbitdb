@@ -723,6 +723,59 @@ BlockStore to these helpers because a copied store loses cache-spill
 `block_count` updates and the two writers overwrite blocks once evictions
 occur (caught by the new GC suite test). **RESOLVED on v0.64.8:** the natural nested `&mut` calls were restored (helpers removed) and the repro prints all PASS on Win + WSL; suite 163/163 x2 both, crash 25/25 x2 both, hybrid green. Item closed.
 
+## C-ORBIT-14 -- `let`/`var` binding of a Vec returned through a match truncates (FIXED on compiler main 478e06f8b; v0.64.8 predates it)
+
+**Filed 2026-10-21** as relay `REL-20261021-1136-orbitdb` (orbitdb -> compiler,
+severity high). Repro bundle: `docs/repro/vec-match-binding/` (self-contained).
+**Compiler fixed it the same day on main (`478e06f8b`, m1136):** block-tailed
+match arms (`Ok(x) => { x }`) inferred the result slot as i64 before the
+binding existed, so the arm stored the Vec data pointer as an integer and the
+let-bound value lost its length (`via_let=1`). The exact repro is green on
+main; **v0.64.8 predates the fix**, so the Station's declare-then-assign
+workaround stays until the next archive, then re-run the bundle and drop it.
+
+Shape:
+
+```xi
+let v = match make_vec() {     // make_vec() -> Result[Vec[Int], Int]
+  Ok(x) => { x }
+  Err(_) => { return -1; }
+};
+return v.len();                // 1, expected 3
+```
+
+The `var`-assignment form and returning the Vec directly from the match arm are
+correct (`via_var=3`, `direct_len=3`; `via_let=1` and `via_var_init=1`). Both
+a `let` and a `var` initializer over the match corrupt the Vec length; only
+declare-then-assign is safe. This is silent data
+truncation, likely the same receiver/scratch family as the module-level
+`Vec.pop` no-op (m2057 / `029595080`): the Vec's length is corrupted when a
+`let` binds a Vec returned through a `match`/`Result`. Found while building
+the Station `frame_encode`: a 38-byte header was reported as 1 byte and the
+encoded frame shrank 61 -> 24 bytes. Workaround applied in the Station codec:
+assign through a `var` or return the Vec directly from the arm. Re-run the
+repro on the next archive; drop the workaround only when `via_let=3`.
+
+## C-ORBIT-15 -- a UTF-8 BOM on a module file breaks catalog discovery (OPEN on v0.64.8, filed 2026-10-21)
+
+**Filed 2026-10-21** as relay `REL-20261021-1157-orbitdb` (orbitdb -> compiler,
+severity medium). Repro bundle: `docs/repro/utf8-bom-module/` (the fixture's
+`sub/impl.xi` is intentionally committed WITH the BOM).
+
+Shape: a module file that starts with the valid UTF-8 BOM (`EF BB BF`) and
+declares a module path that does not match its file name
+(`station/src/protocol.xi` -> `xiom.station.protocol`) is not indexed by the
+catalog: `use xiom.station.protocol` fails with `T001: unresolved import` and
+no BOM diagnostic. Stripping the three BOM bytes makes the identical file
+compile. A BOM is tolerated when the import resolves by file name in the
+entry's directory (the path lookup wins), which is why simple repros can
+mask this. Windows tooling (`Set-Content -Encoding UTF8` in PowerShell 5.1)
+writes a BOM by default, so consumers hit this silently. Found while adding
+the Station wire module; workaround: save sources without a BOM (recipe in
+the bundle README). The compiler should strip a leading BOM before
+tokenization or emit a specific diagnostic. Re-run the bundle on the next
+archive; close when `main.xi` prints `v=7` with the BOM fixture unchanged.
+
 ## Bump procedure used by this lane
 
 1. Update `scripts/dev-env.ps1/.sh` pins (compiler path/version only; stdlib

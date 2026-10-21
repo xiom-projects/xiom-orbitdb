@@ -5,7 +5,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0
 
 # XIOM ORBITDB -- Satellite + Station
 
-> The XIOM two-tier database line. **Satellite** (tier 1) is the embedded database engine in this repository -- B-Tree index, WAL, query engine, crash recovery; useful as a library or through its CLI. **Station** (tier 2) is the planned PostgreSQL-class server tier: same repo, consumes the engine as a library, never a fork. Formerly `xiom-db`; module names stay `xiom.db.*`.
+> The XIOM two-tier database line. **Satellite** (tier 1) is the embedded database engine in this repository -- B-Tree index, WAL, query engine, crash recovery; useful as a library or through its CLI. **Station** (tier 2) is the PostgreSQL-class server tier: same repo, consumes the engine as a library, never a fork; **ORBITWIRE v1 protocol spike is green (ST1)**. Formerly `xiom-db`; module names stay `xiom.db.*`.
 
 [![XIOM](https://img.shields.io/badge/XIOM-v0.22.1-blue)](https://github.com/XIOM-lang/XIOM.git )
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
@@ -25,7 +25,7 @@ One engine, two products, one repository (**orbitdb-satellite** -- tier 1, embed
 | Codename | **Satellite** | **Station** |
 | Analogue | SQLite | PostgreSQL |
 | Shape | library compiled into the consumer; registry package; single-node | separate program (same repo, `station/`): wire protocol, sessions, replication, sharding |
-| Source | this repo's `src/` (engine; modules `xiom.db.*`) | planned `station/`; consumes the engine as a library -- never a fork |
+| Source | this repo's `src/` (engine; modules `xiom.db.*`) | `station/` (ORBITWIRE v1 server; consumes the engine as a library -- never a fork) |
 | Status | shipping pre-1.0; registry publication at the P-rc gate | planned; work starts only after G-START |
 
 **Codenames, not renames** (packages-lane convention, 2026-10-16): registry IDs stay functional `xiom.*` names; the codename identifies the product tier. Module/package names are stable (`xiom.db.*`, `xiom.orbitdb`); the codename is a deployment/product label. Registry artifacts carry **Satellite**; **Station** releases are standalone (GitHub Actions pipeline with ops; registry involvement limited to a future station client package).
@@ -36,11 +36,12 @@ One engine, two products, one repository (**orbitdb-satellite** -- tier 1, embed
 - **Features today**: durable WAL (real fsync at commit acks); crash recovery (torn-tail tolerant: snapshot + tail replay, uncommitted txn windows dropped); `v2` byte container default; typed rows end-to-end + typed predicates; secondary value index + ORDER/LIMIT; transactions with savepoints; in-process snapshot pins (M3 minimal subset); zero-dependency core.
 - **Gate to 1.0 / publication**: M1.1b pager (lazy node load + bounded cache), M3 remainder (cross-process `file_lock` MVCC), R1/R2 module split; then the P-rc release signal and the packages-lane publication coordination.
 
-### Station (tier 2) -- planned
+### Station (tier 2) -- ST1 ORBITWIRE v1 GREEN (2026-10-21)
 
-- **Shape**: **ORBITWIRE v1** wire protocol (length-prefixed frames; handshake + auth slot; prepare/execute/fetch over typed rows), sessions, single-writer commit path, replication via WAL shipping + snapshot bootstrap, range sharding (one engine database per shard; the shard catalog is itself an engine DB), ops (auth, backup/restore drills, metrics).
-- **Not in v1**: full SQL, cross-shard transactions, auto-sharding / auto-failover, multi-master. Optional post-ST7 evaluation only: a PG-wire facade (interop riding the `xiom.postgres` wire knowledge).
-- **Milestones**: ST0 prerequisites (G-START) -> ST1 protocol spike -> ST2 single-node core -> ST3 concurrency -> ST4 replication -> ST5 sharding -> ST6 ops -> ST7 cross-engine league; exit criteria in [docs/TWO-TIER-ARCHITECTURE.md](docs/TWO-TIER-ARCHITECTURE.md) section 6. The embedded release always outranks Station work.
+- **Shape**: **ORBITWIRE v1** typed binary protocol (length-prefixed, checksummed frames; HELLO/AUTH/PING/BEGIN/PUT/GET/RANGE/QUERY/COMMIT/ABORT/CLOSE + DELETE/CHECKPOINT), sessions, single-writer commit path, then replication via WAL shipping + snapshot bootstrap and range sharding (one engine database per shard; the shard catalog is itself an engine DB), ops (auth, backup/restore drills, metrics).
+- **Today**: `station/` source-composes the engine (`station/xiom.toml`); the hello-station runs over loopback TCP (`scripts/station.ps1` / `.sh`), owns the DB through the M3 shard lock, and dispatches through one `StationActor`/`DBFile` (no DBFile across threads). Spec + limits + error taxonomy: [station/docs/ORBITWIRE.md](station/docs/ORBITWIRE.md). Evidence: station suites **169/169 x2 Windows + x2 WSL** (`scripts/station_suite.*`).
+- **Not in v1**: full SQL, TLS (ST6), cross-shard transactions, auto-sharding / auto-failover, multi-master; typed rows are auto-commit only and QUERY returns values (RANGE is keyed). Optional post-ST7 evaluation only: a PG-wire facade (interop riding the `xiom.postgres` wire knowledge).
+- **Milestones**: ST0 prerequisites (G-START) -> **ST1 protocol spike (done 2026-10-21)** -> ST2 single-node core -> ST3 concurrency -> ST4 replication -> ST5 sharding -> ST6 ops -> ST7 cross-engine league; exit criteria in [docs/TWO-TIER-ARCHITECTURE.md](docs/TWO-TIER-ARCHITECTURE.md) section 6. The embedded release always outranks Station work.
 
 ## Installation
 
