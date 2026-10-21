@@ -101,6 +101,10 @@ fn dir_set(bs: &mut BlockStore, page_id: Int, block_index: Int, gen: Int) {
 }
 
 // Rebuild the committed view from disk. Missing/short file -> empty store.
+// One reused page buffer for block_store_put (m375 write-path fallback:
+// no Vec[Int] page + bytes_to_u8 per dirty page). Single-threaded writer.
+var g_block_buf: Vec[UInt8] = Vec[UInt8].new();
+
 pub fn block_store_open(path: Str) -> BlockStore {
   var bs = BlockStore{
     path: path,
@@ -183,11 +187,10 @@ pub fn block_store_open(path: Str) -> BlockStore {
 // always lands after the two header slots (blocks 0/1 stay reserved even on
 // a fresh store).
 pub fn block_store_put(bs: &mut BlockStore, generation: Int, page_id: Int, payload: &Vec[Int]) -> Int {
-  let bytes = block_encode_page(generation, page_id, payload);
-  if bytes.len() != block_size() { return -1; }
+  if !block_encode_page_into(&mut g_block_buf, generation, page_id, payload) { return -1; }
   if bs.block_count < 2 { bs.block_count = 2; }
   let index = bs.block_count;
-  if !byteio_write_at(bs.path, index * block_size(), &bytes) { return -1; }
+  if !byteio_write_at_bytes(bs.path, index * block_size(), &g_block_buf) { return -1; }
   dir_set(bs, page_id, index, generation);
   bs.block_count = bs.block_count + 1;
   return index;

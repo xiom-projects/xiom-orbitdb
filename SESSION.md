@@ -370,7 +370,20 @@ the v0.64.6 verdicts.
   `REL-20261020-1222-orbitdb` (compiler m375); pushed. The pager will adopt
   a direct byte-level page reader as the fallback if the runtime cannot
   reclaim. **A6/1M remains blocked on m375**; next is the BENCH-1 rerun at
-  the v0.64.8 pin move.**Updated:** 2026-10-21 (WSL ext4 runner landed): `scripts/wsl_ext4.sh`
+  the v0.64.8 pin move.**Updated:** 2026-10-21 (WRITE-PATH FALLBACK LANDED -- bench restored):
+  byte-native page encoding (`block_encode_page_into`, byte-identical KAT),
+  reused node-page payload (`node_page_bytes_into`), **one held append fd
+  per handle for auto-commit writes** (the txn-window shape; closed before
+  WAL truncate/checkpoint, `wal_file_prepare` before open), and a
+  per-WALFile scratch record buffer. **200k A6 soak: peak 895 -> 607 MB,
+  teardown 151 s** (order 64, 8192 cache, RAM-capped 4 GB). **BENCH-1 §4f:
+  the 4e write regression was per-op WAL open/close and is fixed** -- R2
+  load 559 -> **1,489**, update 336 -> **1,409**, delete 1,079 -> 1,722;
+  R3 load 667 -> **1,563**, update 785 -> **1,786**, delete 984 -> 1,910
+  (R3 beats v0.64.7); R1 1,113/1,053/780. Suites (block/index/dbfile/
+  pager/typed/wal_txn/engine_database), fault/MVCC/lock probes and the
+  crash harness are green; m375 still owns the remaining memory/teardown
+  plateau and the 1M soak.**Updated:** 2026-10-21 (WSL ext4 runner landed): `scripts/wsl_ext4.sh`
   mirrors the lane into `~/.cache/orbitdb-lane` (fresh each run, xvector
   link) and executes a command there, avoiding the `/mnt/e` 9p stalls that
   false-RED the WSL battery. Verified: foundations 24/24 and the full suite

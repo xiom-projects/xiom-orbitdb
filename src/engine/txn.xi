@@ -89,10 +89,22 @@ fn db_txn_close_fd(db: &mut DBFile) {
   }
 }
 
+// Public held-fd helpers shared by the txn window and auto-commit writes: one
+// open append fd per handle (BENCH-1 finding #1 shape extended to puts). The
+// owner closes it before any WAL truncate and on failure paths.
+pub fn db_append_fd(db: &mut DBFile) -> Int {
+  return db_txn_fd(db);
+}
+
+pub fn db_close_append_fd(db: &mut DBFile) {
+  db_txn_close_fd(db);
+}
+
 pub fn db_file_txn_begin(db: &mut DBFile) -> Bool {
   if db.txn_active { return false; }
   if !db_file_guard(db) { return false; }
   if db.failed { return false; }
+  wal_file_prepare(&mut db.wal);
   let fd = db_txn_fd(db);
   if fd < 0 { return false; }
   let lsn = wal_file_append_fd(&mut db.wal, fd, WALOpKind.BeginTxn, 0, 0);
@@ -114,6 +126,7 @@ pub fn db_file_txn_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
   if !db.txn_active { return false; }
   if !db_file_guard(db) { return false; }
   if db.failed { return false; }
+  wal_file_prepare(&mut db.wal);
   let fd = db_txn_fd(db);
   if fd < 0 { return false; }
   let lsn = wal_file_append_fd(&mut db.wal, fd, WALOpKind.Update, key, value);
@@ -130,6 +143,7 @@ pub fn db_file_txn_delete(db: &mut DBFile, key: Int) -> Bool {
   if !db.txn_active { return false; }
   if !db_file_guard(db) { return false; }
   if db.failed { return false; }
+  wal_file_prepare(&mut db.wal);
   let fd = db_txn_fd(db);
   if fd < 0 { return false; }
   let lsn = wal_file_append_fd(&mut db.wal, fd, WALOpKind.Delete, key, 0);
@@ -149,6 +163,7 @@ pub fn db_file_txn_commit(db: &mut DBFile) -> Bool {
   if !db.txn_active { return false; }
   if !db_file_guard(db) { return false; }
   if db.failed { return false; }
+  wal_file_prepare(&mut db.wal);
   let fd = db_txn_fd(db);
   if fd < 0 { return false; }
   let lsn = wal_file_append_fd(&mut db.wal, fd, WALOpKind.CommitTxn, 0, 0);
@@ -185,6 +200,7 @@ pub fn db_file_txn_abort(db: &mut DBFile) -> Bool {
   if !db.txn_active { return false; }
   if !db_file_guard(db) { return false; }
   if db.failed { return false; }
+  wal_file_prepare(&mut db.wal);
   let fd = db_txn_fd(db);
   if fd < 0 { return false; }
   let lsn = wal_file_append_fd(&mut db.wal, fd, WALOpKind.AbortTxn, 0, 0);
@@ -229,6 +245,7 @@ pub fn db_file_txn_savepoint_restore(db: &mut DBFile) -> Bool {
   while db.txn_ops.len() > db.sp_marker {
     db.txn_ops.pop();
   }
+  wal_file_prepare(&mut db.wal);
   let fd = db_txn_fd(db);
   if fd < 0 { return false; }
   var lsn = wal_file_append_fd(&mut db.wal, fd, WALOpKind.AbortTxn, 0, 0);

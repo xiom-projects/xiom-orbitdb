@@ -19,6 +19,7 @@ use xiom.db.storage.block_store;
 use xiom.db.storage.byte_io;
 use xiom.db.storage.tuple;
 use xiom.db.engine.core;
+use xiom.db.engine.txn;
 use xiom.db.engine;
 
 // ===========================================================================
@@ -446,6 +447,8 @@ fn v2_rewrite_all(path: Str, tree: &mut BTree, gen: Int, checkpoint_lsn: Int) ->
   var new_root = tree.root;
   var new_count = n;
   var i = 0;
+  // Reused node-page payload buffer for both v2 write loops (m375 fallback).
+  var data = Vec[Int].new();
 
   if do_gc {
     var reach = Vec[Bool].new();
@@ -499,7 +502,7 @@ fn v2_rewrite_all(path: Str, tree: &mut BTree, gen: Int, checkpoint_lsn: Int) ->
           node.children[c] = remap[node.children[c]];
           c = c + 1;
         }
-        let data = node_page_bytes(&node);
+        node_page_bytes_into(&mut data, &node);
         if block_store_put(&mut bs, gen, remap[i], &data) < 0 { return false; }
       }
       i = i + 1;
@@ -508,7 +511,7 @@ fn v2_rewrite_all(path: Str, tree: &mut BTree, gen: Int, checkpoint_lsn: Int) ->
     i = 0;
     while i < n {
       let node = ns_get(&tree.store, i);
-      let data = node_page_bytes(&node);
+      node_page_bytes_into(&mut data, &node);
       if block_store_put(&mut bs, gen, i, &data) < 0 { return false; }
       i = i + 1;
     }
@@ -587,11 +590,12 @@ fn snap_flush_v2(path: Str, tree: &mut BTree, checkpoint_lsn: Int, allow_compact
     // during this loop spill and bump the same block_count, so the
     // checkpoint's header and blocks stay consistent. C-ORBIT-13 (3-level
     // `&mut` copies) is fixed in v0.64.8; the natural nested `&mut` is used.
+    var pdata = Vec[Int].new();
     var pi = 0;
     while pi < ns_len(&tree.store) {
       if tree.store.dirty[pi] {
         let pnode = ns_get(&tree.store, pi);
-        let pdata = node_page_bytes(&pnode);
+        node_page_bytes_into(&mut pdata, &pnode);
         if block_store_put(&mut tree.store.bs, gen, pi, &pdata) < 0 { return -1; }
       }
       pi = pi + 1;
@@ -635,10 +639,11 @@ fn snap_flush_v2(path: Str, tree: &mut BTree, checkpoint_lsn: Int, allow_compact
   }
 
   var i = 0;
+  var data = Vec[Int].new();
   while i < ns_len(&tree.store) {
     if tree.store.dirty[i] {
       let node = ns_get(&tree.store, i);
-      let data = node_page_bytes(&node);
+      node_page_bytes_into(&mut data, &node);
       if block_store_put(&mut bs, gen, i, &data) < 0 { return -1; }
     }
     i = i + 1;
@@ -685,6 +690,9 @@ pub fn db_file_checkpoint(db: &mut DBFile) -> Int {
   // records >= the anchor, and the checkpoint_lsn gate would skip a later
   // commit record's ops. Reject while a transaction is active.
   if db.txn_active { return -1; }
+  // A held append fd becomes stale across the WAL truncate below; close it
+  // (puts reopen lazily). The txn window owns its fd only while active.
+  db_close_append_fd(db);
   // A stale handle must not snapshot its older tree over a newer WAL.
   if !db_file_guard(db) { return -1; }
   if db.failed { return -1; }

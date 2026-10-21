@@ -258,6 +258,8 @@ pub type DBFile = {
   // 2026-10-16): one open per TRANSACTION instead of one per record; -1 when
   // no transaction holds it. Owned here, closed by commit/abort; a leaked fd
   // at process exit is harmless (segment appends are appended atomically).
+  // Held append fd for the txn window AND auto-commit writes (one open per
+  // handle); -1 = closed. Closed before any WAL truncate/checkpoint.
   wal_fd: Int;
 }
 
@@ -491,7 +493,7 @@ pub fn db_file_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
   // Auto-commit writes are rejected while a transaction is open.
   if db.txn_active { return false; }
   // Stale handle: another writer appended since our last write.
-  if !db_file_guard(db) { return false; }
+  if !db_file_guard(db) { db_close_append_fd(db); return false; }
   // Latched after a failed flush/commit: refuse until reopen.
   if db.failed { return false; }
   // Qualified: this module imports wal_file but a program may also contain
@@ -507,22 +509,24 @@ pub fn db_file_put(db: &mut DBFile, key: Int, value: Int) -> Bool {
       is_update = true;
     }
   }
-  // Combined durable append (BENCH-1 perf slice 2026-10-16): ONE held
-  // handle does write + (immediate mode) the gated sync, halving the
-  // Windows open/close pairs per record. -1 write failure; -2 written but
-  // sync failed -- the state updates below still run so the in-memory view
-  // matches the old append-then-commit_sync ordering, and the handle latches
-  // at the end.
-  let lsn = wal_file_append_sync(&mut db.wal, op, key, value, db.durability == 1);
-  if lsn == -1 { return false; }
-  let sync_failed = lsn == -2;
+  // Held append fd (one open per handle, reused across puts): the same shape
+  // the txn window uses. -1 write failure; a failed gated sync latches.
+  wal_file_prepare(&mut db.wal);
+  let fd = db_append_fd(db);
+  if fd < 0 { return false; }
+  let lsn = wal_file_append_fd(&mut db.wal, fd, op, key, value);
+  if lsn < 0 { db_close_append_fd(db); return false; }
+  var sync_failed = false;
+  if db.durability == 1 {
+    if !byteio_sync_fd(fd) { sync_failed = true; }
+  }
   db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
   if is_update { let _ = btree_delete(&mut db.tree, key); }
   let inserted = btree_insert(&mut db.tree, key, value);
   if inserted { db_file_note_value_change(db, key, existing, value, true); }
   if !inserted { return false; }
-  if sync_failed { db.failed = true; return false; }
+  if sync_failed { db_close_append_fd(db); db.failed = true; return false; }
   return true;
 }
 
@@ -551,7 +555,7 @@ pub fn db_file_typed_payload_max(order: Int) -> Int {
 // entry for the key is dropped, none is added (typed-column indexes = S4).
 pub fn db_file_put_typed(db: &mut DBFile, key: Int, payload: Vec[Int]) -> Bool {
   if db.txn_active { return false; }
-  if !db_file_guard(db) { return false; }
+  if !db_file_guard(db) { db_close_append_fd(db); return false; }
   if db.failed { return false; }
   if payload.len() > db_file_typed_payload_max(db.order) { return false; }
   // Payload bytes are 0..255 (the storage byte convention; the snapshot
@@ -579,16 +583,22 @@ pub fn db_file_put_typed(db: &mut DBFile, key: Int, payload: Vec[Int]) -> Bool {
     tagged.push(payload[i]);
     i = i + 1;
   }
-  let lsn = wal_file_append_tagged_sync(&mut db.wal, op, key, key, tagged, 0, db.durability == 1);
-  if lsn == -1 { return false; }
-  let sync_failed = lsn == -2;
+  wal_file_prepare(&mut db.wal);
+  let fd = db_append_fd(db);
+  if fd < 0 { return false; }
+  let lsn = wal_file_append_tagged_fd(&mut db.wal, fd, op, key, key, tagged, 0);
+  if lsn < 0 { db_close_append_fd(db); return false; }
+  var sync_failed = false;
+  if db.durability == 1 {
+    if !byteio_sync_fd(fd) { sync_failed = true; }
+  }
   db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
   if is_update { let _ = btree_delete(&mut db.tree, key); }
   let inserted = btree_insert_payload(&mut db.tree, key, key, payload);
   if inserted { db_file_note_value_change(db, key, existing, 0, false); }
   if !inserted { return false; }
-  if sync_failed { db.failed = true; return false; }
+  if sync_failed { db_close_append_fd(db); db.failed = true; return false; }
   return true;
 }
 
@@ -596,16 +606,22 @@ pub fn db_file_delete(db: &mut DBFile, key: Int) -> Bool {
   // Auto-commit writes are rejected while a transaction is open.
   if db.txn_active { return false; }
   // Stale handle: another writer appended since our last write.
-  if !db_file_guard(db) { return false; }
+  if !db_file_guard(db) { db_close_append_fd(db); return false; }
   if db.failed { return false; }
   let existing = btree_search(&db.tree, key);
   match existing {
     None => { return false; }
     Some(_) => {}
   }
-  let lsn = wal_file_append_sync(&mut db.wal, WALOpKind.Delete, key, 0, db.durability == 1);
-  if lsn == -1 { return false; }
-  let sync_failed = lsn == -2;
+  wal_file_prepare(&mut db.wal);
+  let fd = db_append_fd(db);
+  if fd < 0 { return false; }
+  let lsn = wal_file_append_fd(&mut db.wal, fd, WALOpKind.Delete, key, 0);
+  if lsn < 0 { db_close_append_fd(db); return false; }
+  var sync_failed = false;
+  if db.durability == 1 {
+    if !byteio_sync_fd(fd) { sync_failed = true; }
+  }
   db.wal_bytes = db_wal_size(db.path);
   db.records_since_ckpt = db.records_since_ckpt + 1;
   let removed = btree_delete(&mut db.tree, key);

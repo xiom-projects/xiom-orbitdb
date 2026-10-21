@@ -238,6 +238,26 @@ allocation retention at scale reported as **m375** (~read_at path; the same
 arena/guard retention grows with op count and pressures the 50k rows).
 R1/R4 at 10k ops are unaffected. Treat the R2/R3 v0.64.8 rows as
 **pre-m375**; re-run after the reclaim lands.
+### 4f. 2026-10-21 held-fd write path (engine-side fix for the 4e regression)
+
+The 4e R2/R3 write regression was the **per-operation WAL open/close** in
+auto-commit writes (v0.64.8 slowed that path); it is fixed engine-side by
+reusing ONE held append fd per handle (the shape the txn window already
+used) plus byte-native page writes and reused node/WAL buffers. RAM-capped
+runs, same harness/host:
+
+| row | load | read | update | scan | delete |
+|---|---:|---:|---:|---:|---:|
+| R1 10k sync=1 | 1,113 | 1,250,000 | 1,053 | 33,333 | 780 |
+| R2 50k batch=100 | **1,489** | 666,666 | **1,409** | 35,714 | 1,722 |
+| R3 50k sync=0 | **1,563** | 485,436 | **1,786** | 35,714 | 1,910 |
+
+vs v0.64.7 (§4a): R2 update **1,551 -> 1,409 (-9%, within run noise)**,
+R2 load 1,552 -> 1,489; R3 load 1,435 -> **1,563 (+9%)**, update
+1,389 -> **1,786 (+29%)**, delete 1,776 -> **1,910 (+8%)**. R1 load/update
+are above the v0.64.7 rows (947/866). The `m375` memory/teardown finding
+still stands (see §7); throughput is no longer gated by it.
+
 ## 5. Findings (actionable)
 
 1. **Windows write path is syscall-bound, not fsync-bound.** ORBITDB
@@ -333,15 +353,12 @@ ORBITDB_SOAK_KEYS=15000 ORBITDB_SOAK_FIRST=5000 ORBITDB_SOAK_CHUNK=5000 \
 - **200k keys at order 4: RED.** Peak working set **~57.8 GB**, 600 s
   timeout at ~129k keys, snapshot 527 MB (one 4 KiB page per node; order 4
   packs ~1 key/node on ascending inserts).
-- **200k keys at order 64 + 8192 cache frames: functionally GREEN, still
-  memory-blocked.** Exact verify (201 sampled keys), size 200k, 6,455
-  nodes / 6,472 blocks (19.9 MB snapshot), **252 ms engine time**; but peak
-  RSS **940 MB** (~4.7 KB/put retained) and the process took **~251 s to
-  exit** after the last print. The paged cache/metadata are bounded; the
-  growth is per-operation allocation retention (push-COW buffers + page
-  I/O Vecs). Filed `REL-20261019-2206-orbitdb`; **1M-key soak blocked**
-  until the runtime reclaim lands. `ORBITDB_PAGER_CAPACITY` now overrides
-  the 256-frame default; the soak defaults to order 64.
+- **200k keys at order 64 + 8192 cache frames:** exact verify, 6,455
+  nodes / 6,472 blocks. The write-path fallbacks (byte-native page encode,
+  reused node payload, held append fd, per-WALFile scratch) reduced peak
+  RSS **895 MB -> 658 MB -> 607 MB** and teardown to **151 s**; the
+  remaining retention is the runtime per-op Vec-drop class (m375) --
+  **1M/soak still blocked on m375** for the memory plateau.
 
 **m375 minimal repro (2026-10-20):** `tests/probes/probe_mem_read.xi` isolates
 the pager hot path (64 MiB file, rotating 4 KiB reads):

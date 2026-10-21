@@ -250,6 +250,49 @@ fn test_block_v2_header() -> TestResult {
   return assert(false, "block v2: header failed rc=" + int_to_str(rc));
 }
 
+// m375 write-path fallback: the byte-native encoder must produce exactly the
+// same 4096 bytes as the Vec[Int] encoder it replaces in block_store_put.
+fn block_enc_eq(gen: Int, pid: Int, p: &Vec[Int]) -> Bool {
+  let old = block_encode_page(gen, pid, p);
+  var nb = Vec[UInt8].new();
+  if !block_encode_page_into(&mut nb, gen, pid, p) { return false; }
+  if old.len() != nb.len() { return false; }
+  var i = 0;
+  while i < old.len() {
+    if old[i] != (nb[i] as Int) { return false; }
+    i = i + 1;
+  }
+  return true;
+}
+
+fn run_block_byte_encoder() -> Int {
+  var empty = Vec[Int].new();
+  if !block_enc_eq(0, 0, &empty) { return 1; }
+  if !block_enc_eq(1, 42, &empty) { return 2; }
+  if !block_enc_eq(123456789, 987654321, &empty) { return 3; }
+  var one = Vec[Int].new();
+  one.push(7);
+  if !block_enc_eq(9, 3, &one) { return 4; }
+  var maxp = Vec[Int].new();
+  var i = 0;
+  while i < 4056 {
+    maxp.push(i & 0xFF);
+    i = i + 1;
+  }
+  if !block_enc_eq(5, 6, &maxp) { return 5; }
+  var bad = Vec[Int].new();
+  bad.push(256);
+  var nb = Vec[UInt8].new();
+  if block_encode_page_into(&mut nb, 1, 1, &bad) { return 6; }
+  return 0;
+}
+
+fn test_block_byte_encoder() -> TestResult {
+  let rc = run_block_byte_encoder();
+  if rc == 0 { return assert(true, "block v2: byte-native page encoder is byte-identical to the Vec encoder"); }
+  return assert(false, "block v2: byte encoder mismatch rc=" + int_to_str(rc));
+}
+
 // ===========================================================================
 // Secondary indexes + ORDER/LIMIT (M4.2)
 // ===========================================================================
@@ -512,6 +555,8 @@ fn main() -> Int {
   total = total + 1; failed = failed + report(r103.passed, r103.name);
   let r104 = test_block_v2_header();
   total = total + 1; failed = failed + report(r104.passed, r104.name);
+  let r105 = test_block_byte_encoder();
+  total = total + 1; failed = failed + report(r105.passed, r105.name);
   let r107 = test_secondary_index_build();
   total = total + 1; failed = failed + report(r107.passed, r107.name);
   let r108 = test_secondary_index_maintenance();

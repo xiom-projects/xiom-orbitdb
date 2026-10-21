@@ -19,38 +19,49 @@ pub const NODE_PAGE_HEADER_BYTES: Int = 28;
 
 pub fn node_page_bytes(node: &BTreeNode) -> Vec[Int] {
   var out = Vec[Int].new();
+  node_page_bytes_into(&mut out, node);
+  return out;
+}
+
+// Reused-buffer form (m375 write-path fallback): clears and refills `out`;
+// capacity is reused across pages, so the flush loop allocates no per-node
+// payload Vec.
+pub fn node_page_bytes_into(out: &mut Vec[Int], node: &BTreeNode) {
+  while out.len() > 0 {
+    let _ = out.pop();
+  }
   out.push(NODE_PAGE_MAGIC);
   out.push(NODE_PAGE_V2);
   out.push(NODE_PAGE_KIND);
   var leaf = 0;
   if node.is_leaf { leaf = 1; }
   out.push(leaf);
-  tuple_push_int_le(&mut out, node.keys.len());
-  tuple_push_int_le(&mut out, node.children.len());
-  tuple_push_int_le(&mut out, 0); // reserved
+  tuple_push_int_le(out, node.keys.len());
+  tuple_push_int_le(out, node.children.len());
+  tuple_push_int_le(out, 0); // reserved
   var i = 0;
   while i < node.keys.len() {
-    tuple_push_int_le(&mut out, node.keys[i]);
+    tuple_push_int_le(out, node.keys[i]);
     i = i + 1;
   }
   i = 0;
   while i < node.values.len() {
-    tuple_push_int_le(&mut out, node.values[i]);
+    tuple_push_int_le(out, node.values[i]);
     i = i + 1;
   }
   i = 0;
   while i < node.children.len() {
-    tuple_push_int_le(&mut out, node.children[i]);
+    tuple_push_int_le(out, node.children[i]);
     i = i + 1;
   }
   // Payload section (node version 2): u64 LE count + per entry u64 LE length
   // + bytes (the node-page family's integer width). Parallel to keys; empty
   // = plain int entry.
-  tuple_push_int_le(&mut out, node.keys.len());
+  tuple_push_int_le(out, node.keys.len());
   i = 0;
   while i < node.keys.len() {
     let p = node_payload(node, i);
-    tuple_push_int_le(&mut out, p.len());
+    tuple_push_int_le(out, p.len());
     var k = 0;
     while k < p.len() {
       out.push(p[k] & 0xFF);
@@ -58,7 +69,6 @@ pub fn node_page_bytes(node: &BTreeNode) -> Vec[Int] {
     }
     i = i + 1;
   }
-  return out;
 }
 
 // Strict decode: magic/version/kind, exact length, sane flags and counts.

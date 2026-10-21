@@ -97,6 +97,32 @@ fn byteio_write_at_real(path: Str, offset: Int, data: &Vec[Int]) -> Bool {
   }
 }
 
+// Byte-buffer write (no Vec[Int] round-trip). Same fault gate/partial-write
+// discipline as byteio_write_at; used by the page writer's reused buffer.
+pub fn byteio_write_at_bytes(path: Str, offset: Int, data: &Vec[UInt8]) -> Bool {
+  if offset < 0 { return false; }
+  let fa = fault_gate(0);
+  if fa == 1 { return true; }
+  if fa == 3 { return false; }
+  if fa == 2 {
+    var cut = Vec[UInt8].new();
+    let t = fault_partial_tail(data.len());
+    var c = 0;
+    while c < t && c < data.len() {
+      cut.push(data[c]);
+      c = c + 1;
+    }
+    match io.write_at(path, offset, &cut) {
+      Ok(_) => { return true; }
+      Err(_) => { return false; }
+    }
+  }
+  match io.write_at(path, offset, data) {
+    Ok(_) => { return true; }
+    Err(_) => { return false; }
+  }
+}
+
 // Append bytes (binary, creates the file). Same gate discipline as write.
 pub fn byteio_append(path: Str, data: &Vec[Int]) -> Bool {
   let fa = fault_gate(0);

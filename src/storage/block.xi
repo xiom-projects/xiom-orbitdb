@@ -124,6 +124,53 @@ pub fn block_encode_page(generation: Int, page_id: Int, payload: &Vec[Int]) -> V
   return block_encode(KIND_PAGE, generation, page_id, payload);
 }
 
+// Byte-native page encode into a REUSED buffer (m375 write-path fallback):
+// identical bytes to block_encode_page, no Vec[Int] page + bytes_to_u8 per
+// write. Returns false for invalid payloads (out is left empty).
+fn blk_push_u8(out: &mut Vec[UInt8], v: Int) {
+  out.push(v as UInt8);
+}
+
+fn blk_push_i64_le(out: &mut Vec[UInt8], v: Int) {
+  var k = 0;
+  while k < 8 {
+    out.push(((v >> (8 * k)) & 0xFF) as UInt8);
+    k = k + 1;
+  }
+}
+
+fn blk_reset(out: &mut Vec[UInt8]) {
+  while out.len() > 0 {
+    let _ = out.pop();
+  }
+}
+
+pub fn block_encode_page_into(out: &mut Vec[UInt8], generation: Int,
+                              page_id: Int, payload: &Vec[Int]) -> Bool {
+  var i = 0;
+  while i < payload.len() {
+    if (payload[i] & 0xFF) != payload[i] { return false; }
+    i = i + 1;
+  }
+  if payload.len() > BLOCK_PAYLOAD_CAPACITY { return false; }
+  blk_reset(out);
+  out.push(79u8); out.push(80u8); out.push(71u8); out.push(50u8);
+  out.push(2u8); out.push(80u8); out.push(0u8); out.push(0u8);
+  blk_push_i64_le(out, generation);
+  blk_push_i64_le(out, page_id);
+  blk_push_i64_le(out, payload.len());
+  blk_push_i64_le(out, page_compute_checksum(payload));
+  i = 0;
+  while i < payload.len() {
+    out.push(payload[i] as UInt8);
+    i = i + 1;
+  }
+  while out.len() < BLOCK_BYTES {
+    out.push(0u8);
+  }
+  return out.len() == BLOCK_BYTES;
+}
+
 pub fn block_encode_header(h: &BlockHeader) -> Vec[Int] {
   var p = Vec[Int].new();
   put_u8(&mut p, 0x4F);

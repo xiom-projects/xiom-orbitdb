@@ -11,6 +11,7 @@ use xiom.io;
 use xiom.env;
 use xiom.convert;
 use xiom.db.wal_file;
+use xiom.db.storage.byte_io;
 use xiom.db.index.btree;
 
 fn env_int(name: Str, fallback: Int) -> Int {
@@ -23,6 +24,26 @@ pub fn main() -> Int {
   let mode = env.var_or("MEM_WRITE_MODE", "wal");
   let n = env_int("MEM_WRITE_N", 200000);
   io.println("mem-write: start mode=" + mode + " n=" + convert.int_to_string(n));
+  if mode == "wal_fd" {
+    let path = env.var_or("MEM_WRITE_PATH", "orbitdb-mem-write.wal");
+    let _ = io.remove_file(path);
+    var w = wal_file_open(path);
+    let fd = match byteio_open_append(path) { Some(f) => { f } None => { return 3; } };
+    var i = 1;
+    while i <= n {
+      let lsn = wal_file_append_fd(&mut w, fd, WALOpKind.Insert, i, i * 10);
+      if lsn < 0 { let _ = byteio_close_append(fd); return 4; }
+      if i % 50000 == 0 {
+        io.println("mem-write: wal_fd " + convert.int_to_string(i)
+          + " next_lsn=" + convert.int_to_string(w.next_lsn));
+      }
+      i = i + 1;
+    }
+    let _ = byteio_close_append(fd);
+    io.println("mem-write: wal_fd done next_lsn=" + convert.int_to_string(w.next_lsn));
+    let _ = io.remove_file(path);
+    return 0;
+  }
   if mode == "btree" {
     var t = btree_new(64);
     var i = 1;
