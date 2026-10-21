@@ -370,7 +370,17 @@ the v0.64.6 verdicts.
   `REL-20261020-1222-orbitdb` (compiler m375); pushed. The pager will adopt
   a direct byte-level page reader as the fallback if the runtime cannot
   reclaim. **A6/1M remains blocked on m375**; next is the BENCH-1 rerun at
-  the v0.64.8 pin move.**Updated:** 2026-10-21 (admin backup/restore landed): `POST /api/backup`
+  the v0.64.8 pin move.**Updated:** 2026-10-21 (A6 1M SOAK PASS -- G-START GREEN): the earlier
+  4,173 MB cap-kill was **cache thrash** once the tree outgrew the
+  8,192-frame cache, not pure retention. With `ORBITDB_PAGER_CAPACITY=
+  65536` (covers the 32,260-node tree) under the 4 GB cap: **1,000,000
+  keys, exact 1,004-sample verify, 32,260 nodes / 32,341 blocks (~132 MB
+  snapshot), peak 2,494.7 MB**; 200k is 607 MB/151 s. Process wall 880 s is
+  the runtime exit-reclaim (m375 tracks it, not an A6 gate). **Readiness
+  77.5 -> 82.5** (A 16->18, C 11->14, A5 row OK); **G-START GREEN** (M1.1b
+  A6, M3 shard lock, threads, R1/R2) -> **ST1 protocol conversion is
+  unblocked**. Suite 166/166 x2 both, crash 25/25 x2 both, probes x2,
+  fuzz 4/4, hybrid 36 x2 both + crash 5/5 x2 both.**Updated:** 2026-10-21 (admin backup/restore landed): `POST /api/backup`
   (token-gated) checkpoints, then atomically copies `<db>` ->
   `<db>.backup.wal` and `<db>.snap` -> `<db>.backup.snap` (temp+rename).
   **Verified end-to-end:** backup of a 40-key DB returned

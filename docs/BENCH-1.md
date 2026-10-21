@@ -357,8 +357,8 @@ ORBITDB_SOAK_KEYS=15000 ORBITDB_SOAK_FIRST=5000 ORBITDB_SOAK_CHUNK=5000 \
   nodes / 6,472 blocks. The write-path fallbacks (byte-native page encode,
   reused node payload, held append fd, per-WALFile scratch) reduced peak
   RSS **895 MB -> 658 MB -> 607 MB** and teardown to **151 s**; the
-  remaining retention is the runtime per-op Vec-drop class (m375) --
-  **1M/soak still blocked on m375** for the memory plateau.
+  remaining retention is the runtime per-op Vec-drop class (m375), but
+  the 1M soak now passes with a large enough cache (below).
 
 **m375 minimal repro (2026-10-20):** `tests/probes/probe_mem_read.xi` isolates
 the pager hot path (64 MiB file, rotating 4 KiB reads):
@@ -369,9 +369,11 @@ retention. Inline source relayed to the compiler lane as
 `REL-20261020-1222-orbitdb` (m375); the pager adopts a direct byte reader
 as the fallback if the runtime cannot reclaim.
 
-**1M attempt (2026-10-21, RAM cap 4 GB):** the soak was **killed at
-4,173 MB** (cap hit, exit 137) with a 55.6 MB snapshot (~435k keys), i.e.
-roughly 9.6 KB/key at that point -- superlinear with the 200k result
-(607 MB, ~3 KB/key). The cap protected the host (no pressure). **1M and the
-A6 memory row remain blocked on m375** (Vec-drop reclaim); the write-path
-fallbacks fixed throughput, not the retention plateau.
+**1M PASS (2026-10-21, 65,536-frame cache, 4 GB cap):** the earlier attempt
+was killed at 4,173 MB/~435k keys because nodes outgrew the 8,192-frame
+cache (thrash). With `ORBITDB_PAGER_CAPACITY=65536` (covers the whole
+tree) the soak completed: **1,000,000 keys, exact 1,004-sample verify,
+32,260 nodes / 32,341 blocks (~132 MB snapshot), peak 2,494.7 MB under
+the 4 GB cap**; process wall 880 s (engine work under 1 s; the exit-time
+teardown is the runtime reclaim m375 tracks). A6 memory row met with the
+configured cache; the default 256 frames stays for small DBs.

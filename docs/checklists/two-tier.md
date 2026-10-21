@@ -17,9 +17,10 @@
 
 ## Gate G-START -- Station work may begin only when ALL of these hold
 
-- [~] **M1.1b pager** -- A1-A5 landed (lazy load, bounded cache, dirty
-      spill, deferred-free GC; pager suite 3/3). A6 = 1M-key memory soak +
-      BENCH memory row remains. Design: `docs/checklists/m1-1b-pager.md`.
+- [x] **M1.1b pager (2026-10-21)** -- A1-A6: lazy load, bounded clock
+      cache, dirty spill, deferred-free GC; **1M soak PASS: 2,494.7 MB
+      peak under a 4 GB cap (65,536-frame cache), exact verify**; suite
+      166/166 x2 both. Design: `docs/checklists/m1-1b-pager.md`.
 - [x] **M3 remainder (2026-10-20)** -- `file_lock` integrated:
       `db_file_open_locked_checked[_cfg]` + `db_file_unlock`/`is_locked`,
       release-or-die, cross-process probe PASS Win+WSL, dbfile suite
@@ -64,10 +65,11 @@
 
 - [~] **ST1 protocol crawl seeded (2026-10-20)** -- verified h11/
       fastify/gin/knex/bullmq anchors + ORBITWIRE decisions in
-      `docs/REFERENCE-MATRIX.md` 3.2; conversion waits for G-START
-      (A6/m375).
+      `docs/REFERENCE-MATRIX.md` 3.2; G-START is green, ST1 protocol
+      spike/conversion is next.
 
-- [ ] G-START fully green with committed evidence
+- [x] G-START fully green (2026-10-21): M1.1b A6, M3 shard lock,
+      threads decision and R1/R2 all hold with committed evidence.
 - [ ] Station manifest scaffold `station/xiom.toml` (source-roots `../src` +
       `src`) + a hello-station probe composing the engine (hybrid pattern)
 

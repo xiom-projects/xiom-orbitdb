@@ -23,20 +23,20 @@
    can take partial points only where the row defines a fraction.
 5. **Recompute on every wrap.** Add a dated line to the scoreboard changelog.
 
-## Current scoreboard -- 2026-10-11 (v0.64.3 pin)
+## Current scoreboard -- 2026-10-21 (v0.64.8 pin)
 
 | Area | Weight | Earned | Status summary |
 |---|---|---|---|
-| A. Correctness & data structures | 20 | 16.0 | B-tree churn-proven orders 3-6 (order-3 empty-chain fix 2026-10-10); tuple codec v1 KAT-locked; FSM best-fit model-soaked; node-per-page durable pages done, paged access pending |
+| A. Correctness & data structures | 20 | 18.0 | B-tree churn-proven orders 3-6; tuple codec v1 KAT-locked; FSM best-fit model-soaked; node-per-page durable pages + **v2 pager live (lazy load, bounded clock cache, spill, GC); 1M soak PASS** |
 | B. Durability & crash safety | 20 | 18.0 | Disk WAL segment + page file + engine WAL-before-ack + incremental generation-committed checkpoint crash-proven; **real fsync wired end-to-end (M1.2 S4 / M2.1 second half): commit acks, checkpoint pre-sync, rename durability (temp sync + fsync_dir); O(1) tail healing; fault-gated (syncfail latches); power-loss honesty up to the synced seams** (lane runtime until the re-vendor pin); power-loss/torn-page matrix on real hardware still pending |
-| C. Storage engine (pages/pager) | 15 | 11.0 | Codec + checksum + FSM + durable page file + clock replacer/pinning done; pager substrate pending |
+| C. Storage engine (pages/pager) | 15 | 14.0 | Codec + checksum + FSM + durable page file + clock replacer/pinning + **pager substrate (read_at scan, bounded cache, dirty spill, reachability GC)**; 1M soak PASS |
 | D. Transactions & isolation | 10 | 7.0 | Durable transactions: begin/commit/abort + committed/uncommitted recovery crash-proven; savepoints + in-process snapshot pins (MVCC minimal subset, M3.1) with COW writes + compaction refusal; multi-process/GC pending |
 | E. Query & schema | 10 | 7.0 | Value-filter query + DBFile bindings + key-range planner pushdown (point/range plans, bounds-aware estimate, property-pinned) + secondary index (build/maintenance/IndexValue plan) + ORDER/LIMIT; typed values + durable index storage pending |
 | F. Operations & tooling | 10 | 4.0 | ps1/sh runners, crash harness, probes; no CI/packaging/version stamp |
 | G. Performance & limits | 5 | 3.0 | Benchmarks published (v0.64.1); WAL segment size policy live (`maybe_checkpoint`); replay constrained by the filed stdlib `str_split` quadratic; page/cache bounds pending |
 | H. Security & integrity | 5 | 4.5 | Checksums + full input validation + deterministic fuzz harness; encryption/supply-chain pinning pending |
 | I. Documentation & evidence | 5 | 5.0 | Full doc set + relay docs + repro bundles + public API/runbook/format reference |
-| **Total** | **100** | **77.5** | **~78% -- alpha-track, durable log + pages + checkpoints + REAL fsync (S4) + transactions + savepoints/snapshot pins (M3 minimal) + planner pushdown + secondary index + ORDER/LIMIT + clock replacer + typed rows + fuzz, benchmarks live, both WAL/B-tree packages registry-live** |
+| **Total** | **100** | **82.5** | **~83% -- alpha-track, durable log + pages + checkpoints + REAL fsync (S4) + transactions + savepoints/snapshot pins (M3 minimal) + pager (lazy load/bounded cache/spill/GC, 1M soak) + planner pushdown + secondary index + ORDER/LIMIT + typed rows + fuzz, benchmarks live, WAL/B-tree packages registry-live** |
 
 Scoreboard changelog:
 - 2026-10-08: bootstrap complete (suite migrated, engine defects fixed, WAL
@@ -392,6 +392,19 @@ Scoreboard changelog:
   battery was run from an ext4 copy of the lane and is green. No score
   change; A5's 1M-key soak remains the only open A-row item.
 
+- 2026-10-21 (A6 pager 1M soak PASS -- G-START green): the v2 pager
+  (lazy load, bounded clock cache, dirty spill, deferred-free reachability
+  GC) completed a **1,000,000-key** soak with exact verification: **peak
+  2,494.7 MB under the owner's 4 GB cap** using a 65,536-frame cache
+  (`ORBITDB_PAGER_CAPACITY`; default 256 for small DBs), 32,260 nodes /
+  32,341 blocks (~132 MB snapshot). The earlier 4,173 MB cap-kill at ~435k
+  keys was cache thrash once the tree outgrew 8,192 frames. 200k: 607 MB /
+  151 s. Exit-time teardown at 1M is 880 s -- tracked under m375 (runtime
+  reclaim), not an A6 gate. Evidence: suite 166/166 x2 Win + x2 WSL,
+  db_crash 25/25 x2 both, probes x2 both, fuzz 4/4, hybrid 36 x2 both +
+  crash 5/5 x2 both; BENCH-1 section 7. **Score 77.5 -> 82.5** (A 16->18,
+  C 11->14; A5 row OK). G-START is green; Station ST1 conversion is
+  unblocked.
 ## A. Correctness & data structures (20)
 
 | # | Item | Pts | Status | Evidence / gate |
@@ -400,7 +413,7 @@ Scoreboard changelog:
 | A2 | B-tree delete borrow/merge invariants (all key counts valid, uniform leaf depth) | 4 | OK | `probe_btree_churn` structural validator; 20k ops x orders 3/4/5/6 + seed matrix (order-3 empty-chain regime fixed 2026-10-10: predecessor/successor OOB, fill_child merge, min/max; reproducer order 3 / keyspace 16 / seed 777) |
 | A3 | Byte-packed tuple codec with strict decode + budget | 4 | OK | `probe_tuple_codec` KAT/extremes/rejects; suite 99/99 |
 | A4 | Free-space map hardening (best-fit, invariants, model soak) | 4 | OK | `probe_fsm` (use/release/find vs model, invariant checks, 50k ops x 256 pages) + suite best-fit/clamp tests |
-| A5 | Node-per-page B-tree | 4 | WIP | durable node pages + incremental generation-committed flush; **v2 pager (M1.1b A1-A5, 2026-10-19)**: lazy load + 256-frame cache + dirty spill + deferred-free GC compaction (reachability renumber), pager suite 3/3. Open: 1M-key memory soak |
+| A5 | Node-per-page B-tree | 4 | OK | durable node pages + incremental generation-committed flush; **v2 pager (M1.1b A1-A6, 2026-10-21)**: lazy load, bounded clock cache, dirty spill, deferred-free GC; **1M soak PASS: 2,494.7 MB peak under a 4 GB cap with a 65,536-frame cache (default 256), exact 1,004-sample verify**. Exit-time teardown 880 s tracked under m375 |
 | | *Partial credit:* CRC32C integrity aids A3/A5 | +0 | -- | counted in B |
 
 ## B. Durability & crash safety (20)
