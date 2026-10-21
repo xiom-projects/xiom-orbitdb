@@ -17,6 +17,7 @@
 # Env: ORBITDB_WSL_SRC (default /mnt/e/xiom-projects/xiom-orbitdb)
 #      ORBITDB_WSL_CACHE (default ~/.cache/orbitdb-lane)
 set -u
+set -o pipefail
 
 SRC="${ORBITDB_WSL_SRC:-/mnt/e/xiom-projects/xiom-orbitdb}"
 DST="${ORBITDB_WSL_CACHE:-$HOME/.cache/orbitdb-lane}"
@@ -33,9 +34,13 @@ fi
 
 rm -rf "$DST"
 mkdir -p "$DST"
-cp -r "$SRC/src" "$SRC/tests" "$SRC/scripts" "$SRC/admin" "$SRC/docs" "$SRC/package.xi" "$DST/"
+cp -r "$SRC/src" "$SRC/tests" "$SRC/scripts" "$SRC/admin" "$SRC/station" "$SRC/docs" "$SRC/package.xi" "$DST/"
 # Hybrid manifest: ../../../xiom-xvector from tests/hybrid -> ~/.cache/xiom-xvector
 ln -sfn "$XVEC" "$HOME/.cache/xiom-xvector"
 
+LOG="${ORBITDB_WSL_LOG:-$HOME/.cache/orbitdb-lane-last.log}"
 cd "$DST" || exit 1
-"$@"
+echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) $*" | tee "$LOG"
+"$@" 2>&1 | tee -a "$LOG"
+rc=${PIPESTATUS[0]}
+exit $rc

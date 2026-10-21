@@ -228,7 +228,50 @@ scripts\run.ps1 tests\probes\probe_db_file.xi -TimeoutSec 180
 - Identity/commits: conventional commits with DCO sign-off
   (`git commit -s`, `Lefteris Notas <lefterisnotas@gmail.com>`).
 
-## 7. Where to read next
+## 7. Station (ORBITWIRE v1)
+
+The Station is a separate program in `station/` that source-composes the
+engine and speaks ORBITWIRE over TCP (not HTTP; admin stays on PULSE).
+
+```powershell
+.\scripts\station.ps1                          # 127.0.0.1:7767, order 4
+.\scripts\station.ps1 -Database data\app.wal -Port 9000
+.\scripts\station.ps1 -Token s3cret            # require AUTH
+.\scripts\station_suite.ps1                    # all station suites, twice
+```
+
+```bash
+scripts/station.sh
+TOKEN=s3cret scripts/station.sh
+scripts/wsl_ext4.sh ./scripts/station_suite.sh  # WSL ext4 copy
+```
+
+- **It owns the DB while it runs.** `db_file_open_locked_checked_cfg` takes
+  the M3 shard lock; a second Station on the same file fails fast. Stop with
+  Ctrl+C (WAL durable; advisory lock released by exit). There is no
+  read-only/cross-process reader mode yet (ST2/ST3).
+- **Env:** `ORBITDB_STATION_DB`, `_BIND` (127.0.0.1), `_PORT` (7767; `0` ->
+  first free 17867+), `_ORDER` (4), `_PAGE_FORMAT` (2), `_TOKEN` (empty =
+  AUTH off). Large DBs: set `ORBITDB_PAGER_CAPACITY` (default 256).
+- **RAM cap:** `scripts/station.ps1` runs under `scripts/run_capped.ps1`
+  (4 GB default); the WSL twin polls VmRSS.
+- **Protocol:** `station/docs/ORBITWIRE.md` (frozen v1; frame KAT, field
+  dictionary, ops, state machine, error codes, limits/backpressure).
+- **Threading:** single-threaded event loop; one `StationActor` owns one
+  `DBFile`; sessions never share the handle across threads. One transaction
+  window per shard; a non-owner write returns `TXN_ACTIVE`.
+- **Current evidence:** station suites **169/169 x2 Windows + x2 WSL**;
+  loopback only, no TLS, typed rows auto-commit only, QUERY returns values
+  (RANGE is keyed).
+- **Gotcha (C-ORBIT-14, v0.64.8):** never bind a Vec with
+  `let/var x = match ...`; the initializer truncates the Vec silently.
+  Declare an empty `var` and assign inside the arm. Repro:
+  `docs/repro/vec-match-binding/`.
+- **Gotcha (source encoding):** module files must be UTF-8 **without a BOM**.
+  PowerShell 5.1 `Set-Content -Encoding UTF8` writes a BOM; the compiler then
+  reports the module import as unresolved with no BOM diagnostic.
+
+## 8. Where to read next
 
 - `ARCHITECTURE.md` -- module tree and ownership.
 - `docs/API.md` -- public API reference (this tree).
