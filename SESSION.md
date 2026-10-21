@@ -344,7 +344,9 @@ the v0.64.6 verdicts.
   the m375 mem-read probe was killed at **1,052 MB / exit 137** with a 1 GB
   cap (no host pressure); seed-demo runs clean under the cap. RUNBOOK has
   the policy + usage. Do not run `probe_mem_read`/`probe_soak`/benches
-  uncapped while other lanes are active.**Updated:** 2026-10-20 (M3 SHARD LOCK LANDED -- file_lock integrated):
+  uncapped while other lanes are active.
+
+**Updated:** 2026-10-20 (M3 SHARD LOCK LANDED -- file_lock integrated):
   the stdlib station asks are verified and **closed**
   (`REL-20261016-1128-orbitdb`: file_lock wave 152, TLS/ALPN server,
   KDF/CSPRNG, monotonic clock, TCP ergonomics). ORBITDB integration:
@@ -360,7 +362,9 @@ the v0.64.6 verdicts.
   quit releases; next start serves). Cross-process pin contract documented
   in ISOLATION: external readers use snapshot copies; Station readers live
   in the owning engine actor. **G-START: M3 [x], threads [x], R1/R2 [x];
-  only M1.1b A6 (m375) remains** before ST1.**Updated:** 2026-10-20 (m375 MINIMAL REPRO PROVIDED): the compiler lane
+  only M1.1b A6 (m375) remains** before ST1.
+
+**Updated:** 2026-10-20 (m375 MINIMAL REPRO PROVIDED): the compiler lane
   acked the A6 memory report as **m375** and asked for a minimal
   `io.read_at` repro. Added `tests/probes/probe_mem_read.xi` (64 MiB file,
   rotating 4 KiB reads, env-selectable `io.read_at` vs `byteio_read_at`):
@@ -370,7 +374,31 @@ the v0.64.6 verdicts.
   `REL-20261020-1222-orbitdb` (compiler m375); pushed. The pager will adopt
   a direct byte-level page reader as the fallback if the runtime cannot
   reclaim. **A6/1M remains blocked on m375**; next is the BENCH-1 rerun at
-  the v0.64.8 pin move.**Updated:** 2026-10-21 (A6 1M SOAK PASS -- G-START GREEN): the earlier
+  the v0.64.8 pin move.
+
+**Updated:** 2026-10-21 (SESSION WRAP -- context window full; owner
+  request): **A6 1M PASS / G-START GREEN.** 1M keys with
+  `ORBITDB_PAGER_CAPACITY=65536` under the 4 GB cap: exact 1,004-sample
+  verify, 32,260 nodes, peak 2,494.7 MB; 200k 607 MB/151 s. The earlier
+  4,173 MB cap-kill was cache thrash (8,192 frames), not pure retention.
+  Readiness 77.5 -> 82.5 (A 16->18, C 11->14; A5 row OK); G-START holds
+  (M1.1b A6, M3 shard lock, threads, R1/R2) -> **ST1 conversion is
+  unblocked**. **Also this session:** write-path fallback (byte-native page
+  encode, reused node/WAL buffers, held append fd) fixed the v0.64.8 R2/R3
+  write regression (R2 update 336->1,409; R3 1,786, beats v0.64.7); admin
+  phase 1+2 + token-gated backup/restore (verified); WSL ext4 runner;
+  `db_file_close` + fuzz per-seed isolation (held fd blocks delete on
+  Windows); found a **module-level Vec.pop no-op** compiler bug (filed).
+  **Open:** m375 exit-reclaim 880 s at 1M + default-cache thrash (wishlist
+  filed); `feat/read-at-into-open` (b3707b3) waits for a stdlib release with
+  `io.read_at_into`; P-rc power-loss matrix remains. **Relays filed at
+  wrap:** global-pop BUG `REL-20261021-1122-orbitdb`, m375 wishlist `-2`,
+  stdlib release `-3`, packages 0.3.0 `-4`, all-lanes ops INFO `-5`.
+  **State:** main `b84c0da` + this docs commit; branch
+  `feat/read-at-into-open` at `b3707b3`; relays pushed. Section 5 is
+  refreshed for the next session.
+
+**Updated:** 2026-10-21 (A6 1M SOAK PASS -- G-START GREEN): the earlier
   4,173 MB cap-kill was **cache thrash** once the tree outgrew the
   8,192-frame cache, not pure retention. With `ORBITDB_PAGER_CAPACITY=
   65536` (covers the 32,260-node tree) under the 4 GB cap: **1,000,000
@@ -380,7 +408,9 @@ the v0.64.6 verdicts.
   77.5 -> 82.5** (A 16->18, C 11->14, A5 row OK); **G-START GREEN** (M1.1b
   A6, M3 shard lock, threads, R1/R2) -> **ST1 protocol conversion is
   unblocked**. Suite 166/166 x2 both, crash 25/25 x2 both, probes x2,
-  fuzz 4/4, hybrid 36 x2 both + crash 5/5 x2 both.**Updated:** 2026-10-21 (admin backup/restore landed): `POST /api/backup`
+  fuzz 4/4, hybrid 36 x2 both + crash 5/5 x2 both.
+
+**Updated:** 2026-10-21 (admin backup/restore landed): `POST /api/backup`
   (token-gated) checkpoints, then atomically copies `<db>` ->
   `<db>.backup.wal` and `<db>.snap` -> `<db>.backup.snap` (temp+rename).
   **Verified end-to-end:** backup of a 40-key DB returned
@@ -388,7 +418,9 @@ the v0.64.6 verdicts.
   copying the pair to `restore.wal`/`.snap` reopened with keys=40,
   `get(5)=50`, paged=true, gen 2. UI has a Backup button; README/RUNBOOK
   document restore (copy back while no handle is open). Admin remains
-  localhost-only + token/CSRF discipline; it holds the M3 shard lock.**Updated:** 2026-10-21 (A6 1M attempt -- cap-protected, blocked on m375):
+  localhost-only + token/CSRF discipline; it holds the M3 shard lock.
+
+**Updated:** 2026-10-21 (A6 1M attempt -- cap-protected, blocked on m375):
   ran the 1M soak under the owner's 4 GB cap (order 64, 8192 cache). It was
   **killed at 4,173 MB / exit 137** with a 55.6 MB snapshot (~435k keys,
   ~9.6 KB/key at that point) -- superlinear vs the 200k result (607 MB,
@@ -397,7 +429,9 @@ the v0.64.6 verdicts.
   (BENCH section 4f); the read_at_into scan branch still waits for the
   stdlib release. Relay pull note: `git pull` in the relay repo errored
   ("Cannot fast-forward to multiple branches") while `fetch` + `merge
-  --ff-only origin/main` worked; the doorbell uses that path.**Updated:** 2026-10-21 (held-fd follow-up -- fuzz isolation + close API):
+  --ff-only origin/main` worked; the doorbell uses that path.
+
+**Updated:** 2026-10-21 (held-fd follow-up -- fuzz isolation + close API):
   the held append fd keeps the WAL open, so a test that reuses a FIXED DB
   path across fuzz seeds cannot delete it on Windows and silently reopens
   the previous seed's DB (this false-failed fuzz seed 1097 with a
@@ -408,7 +442,9 @@ the v0.64.6 verdicts.
   suite 166/166 x2 Win + x2 WSL, crash 25/25 x2 both, probes x2 both,
   hybrid full 36 x2 both + crash 5/5 x2 both.** m375 remains for the
   memory/teardown plateau (200k soak 607 MB / 151 s); write throughput is
-  restored engine-side (R2 update 336 -> 1,409; R3 1,786, beats v0.64.7).**Updated:** 2026-10-21 (WRITE-PATH FALLBACK LANDED -- bench restored):
+  restored engine-side (R2 update 336 -> 1,409; R3 1,786, beats v0.64.7).
+
+**Updated:** 2026-10-21 (WRITE-PATH FALLBACK LANDED -- bench restored):
   byte-native page encoding (`block_encode_page_into`, byte-identical KAT),
   reused node-page payload (`node_page_bytes_into`), **one held append fd
   per handle for auto-commit writes** (the txn-window shape; closed before
@@ -421,13 +457,17 @@ the v0.64.6 verdicts.
   (R3 beats v0.64.7); R1 1,113/1,053/780. Suites (block/index/dbfile/
   pager/typed/wal_txn/engine_database), fault/MVCC/lock probes and the
   crash harness are green; m375 still owns the remaining memory/teardown
-  plateau and the 1M soak.**Updated:** 2026-10-21 (WSL ext4 runner landed): `scripts/wsl_ext4.sh`
+  plateau and the 1M soak.
+
+**Updated:** 2026-10-21 (WSL ext4 runner landed): `scripts/wsl_ext4.sh`
   mirrors the lane into `~/.cache/orbitdb-lane` (fresh each run, xvector
   link) and executes a command there, avoiding the `/mnt/e` 9p stalls that
   false-RED the WSL battery. Verified: foundations 24/24 and the full suite
   **165/165 x2 on ext4**. RUNBOOK section added. Main tree clean; m375
   (compiler) remains the A6/1M blocker; `feat/read-at-into-open` waits for
-  the stdlib release.**Updated:** 2026-10-20 (m375 write-path isolation): added
+  the stdlib release.
+
+**Updated:** 2026-10-20 (m375 write-path isolation): added
   `tests/probes/probe_mem_write.xi` and measured the two write sides in
   isolation on the released pin (RAM-capped 2 GB): **200k B-tree inserts
   (order 64) peak 18.1 MB / 0.6 s**; **200k `wal_file_append_sync` peak
@@ -436,7 +476,9 @@ the v0.64.6 verdicts.
   Vec[Int] + `bytes_to_u8` per dirty page; ~5.8k dirty pages on the run) and
   the runtime's Vec-drop retention -- not the B-tree, not the read scan
   (fixed on `feat/read-at-into-open`). m375 remains the root fix; the
-  isolation is filed to the compiler lane.**Updated:** 2026-10-20 (stdlib read_at_into FALLBACK MEASURED -- branch
+  isolation is filed to the compiler lane.
+
+**Updated:** 2026-10-20 (stdlib read_at_into FALLBACK MEASURED -- branch
   ready, not merged): implemented the staged plan on
   **`feat/read-at-into-open`** (`b3707b3`, based on `f2ad364`; main stays
   on the released pin because v0.64.8 lacks the API):
@@ -448,7 +490,9 @@ the v0.64.6 verdicts.
   The scan/read path is fixed, but the plateau is **write-path/COW
   (Vec-drop elaboration)** -> m375 remains the root fix. Merge the branch
   at the next stdlib release; reported to stdlib + compiler. Main tree
-  clean at `f2ad364`.**Updated:** 2026-10-20 (stdlib `read_at_into` acked; adoption STAGED):
+  clean at `f2ad364`.
+
+**Updated:** 2026-10-20 (stdlib `read_at_into` acked; adoption STAGED):
   stdlib landed `io.read_at_into(path, offset, buf: &mut Vec[UInt8], len)`
   on main (commit `9bad232`) -- the m375/A6 caller-buffer page-reader
   fallback -- and notified us (`REL-20261020-1731-stdlib`, acked). The
@@ -482,7 +526,9 @@ the v0.64.6 verdicts.
   battery from an ext4 copy. The 3h doorbell is intentionally STOPPED for
   the night; re-create on resume. Next: runtime memory reclaim -> 1M soak
   + BENCH memory row; admin phase 3 (sessions/ORBITWIRE attach) after ST1;
-  G-START still needs M3 `file_lock`/cross-process pins.**Updated:** 2026-10-19 (A6 SOAK: GC lifetime fix + scale memory finding):
+  G-START still needs M3 `file_lock`/cross-process pins.
+
+**Updated:** 2026-10-19 (A6 SOAK: GC lifetime fix + scale memory finding):
   the A6 soak (`tests/probes/probe_soak.xi`, chunked build -> paged reopen
   -> chunked growth -> sample verify) exposed and fixed a **GC store-reset
   lifetime bug**: `ns_reset_paged` installed a local `BlockStore` into the
@@ -500,7 +546,9 @@ the v0.64.6 verdicts.
   exact, 19.9 MB snapshot, 6,455 nodes) but peak RSS is **940 MB** and
   process teardown took **~251 s** -> per-op allocation retention; **A6
   not green / 1M blocked** until the runtime reclaim lands. BENCH-1
-  section 7 carries the numbers.**Updated:** 2026-10-19 (ST0 THREADS DECISION RECORDED + runtime spike): the
+  section 7 carries the numbers.
+
+**Updated:** 2026-10-19 (ST0 THREADS DECISION RECORDED + runtime spike): the
   Station concurrency decision is now explicit (docs/ISOLATION.md "Threads
   decision"): **one engine-actor thread per `DBFile`/shard; a handle never
   crosses threads**; scale-out is process-per-shard once M3 `file_lock` +
@@ -511,7 +559,9 @@ the v0.64.6 verdicts.
   evidence: new `tests/probes/probe_threads.xi` -- 4 real OS threads x
   10,000 mutex-guarded increments = 40,000 on **v0.64.8 Win + WSL**;
   `xiom.thread.spawn` + `xiom.sync.mutex` are usable. G-START checklist:
-  threads decision [x]; remaining gates = M1.1b A6 soak + M3 file_lock.**Updated:** 2026-10-19 (STATION ADMIN WEB UI -- phase 1 landed): the
+  threads decision [x]; remaining gates = M1.1b A6 soak + M3 file_lock.
+
+**Updated:** 2026-10-19 (STATION ADMIN WEB UI -- phase 1 landed): the
   owner approved the Pulse web admin as the recommended admin shape (a
   separate client, pgAdmin-style; native SDL3+ImGui deferred -- imgui is
   headless-only today). New `admin/` app source-composes the Satellite
@@ -532,7 +582,9 @@ the v0.64.6 verdicts.
   (no read-only open / cross-process pins yet -- M3 remainder); the Station
   will attach the same UI over ORBITWIRE at ST1. Reference rows added to
   REFERENCE-MATRIX 3.1; RUNBOOK admin section. Next: auth/session + query
-  editor + write actions gated on the protocol, then optional native client.**Updated:** 2026-10-19 (v0.64.8 verification DONE -- C-ORBIT-12/13 CLOSED):
+  editor + write actions gated on the protocol, then optional native client.
+
+**Updated:** 2026-10-19 (v0.64.8 verification DONE -- C-ORBIT-12/13 CLOSED):
   the released v0.64.8 archive (tag `4d040604b`; Windows zip `c31d9c46...`
   verified -> `%LOCALAPPDATA%\xiom-0.64.8` exe `ee3ee902...`; WSL
   `~/.local/share/xiom-0.64.8` bin `7c5b3482...`) fixes BOTH our compiler
@@ -576,7 +628,9 @@ the v0.64.6 verdicts.
   adopt, re-run the repros + suite, drop the C-ORBIT-12 tuple workaround and
   the C-ORBIT-13 helpers (keep the API shapes), and re-run the battery.
   **NEXT: A6 -- 1M-key memory soak + BENCH-1 memory row; then Station on
-  G-START.****Updated:** 2026-10-19 (M1.1b A1-A4 LANDED -- v2 pager live, battery
+  G-START.**
+
+**Updated:** 2026-10-19 (M1.1b A1-A4 LANDED -- v2 pager live, battery
   green): **`docs/checklists/m1-1b-pager.md` is the design of record.**
   A1: all node reads route through `ns_get`. A2: node page codec moved to
   `xiom.db.index.node_page`. A3: `NodeStore` gained a paged mode --
@@ -1984,376 +2038,71 @@ Ops rules:
 ## 5. Paste prompt for the next ORBITDB session
 
 ```
-You are the ORBITDB session for E:\xiom-projects\xiom-orbitdb -- the
-embedded XIOM database engine (B-Tree, WAL, query engine, crash recovery;
-formerly xiom-db). Read SESSION.md first, then README/SPEC/ARCHITECTURE/
-ROADMAP/AUDIT and docs/ (keeper docs + PRODUCTION-READINESS included; read
-docs/PRODUCTION-PLAN.md for the strategy, workstreams and slice order).
-Consumer lane: never edit E:\xiom-lang\stdlib, E:\xiom-lang\xiom,
-E:\xiom-packages\packages. Repo PRIVATE; no pushes without owner approval.
-Identity "Lefteris Notas <lefterisnotas@gmail.com>"; conventional commits,
-DCO sign-off (git commit -s). Cross-lane coordination: the xiom-relays bus
-(E:\xiom-lang\xiom-relays) -- git pull --ff-only at session start and before
-finishing any task, then python tools/relay.py view --lane orbitdb and
-process items to this lane; never edit another lane's item (open a new one);
-owner relays human gates.
-REFERENCE PROTOCOL (owner directive 2026-10-17, non-negotiable): every slice
-starts by crawling the cloned battle-tested trees under E:\repos
-(sqlite/bbolt/redb/db-benchmarks for the engine; h11/fastify/gin/knex/bullmq
-for the Station), recording file:line + symbols + adopt/adapt/avoid in
-docs/REFERENCE-MATRIX.md, then converting to XIOM -- no design from memory,
-no MVPs. Blockers -> relay (wishlist/bug) with a documented fallback and a
-re-test on the next release/package publish.
-TOOLCHAIN FRESHNESS (owner directive 2026-10-17, non-negotiable): at every
-session start (1) pull the relays + process lane items; (2) use the LATEST
-RELEASED compiler archive, stdlib and registry packages -- the lanes fix
-requested bugs there and hardening flows back through our relay reports;
-the compiler-bundled stdlib is the default, the stdlib lane checkout is
-opt-in early-warning only; (3) after any version move re-run the battery
-(suite x2 both, crash, probes, fuzz) and relay reds.
+You are the ORBITDB session for E:\xiom-projects\xiom-orbitdb -- embedded XIOM
+database engine (Satellite = registry tier, Station = server/HTTP tier). Read
+SESSION.md first (the top Updated entry = the 2026-10-21 wrap), then
+README/SPEC/ARCHITECTURE and docs/ (REFERENCE-MATRIX, BENCH-1, TWO-TIER,
+PRODUCTION-READINESS, RUNBOOK, checklists/m1-1b-pager). Consumer lane: never
+edit E:\xiom-lang\stdlib, E:\xiom-lang\xiom, E:\xiom-packages\packages. Repo
+PRIVATE; no code pushes without owner approval. Identity
+"Lefteris Notas <lefterisnotas@gmail.com>"; conventional commits + -s; docs
+coupled in the same commit.
 
-TOOLCHAIN (latest-tracking; owner directive 2026-10-17: ALWAYS use the
-latest RELEASED stdlib/packages): **v0.64.7 IS ADOPTED (2026-10-18)** --
-`dev-env.*` pins the Windows official extract
-`%LOCALAPPDATA%\xiom.new-20261018-1415` (`xiom.exe` sha256
-`592aa1259fd03371...`; zip `16a436c4...` verified) and the WSL LANE-LOCAL
-install `~/.local/share/xiom-0.64.7` (bin sha `302d3192...`; tarball
-`153f0cc9...`); the shared canonical stays v0.64.6 until ops swaps it.
-**stdlib default = the compiler-bundled RELEASE v0.64.7** (`stdlib-v0.64.7`
-tag `1271dd5`) -- the stdlib lane checkout is OPT-IN early-warning only
-(export XIOM_STDLIB before dot-sourcing; never edit that tree). **XIOM_
-RUNTIME_DIR is RETIRED**; dev-env.* actively unsets any inherited override
--- the released pin is authoritative. WATCH for the NEXT archive. Benchmark
-twin note: `BENCH_STOCK_STDLIB=1` selects the stock pin for WSL bench runs
-(kept as the stock-baseline option for rows comparable with the captured
-numbers; the Linux-compile WIP that made it REQUIRED is FIXED --
-`<netinet/tcp.h>` at stdlib `a451349`, in `6c96bbb`; a consumer compile on
-the checkout was verified GREEN 2026-10-16, so the switch is no longer a
-requirement). stdlib
-E:\xiom-lang\stdlib. Dot-source scripts\dev-env.ps1
-(or scripts/dev-env.sh) -- both resolve AND report the compiler identity;
-run everything via scripts\run.ps1 / run.sh with a
--TimeoutSec watchdog and exit-code gate. Native .sh twins must stay LF.
-WSL: the default distro is docker-desktop (no bash) -- run via
-`wsl.exe -d Ubuntu bash -lc '...'` (keep the inner command literal -- `$VAR`
-words can get eaten at the wsl.exe handoff; hardcode resolved paths); the VM
-is shared with other lanes -- check `ps`/`free` (the VM's /proc/loadavg reads
-phantom-high under an idle VM -- trust ps/free over loadavg) and run at most
-ONE heavy harness per command.
-Evidence rules: green suites x2, crash harnesses x2, soak long paths, keep
-probe-logs out of commits (gitignored).
-Release signal: when the production plan's gates pass (P-rc), tell the owner
-explicitly "ORBITDB is ready for public release" -- the owner then sets up
-the public repo/CI/registry and adds ORBITDB to the benchmark suite.
-WATCH each session: any newer COMPILER archive (re-test the repro bundles +
-the suite first): `enum-tuple-codegen` (C-ORBIT-08 A/B FIXED; **C-ORBIT-12
-PARTIAL -- m336 fixed only the MINIMAL repro (green x2 on v0.64.6
-2026-10-16); the LARGER-PROGRAM silent-mode shape is STILL RED on v0.64.6
-(position-tuple drop -> `unknown type 'Tuple__TValue__Int' -- defaulting
-to i64`; 6 typed-value suite tests fail, 154/160) -> re-tested on v0.64.7
-(STILL RED) -> **FIX VERIFIED on main `c6b3362ef`: suite 160/160 x2 with
-the position tuple (main-tree release build), zero warnings; drop STAGED
-on branch `fix/c-orbit-12-position-tuple` (`f779c23`); item
-`REL-20261017-1154-orbitdb` = VERIFIED, closes when the fix ships in a
-released archive; the workaround STAYS on main until that release
-adoption**),
-`vec-copy-alias` (C-ORBIT-09 FIXED m302; re-checked green on v0.64.6;
-residual caveats documented -- `node_deep_copy` stays), `check-exit-code`
-(C-ORBIT-10 RETRACTED -- `--check` rc=1 both platforms; probes stay as
-regression), `same-named-struct-compose` (C-ORBIT-11 FIXED m298; `compose
-ok` re-checked on v0.64.6); the phantom bundle and C-ORBIT-07 are VERIFIED
-FIXED on v0.64.4 and need no re-run -- REL-20261010-1802-orbitdb.
-**v0.64.6 release-check `compiler-compiler-v0.64.6` verdicts: our
-C-ORBIT-12 row CORRECTED 2026-10-17 to PARTIAL (minimal green,
-larger-program RED; residual filed); the v0.64.7 row carries the same.**
-**v0.64.7 RELEASED 2026-10-17T22:59Z (linux-arm64 live) and ADOPTED
-2026-10-18** -- battery + hybrid guard green; the C-ORBIT-12 regression
-re-run is DONE (still red, see above); the v0.64.7 check row carries the
-verdict. (The stdlib m353 tag block was cleared by the r2 re-gate.)
-**v0.64.8 CUT GO (2026-10-19T14:32Z, `REL-20261019-1432-compiler-2`; stdlib
-gate in progress, candidate `9b88b46`)** -- it is expected to carry the
-C-ORBIT-12 fix (`c6b3362ef`): AT ADOPTION merge the staged drop
-`fix/c-orbit-12-position-tuple` (`f779c23`), suite x2 both, then close
-`REL-20261017-1154-orbitdb` (currently verified). Watch for the release
-announcement + assets.
-Engine integration intent + the packages standing registry pipeline acked
-(see the wrap entry + `docs/checklists/two-tier.md`). **Compiler batch plan
-`REL-20261011-1342-compiler`: batches 1+3 satisfied and closed.** PULSE's
-`probe_pkg_orbitdb` results and the stdlib rows on the bus are closed.
-(XVECTOR XV-ORBITDB-01 closed 2026-10-10; hybrid probe DEFERRED -- xvector
-WIP moved `xiom.vector.types.*`; re-run when their tree settles.)
-**Doorbell: scheduled cron tasks are SESSION-scoped -- a fresh session MUST
-re-create the 3h `cron_create` xiom-relays doorbell (pull, `view --lane
-orbitdb`, process, verify release rows, docs+commit).** (Note: the relays
-clone fetches a wildcard refspec, so `git pull --ff-only` can print "Cannot
-fast-forward to multiple branches" even when main matches origin -- verify
-with `git rev-parse main origin/main` and use `git merge --ff-only
-origin/main`.)
+RELAYS: E:\xiom-lang\xiom-relays. `git pull --ff-only` currently errors
+"Cannot fast-forward to multiple branches" -> use
+`git fetch origin && git merge --ff-only origin/main`, then
+`python tools/relay.py view --lane orbitdb` and process items to this lane;
+never edit another lane's item (file a new one). Re-create the 3h doorbell
+cron (session-scoped) if this is a fresh session.
 
-CURRENT STATE: **v0.64.8 lane pin (ADOPTED 2026-10-19); the XIOM_RUNTIME_DIR
-override is RETIRED** (Windows `%LOCALAPPDATA%\xiom-0.64.8` exe `ee3ee902...`,
-zip `c31d9c46...` verified; WSL LANE-LOCAL `~/.local/share/xiom-0.64.8`
-bin `7c5b3482...`, tarball `a8c003c0...`; stdlib = bundled RELEASE v0.64.8).
-Battery on the pin: suite **163/163 x2 Win + x2 WSL**, db_crash 25/25 x2
-both, probes x2 both, fuzz both; hybrid full 36 x2 both + crash 5/5 x2
-both (xvector `72db35e`). C-ORBIT-12 and C-ORBIT-13 are **FIXED + verified +
-CLOSED**; workarounds retired. **M1.1b A1-A5 DONE 2026-10-19:** v2
-lazy load + 256-frame clock cache + dirty spill + owned-block-store
-checkpoint + deferred-free GC compaction; `index/node_page`; pager suite
-3/3; A6 = 1M-key soak + BENCH memory row NEXT. **Owner-approved next
-track: Pulse web admin UI** (separate client, localhost). **R1/R2 DONE
-2026-10-18:** module split
-(`engine.xi` facade 677 lines + `index/btree` + `engine/{core,snapshot,txn}`,
-`pub use`-re-exported, zero consumer changes) and suite split
-(`tests/suite/` 10 area files + `suite_common`; `scripts/suite.ps1` /
-`suite.sh` summing x2 runners) -- final-tree battery re-ran green: suite
-160/160 x2 both, db_crash 25/25 x2 both, probes x2 both, fuzz both, hybrid
-probe full 36 x2 both + crash 5/5 x2 both. Bundle verdicts x2 platforms:
-**C-ORBIT-08 A/B FIXED (08B masks RETIRED), C-ORBIT-09 FIXED (m302;
-residual caveats stay), C-ORBIT-11 FIXED (m298), row `-2` FIXED (m304),
-C-ORBIT-10 RETRACTED (rc=1 both); C-ORBIT-12 FIX VERIFIED on main
-(`c6b3362ef`): 160/160 x2 with the natural position tuple on the main-tree
-release build (was 154/160 + warnings on v0.64.6/v0.64.7); drop STAGED on
-branch `fix/c-orbit-12-position-tuple` (`f779c23`), merges at the next
-release adoption; item `REL-20261017-1154-orbitdb` = verified /
-close-at-release; the `DbResult[TValue]` workaround STAYS on main for the
-v0.64.7 pin** (`Result[(Enum, Int), Enum]`).
-**BENCH-1 + the WAL held-handle perf slice LANDED 2026-10-16, ABSOLUTE
-ROWS CAPTURED 2026-10-18** (`f6a212b` + `21ea76a`; harness +
-docs/BENCH-1.md; byte-equivalence proven; **2026-10-18 quiet-ish window on
-v0.64.7: Windows load R1 947 / R2 1,552 / R3 1,435 vs 611/885/1,136 =
-+55%/+75%/+26%; A/B 5/5 median 1.28x; WSL R1 106 / R2 7,225 / R3 23,126 /
-R4 109 (DrvFs-fsync-bound); section 4a**). **C-ORBIT-06/07 verified fixed +
-closed; probe_arm reverted.** **M1.2 S4 + M2.1 second half LANDED 2026-10-13**
-(real byte-IO + fsync + rename durability + O(1) heal; **v2 byte container
-is the DEFAULT** -- `db_file_open` writes v2, v1 pinned via
-`db_file_open_cfg(path, order, 1)`, reads auto-detect, migration-on-write;
-FORMATS section 3 carries the v1/v2 tables; stock pin, no runtime override);
-suite **160/160 x2 Win + WSL**; db_crash five
-scenarios (WAL-only, snapshot-only, snapshot+tail, uncommitted txn
-discarded, committed txn recovered) **25/25 x3 Win + x2 WSL on the FIXED
-harness (delete-sharing polls + one-retry put1, `0911516`)**, each recovery
-followed by qverify (25 checks);
-`tests/probes/probe_mvcc.xi` 36 checks + `probe_fault_sync.xi` 56 checks
-(syncfail now fails a REAL fsync) + `probe_io_primitives.xi` 30 checks, all
-GREEN x2 both; fuzz (`scripts/fuzz.{ps1,sh}`, seeds=4 ops/seed=4000, sections
-a-l) x2 both; policy soak 2000 keys / 9 checkpoints x2 both; bench fresh
-under shared-machine load (Win wal_append 1.7k/s, WSL 33.8k/s; insert
- 513k/333k ops/s); hybrid ORBITDB <->
-XVECTOR probe (36 checks) + `scripts/hybrid_crash_test.{ps1,sh}` --
-**GREEN 2026-10-18 on xvector's settled `72db35e`: probe full x2 WSL + x1
-Win, crash 5/5 x2 Win + x1 WSL; harness lockstep (xiom.http 0.1.8,
-`xiom.vectors` package types);** **M3.1 snapshot
-pins + savepoints DONE 2026-10-11** (`docs/MVCC.md`); M5
-typed values END-TO-END DONE 2026-10-11 (codec -> schema -> engine ->
-typed predicates; CLI putrow/getrow/qrow); xiom.btree 0.1.1 two-way
-consumer pass DONE 2026-10-12 (C-ORBIT-11 blocks co-composition -- keep the
-two-program digest pattern); harness hardening 2026-10-13: every runner +
-crash harness compiles to a UNIQUE `-o` binary (DrvFS ETXTBSY gotcha in
-RUNBOOK); readiness **77.5/100** (docs/PRODUCTION-READINESS.md -- B 18/20;
-power-loss hardware matrix still open); reference docs docs/API.md +
-docs/RUNBOOK.md + docs/FORMATS.md +
-docs/ISOLATION.md + docs/MVCC.md + docs/REFERENCE-STUDY.md +
-docs/TYPED-VALUES-STORAGE.md;
-production plan
-docs/PRODUCTION-PLAN.md +
-docs/checklists/production-release.md (M1-M8, gates P-alpha -> 1.0, release
-signal). Durable pieces (S4-current): src/wal_file.xi (segment +
-Begin/Commit/Abort txn records, LSN resume, O(1) tail heal via
-file_last_byte/append_line_sync, REAL fsync flush, rename-durable truncate),
-src/storage/page_file.xi (CRC32C text page store + append-only page log;
-real sync; rename durability), src/storage/byte_io.xi (**real stdlib byte
-primitives: read_at/write_at/append_file_bytes/file_size/truncate_file +
-sync_fd + sync_dir**; fault gates unchanged), src/storage/block.xi +
-block_store.xi (v2 4096-byte block container; compact publishes sync temp +
-dir), src/storage/tuple.xi codec v1 + tuple2 v2 (`TValue`, `schema_row`),
-CRC32C, best-fit FSM, clock buffer-pool + pinning (C4), DBFile in
-src/engine.xi (**v2 DEFAULT container**; WAL-before-ack + replay recovery +
-incremental generation-committed checkpoint + maybe_checkpoint policy +
-durable transactions + savepoints + snapshot pins; db_file_range/query/
-query_typed; stale-handle write guard; dirty-only checkpoint flush; key-range
-planner pushdown; secondary value index + ORDER/LIMIT; order-3 B-tree fix
-(in xiom.btree 0.1.1 too); M2.1 durability API + fault injector with REAL
-fsync; M5 typed rows end-to-end; CLI putrow/getrow/qrow; app build embeds
-assets/orbitdb.ico). Known
-limits: **fsync is REAL (power-loss honest up to the synced seams); the
-hardware power-loss matrix is still open**; replay is linear and file IO is
-O(n) per read (no random access); checkpoint encodes only dirty nodes but the
-tree stays fully resident (lazy load/bounded cache need random-access page
-reads = M1.1b); transactions single-active; M3 minimal subset only
-(in-process pins + savepoints -- cross-process MVCC rides file_lock, lazy
-pager reads and version GC remain); buffer pool in-memory only; multi-process
-safety is still the optimistic guard (file_lock adoption pending);
-fuzz runs per wrap (CI cadence awaits F3).
+TOOLCHAIN (v0.64.8, adopted 2026-10-19): Windows
+%LOCALAPPDATA%\xiom-0.64.8\bin\xiom.exe (exe sha ee3ee902..., zip c31d9c46...);
+WSL lane-local ~/.local/share/xiom-0.64.8/bin/xiom (bin 7c5b3482..., tar
+a8c003c0...); bundled stdlib v0.64.8. dev-env.* pins both. Latest release
+checked 2026-10-21 = v0.64.8 -- WATCH for the next archive/stdlib tag
+(io.read_at_into is on stdlib main 9bad232, NOT in v0.64.8).
+FRESHNESS: at start and after any pin move run the battery (suite x2 both,
+crash x2 both, probes x2 both, fuzz, hybrid x2 both) and relay reds.
 
-TASK ORDER (highest value first; full plan docs/PRODUCTION-PLAN.md sec. 13):
-REFERENCE PROTOCOL (owner 2026-10-17, non-negotiable -- see
-`docs/REFERENCE-MATRIX.md`): every slice starts with a real crawl
-(file:line + symbols + adopt/adapt/avoid rows) and is CONVERTED from it into
-XIOM -- never design from memory, never settle for an MVP. Missing
-stdlib/packages capability or a compiler defect -> relay (wishlist/bug) +
-documented fallback + re-test on the next release/package publish.
-1. **v0.64.8 ADOPTION -- DONE 2026-10-19** (Windows
-   `%LOCALAPPDATA%\xiom-0.64.8` exe `ee3ee902...`, zip `c31d9c46...`;
-   WSL lane-local `~/.local/share/xiom-0.64.8` bin `7c5b3482...`, tarball
-   `a8c003c0...`; bundled stdlib v0.64.8). **C-ORBIT-12 and C-ORBIT-13
-   FIXED + verified**; workarounds RETIRED (natural `(TValue, Int)` tuple,
-   direct nested `&mut`); items CLOSED (`cdb27b9`). Battery on the final
-   tree: suite **163/163 x2 Win + x2 WSL**, db_crash 25/25 x2 both,
-   probes x2 both, fuzz both, hybrid full 36 x2 both + crash 5/5 x2 both.
-   **WSL caveat:** `/mnt/e` DrvFs can stall in `p9_client_rpc` (D state)
-   under large snapshot I/O -> run suite/crash/hybrid from an ext4 copy
-   (`cp -r src tests scripts package.xi /tmp/orbitdb-v0648`); the same
-   flow is green there.
-2. **BENCH-1 absolute rows -- DONE 2026-10-18** (docs/BENCH-1.md section
-   4a; full matrix both platforms: Windows load 947/1,552/1,435 vs
-   611/885/1,136; A/B 5/5 median 1.28x; WSL R1-R4). Re-run at each pin
-   move. Re-create the 3h relay doorbell (`cron_create`) -- session-scoped.
-3. **R1/R2 refactor (owner directive) -- DONE 2026-10-18.** R1: cycle
-   spike GREEN (struct syntax is `pub type X = { ... }`; multi-file
-   `module` remains unsupported), so engine<->engine.* cycles are safe.
-   Move-only split landed: `src/index/btree.xi`, `src/engine/core.xi`,
-   `src/engine/snapshot.xi`, `src/engine/txn.xi`, with `engine.xi` (677
-   lines) keeping `DBFile` + the file-backed API + `Database` and
-   `pub use`-re-exporting the four modules; zero consumer changes; suite
-   x2 both at every step. R2: `tests/test_conformance.xi` split into
-   `tests/suite/` (10 area files + `suite_common.xi`) with summing x2
-   runners `scripts/suite.ps1` / `scripts/suite.sh` -> 163/163 x2 both (pager included).
-   The old single-file suite and its run command are RETIRED (use
-   `scripts/suite.*`).
-4. **M1.1b pager -- A1-A5 DONE 2026-10-19; A6 (soak/BENCH) NEXT.** Reference rows
-   1.1-1.3 re-crawled with verified line numbers; design/checklist in
-   `docs/checklists/m1-1b-pager.md`. Landed: lazy v2 node load (validate
-   then discard), 256-frame clock cache (`slots`/`frames`), dirty-frame
-   spill at the uncommitted generation, checkpoint via the store's owned
-   `BlockStore`, `index/node_page` codec module, pager suite (1200-key
-   lazy/eviction + 1400-key spill/checkpoint + GC compaction). **A5 DONE:**
-   deferred free (retire points + pin epochs + `ns_release_pending`),
-   reachability GC with dense renumbering (`ns_reset_paged`); **A6 = 1M-key
-   memory soak: 15k GREEN, 200k RED on memory (relay `REL-20261019-2206`),**
-   1M blocked; BENCH-1 section 7 has the numbers. Fix the per-I/O
-   allocation retention next.
-   **C-ORBIT-13 FIXED in v0.64.8** (verified; `docs/repro/nested-mut-path/
-   repro.xi` all PASS on Win + WSL; direct nested `&mut` restored, helper
-   workarounds removed; item CLOSED). v1 snapshots remain resident
-   (auto-detect).
-5. **Station track (PLANNED, GATED -- `docs/checklists/two-tier.md`)**:
-   satellite = today's release path; station (`station/`, ORBITWIRE v1,
-   sessions, replication via WAL shipping, range sharding) may start only
-   after **G-START = M1.1b A6 only** (M3 shard lock landed 2026-10-20,
-   threads decision done, R1/R2 done); ST1 protocol spike -> ST2 single-node
-   core -> ST3 concurrency -> ST4 replication -> ST5 sharding -> ST6 ops ->
-   ST7 league; optional ST8 PG-wire facade. Embedded release outranks it.
-   ST1 begins with the Station reference crawl + matrix section 3 rows
-   (h11/fastify/gin/knex/bullmq) before the protocol spike.
-6. **Hybrid guard -- DONE 2026-10-17** (xvector settled at `72db35e`,
-   compiler v0.64.6 + released stdlib): `probe_hybrid` full GREEN (36
-   checks) Win x1 + WSL x2; `hybrid_crash_test` GREEN 5/5 Win x2 + WSL x1
-   (repair 13 rows, 100% join integrity, verify #2 idempotent repaired=0;
-   row store survives hard kill + torn tail). Harness brought to lockstep:
-   `xiom.http` 0.1.8 + types imported from the published `xiom.vectors`
-   package (their tree consolidated `xiom.vector.types.*`). Re-run at every
-   wrap.
-7. **Station admin web UI (Pulse) -- OWNER-APPROVED 2026-10-19.** Build the
-   pgAdmin-style admin as a SEPARATE client on a localhost HTTP server
-   (`xiom.pulse` 0.3.1 + `xiom.static` + `xiom.router` + `xiom.session` +
-   `xiom.http.middleware`), localhost-bound with session/token auth + CSRF.
-   Phase 1: read-only dashboard over the public engine API (status, tables,
-   ranges, query editor, logs/checkpoints); phase 2: attach to the Station
-   over ORBITWIRE after ST1. Native SDL3+ImGui admin is an optional later
-   client (imgui is headless-only today). This runs alongside the Station
-   gates and does not block the Satellite release.
-8. Hygiene: SESSION/STATE/readiness at every wrap; doorbell; signed
-   commits; registry P-rc recipe + engine A09 adapter verb-list when asked.
-   **Publication coordination (owner directives 2026-10-16):** when the
-   Satellite is ready to publish, open the packages-lane relay item
-   (packaging assist); Station releases ride a GitHub Actions pipeline
-   authored with ops (we supply the build/soak contracts).
+STATE (2026-10-21): **A6 1M soak PASS / G-START GREEN.** 1M keys with
+ORBITDB_PAGER_CAPACITY=65536 under the 4 GB cap: exact 1,004-sample verify,
+32,260 nodes, peak 2,494.7 MB; 200k 607 MB/151 s. Readiness 82.5 (A5 OK).
+Write-path fallback fixed the v0.64.8 R2/R3 regression (R2 update 1,409; R3
+1,786; BENCH-1 4f). Admin phase 1+2 + backup/restore in admin/ (Pulse 0.3.1).
+M3 shard lock + threads decision done. Suite 166/166 x2 both, crash 25/25 x2
+both, probes/fuzz/hybrid green. m375 remaining: 880 s exit-reclaim at 1M +
+default-cache thrash (wishlist filed). Branch feat/read-at-into-open
+(b3707b3) waits for a stdlib release. Relays filed at wrap (2026-10-21):
+global Vec.pop BUG `REL-20261021-1122-orbitdb`, m375 wishlist `-2`, stdlib
+release wishlist `-3`, packages 0.3.0 candidate `-4`, all-lanes ops INFO
+`-5`.
 
-DONE one-liners: M5 typed values end-to-end (2026-10-11); M3.1 snapshot
-pins + savepoints (2026-10-11); **M1.2 S4 + M2.1 second half (2026-10-13:
-real byte-IO + fsync + rename durability, v2 default; suite 160 x2 both)**;
-**BENCH-1 landed 2026-10-16 (`docs/BENCH-1.md`: ORBITDB vs SQLite vs
-bbolt, verify parity, Win R1-R4 + WSL R1/R3; append-syscall finding)**;
-**WAL held-handle perf slice (2026-10-16: append+sync one handle per
-record, txn window on one fd; verified x2 both; perf numbers pending a
-quiet host)**;
-**v0.64.5 adoption + re-verification wave (2026-10-16: full battery +
-bundle verdicts; 08A/09/11/row-2 verified, 08B masks retired, 10 retracted,
-C-ORBIT-12 filed; harness hardening `0911516`)**;
-xiom.btree 0.1.1 two-way pass (2026-10-12); C-ORBIT-06/07 verified+closed
-on v0.64.4.
+TASK ORDER:
+1. **ST1 ORBITWIRE protocol** (G-START green): the crawl is seeded in
+   REFERENCE-MATRIX 3.2 (h11/fastify/gin/knex/bullmq). Define the typed frame
+   format, session state machine, op set (HELLO/AUTH/PING/BEGIN/PUT/GET/
+   RANGE/QUERY/COMMIT/ABORT/CLOSE), error codes, limits and backpressure;
+   spike a hello-station server over the chosen transport composing the
+   engine through the single-writer actor; tests x2 both. Do not share a
+   DBFile across threads.
+2. **m375 follow-up**: if a compiler release lands, re-run the 1M soak
+   (BENCH section 7) and check exit teardown + default-cache thrash; update
+   the wishlist/relays.
+3. **read_at_into release**: when the stdlib tag lands, merge
+   feat/read-at-into-open, bump dev-env pins, run the full battery + 1M
+   soak, then retire the branch note.
+4. **Station ST2+**: sessions/auth, typed queries, crash-safe restart, then
+   replication/sharding/ops (ST4-ST7); admin phase 3 attaches over ORBITWIRE
+   after ST1. Package 0.3.0 candidate is filed to packages (hold publish for
+   owner approval + final battery).
+5. **Satellite P-rc**: hardware power-loss matrix (owner/hardware), then
+   release notes + the 0.3.0 publish; README/SPEC tier label.
+6. Hygiene: RAM-cap every app/soak (scripts/run_capped.*, 4 GB default,
+   admin 2 GB); WSL battery via scripts/wsl_ext4.sh; never run crash/hybrid
+   concurrently; call db_file_close before deleting/renaming a DB file
+   (held fd); set ORBITDB_PAGER_CAPACITY for large DBs (default 256); use
+   fresh paths for the hybrid full probe; relay fetch+merge.
 
-DISCIPLINE (v0.64.4/v0.64.5 era; C-ORBIT-06/07 verified fixed on v0.64.4 --
-their rules stay as cheap insurance; 08/09/10/11 workarounds stay until each
-fix verifies; see COMPILER-FINDINGS):
-- Never keep an unresolvable `use` or an undeclared type (C-ORBIT-06, FIXED
-  on v0.64.4: one clear hard error now -- keep the code honest anyway).
-- Consumer modules: module-qualify enum variants when a same-named enum is
-  anywhere in the program (m225 consumer-scope caveat; no ambiguity error).
-- Consumer modules: keep helper names distinct from functions inside
-  imported modules (C-ORBIT-07, FIXED on v0.64.4 -- `probe_fault_sync.xi`
-  runs the original collision shape green; the naming habit stays insurance).
-- Harness: NEVER share a compiler output binary across sequenced or killed
-  runs -- every runner + crash harness compiles to a unique `-o` path since
-  2026-10-13 (DrvFs `Text file busy` / os error 26; RUNBOOK gotcha).
-- Binary files: never `io.copy_file` / `read_file`+`write_file` (TEXT path;
-  truncates at the first NUL -- engine finding `REL-20261014-1427`); `.snap`
-  backups use OS copy or `byte_io` byte loops.
-- Runtime: the STOCK v0.64.5 pin is authoritative; `XIOM_RUNTIME_DIR` is
-  RETIRED -- dev-env.* unsets any inherited override (the re-vendored stdlib
-  carries wave 139 >> 115/117/118).
-- WAL write path (perf slice 2026-10-16): auto-commit put/delete/typed =
-  `wal_file_append_sync`/`_tagged_sync` (ONE held handle per record incl.
-  the durability sync; return `-1` = write failed, `-2` = written but sync
-  failed -> state advances + handle latches, matching the old observable
-  semantics); the txn window rides ONE held fd (`db_file_txn_*`, lazily
-  opened, closed on every exit path; checkpoint refuses mid-txn so
-  truncate/rename never races it). WAL appends are UNGATED BY DESIGN
-  (fault-probe arming counts depend on this); only the sync seam fires the
-  kind-1 gate. `tests/probes/probe_wal_ab.xi` A/Bs the shapes;
-  `docs/BENCH-1.md` holds the numbers + caveats.
-- Never put an enum in a tuple (C-ORBIT-08A: `Result[(Enum, Int)]`
-  miscompiles -- crash or silently skipped match arms; return the enum alone
-  and pass positions separately; and **C-ORBIT-12**: `Result[(Enum, Int),
-  Enum]` emits TWO names for one tuple struct -- same rule, never put an
-  enum inside a tuple). C-ORBIT-08B ([N]UInt8 element `as Int`
-  sign-extension) is **FIXED on v0.64.5 (m260; 248x3) -- our masks were
-  retired; plain casts are correct now**.
-- Copied Vec/struct handles: m302 (v0.64.5) deep-copies the SIMPLE binding
-  shapes (`var c = src;` / Index / Field RHS) -- the flat/arena alias probes
-  are FIXED -- but push() args, by-value call args, for-loop element
-  bindings and whole-struct copies with Vec FIELDS still share (C-ORBIT-09;
-  bundle `docs/repro/vec-copy-alias/`). Clone-then-mutate code must build
-  owned copies explicitly (`node_deep_copy` in `src/engine.xi` stays as the
-  ownership guarantee); never rely on assignment for a deep copy.
-- Typed rows (M5): payload bytes are 0..255 and must fit
-  `db_file_typed_payload_max(order)` (1978/1308/973 at orders 3/4/5) --
-  both enforced by `db_file_put_typed`; typed writes are
-  non-transactional in S3 (txn paths refuse); WAL subtype 1 = tuple v2 row
-  bytes; node pages v2 carry payloads (v1 pages decode with empty
-  payloads); typed predicates use `tuple2_compare`'s total order
-  (Null < numeric < text < blob), never SQL 3-valued logic.
-- Snapshot pins (M3): handle-local and in-memory (ids die on reopen); while
-  any pin is live, writes copy-on-write the touched node paths (the arena
-  grows -- no GC until M1.1b) and checkpoint compaction defers
-  (`db_file_compaction_deferrals`); savepoints require an active transaction
-  and stay active after `restore` (SQL semantics).
-- S4 durability (2026-10-13): fsync is REAL at commit acks (durability 1
-  default), at the checkpoint pre-sync and at every rename publish (temp
-  sync + `fsync_dir`); **v2 byte container is the DEFAULT** (`db_file_open`);
-  v1 pinned via `db_file_open_cfg(path, order, 1)`; a failed sync latches
-  `failed` and writers refuse until the handle is reopened.
-- Never pass an empty value to `env.set_var` (the stdlib cstr contract
-  rejects it); the hybrid probe `full` mode needs FRESH paths (no cleanup);
-  WSL: at most ONE heavy harness per command.
-- Prefer parallel vectors over Vec[Option] element writes for hot caches
-  (design choice; m226 fixed the language bug).
-- Deep equality works (m239): Vec/Str == compare by content; hand-written
-  vec_eq helpers may be retired opportunistically.
-- Struct literals list every field; init locals at declaration; no
-  const-receiver .to_str(); explicit *p for &mut Int; trim every read line;
-  hang loops need io.sleep.
-Commits: conventional + `-s`; docs coupled to code in the same commit;
-record lane HEAD hashes in SESSION.md at every wrap.
+Known API additions: db_file_open_locked_checked[_cfg]/db_file_unlock/
+db_file_is_locked, db_file_range_pairs, db_file_close, admin /api/backup.
 ```
