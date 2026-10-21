@@ -368,3 +368,10 @@ The result Vec alone would be 400 MB / 1.6 GB, so the rest is per-call
 retention. Inline source relayed to the compiler lane as
 `REL-20261020-1222-orbitdb` (m375); the pager adopts a direct byte reader
 as the fallback if the runtime cannot reclaim.
+
+**1M attempt (2026-10-21, RAM cap 4 GB):** the soak was **killed at
+4,173 MB** (cap hit, exit 137) with a 55.6 MB snapshot (~435k keys), i.e.
+roughly 9.6 KB/key at that point -- superlinear with the 200k result
+(607 MB, ~3 KB/key). The cap protected the host (no pressure). **1M and the
+A6 memory row remain blocked on m375** (Vec-drop reclaim); the write-path
+fallbacks fixed throughput, not the retention plateau.

@@ -370,7 +370,16 @@ the v0.64.6 verdicts.
   `REL-20261020-1222-orbitdb` (compiler m375); pushed. The pager will adopt
   a direct byte-level page reader as the fallback if the runtime cannot
   reclaim. **A6/1M remains blocked on m375**; next is the BENCH-1 rerun at
-  the v0.64.8 pin move.**Updated:** 2026-10-21 (held-fd follow-up -- fuzz isolation + close API):
+  the v0.64.8 pin move.**Updated:** 2026-10-21 (A6 1M attempt -- cap-protected, blocked on m375):
+  ran the 1M soak under the owner's 4 GB cap (order 64, 8192 cache). It was
+  **killed at 4,173 MB / exit 137** with a 55.6 MB snapshot (~435k keys,
+  ~9.6 KB/key at that point) -- superlinear vs the 200k result (607 MB,
+  ~3 KB/key). The cap did its job (no host pressure); **1M and the A6
+  memory row stay blocked on m375**. Write throughput remains fixed
+  (BENCH section 4f); the read_at_into scan branch still waits for the
+  stdlib release. Relay pull note: `git pull` in the relay repo errored
+  ("Cannot fast-forward to multiple branches") while `fetch` + `merge
+  --ff-only origin/main` worked; the doorbell uses that path.**Updated:** 2026-10-21 (held-fd follow-up -- fuzz isolation + close API):
   the held append fd keeps the WAL open, so a test that reuses a FIXED DB
   path across fuzz seeds cannot delete it on Windows and silently reopens
   the previous seed's DB (this false-failed fuzz seed 1097 with a
