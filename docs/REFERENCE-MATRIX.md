@@ -131,3 +131,4 @@ send resume. Evidence: station suites 169/169 x2 Win + x2 WSL.
 | Station ST4 | log-shipping local leg on `xiom.durable` (fsync honesty check) | `REL-20261016-1128-orbitdb-2` / packages reply `-1150-packages-3` | tracked |
 | Station ST6 | TLS server side / ALPN | stdlib `REL-20261016-1128-orbitdb`; packages TLS binding | tracked (xiom.ssl building) |
 | Station ST1 codec | `let`/`var` initializer of a Vec from a `match`/`Result` truncates silently (C-ORBIT-14) | `REL-20261021-1136-orbitdb` | fixed on compiler main `478e06f8b`; v0.64.8 predates it -- workaround stays, re-test on release |
+| Station ST1 sources | a UTF-8 BOM hides a module from catalog discovery when the declared path != file name (C-ORBIT-15) | `REL-20261021-1157-orbitdb` | fixed on compiler main `18415ede2`; v0.64.8 predates it -- save BOM-free, re-test on release |

@@ -263,13 +263,15 @@ scripts/wsl_ext4.sh ./scripts/station_suite.sh  # WSL ext4 copy
 - **Current evidence:** station suites **169/169 x2 Windows + x2 WSL**;
   loopback only, no TLS, typed rows auto-commit only, QUERY returns values
   (RANGE is keyed).
-- **Gotcha (C-ORBIT-14, v0.64.8):** never bind a Vec with
-  `let/var x = match ...`; the initializer truncates the Vec silently.
-  Declare an empty `var` and assign inside the arm. Repro:
-  `docs/repro/vec-match-binding/`.
-- **Gotcha (source encoding):** module files must be UTF-8 **without a BOM**.
-  PowerShell 5.1 `Set-Content -Encoding UTF8` writes a BOM; the compiler then
-  reports the module import as unresolved with no BOM diagnostic.
+- **Gotcha (C-ORBIT-14, v0.64.8; fixed on compiler main `478e06f8b`):** never
+  bind a Vec with `let/var x = match ...` on the v0.64.8 pin; the initializer
+  truncates the Vec silently. Declare an empty `var` and assign inside the
+  arm. Repro: `docs/repro/vec-match-binding/`.
+- **Gotcha (C-ORBIT-15, v0.64.8; fixed on compiler main `18415ede2`):** module
+  files must be UTF-8 **without a BOM** on the v0.64.8 pin. PowerShell 5.1
+  `Set-Content -Encoding UTF8` writes a BOM; the compiler then reports the
+  module import as unresolved with no BOM diagnostic. Repro:
+  `docs/repro/utf8-bom-module/`.
 
 ## 8. Where to read next
 

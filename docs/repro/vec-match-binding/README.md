@@ -1,5 +1,9 @@
 # C-ORBIT-14: `let`/`var` binding of a Vec returned through a match silently truncates
 
+> **Status:** FIXED on compiler main `478e06f8b` (2026-10-21); v0.64.8
+> predates the fix. Re-run unchanged on the next archive; close when
+> `via_let=3` and `via_var_init=3` (the Station workaround can then drop).
+
 Found 2026-10-21 while building the Station ORBITWIRE codec on **v0.64.8**
 (Windows exe `ee3ee902...`; the same receiver/scratch family as the
 module-level `Vec.pop` no-op, m2057/029595080).

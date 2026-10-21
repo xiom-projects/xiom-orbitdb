@@ -755,12 +755,18 @@ the Station `frame_encode`: a 38-byte header was reported as 1 byte and the
 encoded frame shrank 61 -> 24 bytes. Workaround applied in the Station codec:
 assign through a `var` or return the Vec directly from the arm. Re-run the
 repro on the next archive; drop the workaround only when `via_let=3`.
+**Compiler fix landed on main (`478e06f8b`, 2026-10-21); v0.64.8 predates it.**
 
-## C-ORBIT-15 -- a UTF-8 BOM on a module file breaks catalog discovery (OPEN on v0.64.8, filed 2026-10-21)
+## C-ORBIT-15 -- a UTF-8 BOM on a module file breaks catalog discovery (FIXED on compiler main 18415ede2; v0.64.8 predates it)
 
 **Filed 2026-10-21** as relay `REL-20261021-1157-orbitdb` (orbitdb -> compiler,
 severity medium). Repro bundle: `docs/repro/utf8-bom-module/` (the fixture's
-`sub/impl.xi` is intentionally committed WITH the BOM).
+`sub/impl.xi` is intentionally committed WITH the BOM). **Compiler fixed it
+the same day on main (`18415ede2`):** the catalog's quick header scan
+(`ModuleCatalog::read_module_header`) did not strip a leading U+FEFF; it now
+mirrors the lexer's BOM strip. Exact repro is green on main; **v0.64.8
+predates the fix**, so keep sources BOM-free until the next archive, then
+re-run the bundle unchanged and close.
 
 Shape: a module file that starts with the valid UTF-8 BOM (`EF BB BF`) and
 declares a module path that does not match its file name

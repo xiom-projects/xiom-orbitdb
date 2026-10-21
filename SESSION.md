@@ -407,7 +407,11 @@ the v0.64.6 verdicts.
   the compiler lane **fixed C-ORBIT-14 on main the same day (`478e06f8b`,
   m1136)** -- not in v0.64.8, so the workaround stays until the next archive;
   latest release still v0.64.8 (2026-10-19), `io.read_at_into` still not in a
-  tag. Docs: FORMATS 7 +
+  tag. **Doorbell 15:00Z:** C-ORBIT-15 (BOM catalog) also **fixed on compiler
+  main `18415ede2`**; packages **acked** the ORBITWIRE interop co-run
+  (`REL-20261021-1154-orbitdb`, queued behind publish cycles); still no new
+  compiler/stdlib release. Both compiler workarounds stay on the v0.64.8 pin
+  and are re-tested on the next archive. Docs: FORMATS 7 +
   lock-file row, REFERENCE-MATRIX 3.2 conversion + blocker ledger, two-tier
   checklist ST0/ST1, RUNBOOK 7, station README, readiness changelog (score
   unchanged 82.5 -- Station is a separate tier, ST1 is a spike). Interop

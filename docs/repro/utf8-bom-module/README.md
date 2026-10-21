@@ -1,5 +1,9 @@
 # C-ORBIT-15: a UTF-8 BOM on a module file breaks catalog discovery
 
+> **Status:** FIXED on compiler main `18415ede2` (2026-10-21); v0.64.8
+> predates the fix. The fixture stays as-is (BOM included) to re-test on the
+> next archive: `main.xi` should print `v=7` unchanged.
+
 Found 2026-10-21 while adding the Station `station/src/protocol.xi` module on
 **v0.64.8** (Windows exe `ee3ee902...`). The compiler reported
 `T001: unresolved import 'xiom.station.protocol'` even though the file and its
