@@ -193,7 +193,11 @@ pub fn server_step(srv: &mut StationServer, timeout_ms: Int) -> Int {
   fds.push(srv.listener);
   var i = 0;
   while i < srv.sessions.len() {
-    if srv.sessions[i].state != STATE_CLOSED && srv.sessions[i].fd >= 0 {
+    // Backpressure: a session at/over its outbound budget is not polled for
+    // reads (it is still flushed below); this avoids a readable-fd busy loop
+    // while a slow client drains.
+    if srv.sessions[i].state != STATE_CLOSED && srv.sessions[i].fd >= 0 &&
+       !srv.sessions[i].closing && session_can_read(&srv.sessions[i]) {
       fds.push(srv.sessions[i].fd);
     }
     i = i + 1;

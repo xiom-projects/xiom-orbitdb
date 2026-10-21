@@ -403,5 +403,10 @@ GREEN.
 - **No savepoints** on the wire (the engine has them); no PREPARE/FETCH.
 - **No session resume, no event push**, no notifications.
 - **No per-user auth** or TLS client certificates; a shared token only.
+- **Blocking send in v1.** The bounded queue pauses reads under budget, but
+  `socket_send` itself is blocking; a peer that stops reading can stall the
+  loop once the queue has drained into the kernel buffer. ST2 adds a
+  nonblocking/partial-send seam (needs an EAGAIN distinction from stdlib) and
+  a send timeout. Keep clients reading until CLOSE.
 - The server does not fsync outside the engine's durability policy; the
   engine's `durability` default (1 = immediate) is used as-is.
