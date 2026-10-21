@@ -370,7 +370,13 @@ the v0.64.6 verdicts.
   `REL-20261020-1222-orbitdb` (compiler m375); pushed. The pager will adopt
   a direct byte-level page reader as the fallback if the runtime cannot
   reclaim. **A6/1M remains blocked on m375**; next is the BENCH-1 rerun at
-  the v0.64.8 pin move.**Updated:** 2026-10-20 (m375 write-path isolation): added
+  the v0.64.8 pin move.**Updated:** 2026-10-21 (WSL ext4 runner landed): `scripts/wsl_ext4.sh`
+  mirrors the lane into `~/.cache/orbitdb-lane` (fresh each run, xvector
+  link) and executes a command there, avoiding the `/mnt/e` 9p stalls that
+  false-RED the WSL battery. Verified: foundations 24/24 and the full suite
+  **165/165 x2 on ext4**. RUNBOOK section added. Main tree clean; m375
+  (compiler) remains the A6/1M blocker; `feat/read-at-into-open` waits for
+  the stdlib release.**Updated:** 2026-10-20 (m375 write-path isolation): added
   `tests/probes/probe_mem_write.xi` and measured the two write sides in
   isolation on the released pin (RAM-capped 2 GB): **200k B-tree inserts
   (order 64) peak 18.1 MB / 0.6 s**; **200k `wal_file_append_sync` peak
