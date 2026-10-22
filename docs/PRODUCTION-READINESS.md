@@ -421,6 +421,19 @@ Scoreboard changelog:
   codec uses the declare-then-assign workaround and the repro bundle is
   `docs/repro/vec-match-binding/`. Also filed the packages interop co-run
   (`REL-20261021-1154-orbitdb`).
+
+- 2026-10-22 (stdlib-v0.64.9 + `read_at_into` branch adopted): merged
+  `feat/read-at-into-open` (`27a8212`) and adopted stdlib-v0.64.9 as the
+  lane default (`dev-env.*`; archive sha `eab0b80d...`), with the compiler
+  pin held at v0.64.8 (v0.64.9 archive blockers `-1410/-1414-stdlib`).
+  Functional battery green: suite 166/166 x2 Win + x2 WSL, block crash 8/8
+  x2 Win + x2 WSL, db crash 25/25 x2 Win, station 169/169 x2 Win, fuzz,
+  io-primitives 30/30 x2, mvcc 36/36 x2. 200k soak: exact verify, 558.2 MB
+  peak, 733 ms engine, but 733 s wall under sibling-lane load (not a clean
+  perf delta; 1M rerun pending a quiet host). Hybrid full is blocked by
+  xvector's missing `xiom.metrics` 0.2.0 (`REL-20261022-1750-orbitdb`).
+  **No score change (82.5)**: the 1M A6 row and hybrid/battery re-run are
+  the remaining gates; the compiler archive hold keeps v0.64.8.
 ## A. Correctness & data structures (20)
 
 | # | Item | Pts | Status | Evidence / gate |

@@ -359,6 +359,15 @@ ORBITDB_SOAK_KEYS=15000 ORBITDB_SOAK_FIRST=5000 ORBITDB_SOAK_CHUNK=5000 \
   RSS **895 MB -> 658 MB -> 607 MB** and teardown to **151 s**; the
   remaining retention is the runtime per-op Vec-drop class (m375), but
   the 1M soak now passes with a large enough cache (below).
+- **2026-10-22 read_at_into branch + stdlib-v0.64.9 (host-contended):**
+  same 200k/8192 shape: exact verify (201 samples), 6,455 nodes, peak
+  **558.2 MB**, engine work **0.733 s**, but wall **733 s** while other
+  lanes were compiling (quiet v0.64.8 baseline 151 s). The branch's
+  block-store scan is `io.read_at_into` into a reused page buffer (no
+  per-block Vec); the wall number is teardown under host load, not a
+  regression signal. Rerun on a quiet host before recording a perf delta.
+  The 1M attempt under the same load was killed by the 30-min tool cap
+  during exit; the A6 row above remains the last clean 1M result.
 
 **m375 minimal repro (2026-10-20):** `tests/probes/probe_mem_read.xi` isolates
 the pager hot path (64 MiB file, rotating 4 KiB reads):

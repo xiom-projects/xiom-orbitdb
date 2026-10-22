@@ -57,9 +57,13 @@ fi
 unset XIOM_RUNTIME_DIR
 
 # --- stdlib -----------------------------------------------------------------
-# RELEASE default: leave XIOM_STDLIB unset -> the compiler's bundled
-# release tree. An explicitly exported XIOM_STDLIB is an opt-in
+# Latest RELEASED stdlib (v0.64.9) is the default, installed lane-local by
+# the adoption step. An explicitly exported XIOM_STDLIB is an opt-in
 # early-warning run against the stdlib lane checkout -- keep it as-is.
+if [ -z "${XIOM_STDLIB:-}" ] &&
+   [ -d "$HOME/.local/share/xiom-stdlib-0.64.9/xiom" ]; then
+  XIOM_STDLIB="$HOME/.local/share/xiom-stdlib-0.64.9"
+fi
 [ -n "${XIOM_STDLIB:-}" ] && export XIOM_STDLIB
 
 # --- report -----------------------------------------------------------------
