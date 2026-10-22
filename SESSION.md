@@ -2113,12 +2113,15 @@ RELAYS: E:\xiom-lang\xiom-relays. `git pull --ff-only` currently errors
 never edit another lane's item (file a new one). Re-create the 3h doorbell
 cron (session-scoped) if this is a fresh session.
 
-TOOLCHAIN (v0.64.8, adopted 2026-10-19): Windows
-%LOCALAPPDATA%\xiom-0.64.8\bin\xiom.exe (exe sha ee3ee902..., zip c31d9c46...);
-WSL lane-local ~/.local/share/xiom-0.64.8/bin/xiom (bin 7c5b3482..., tar
-a8c003c0...); bundled stdlib v0.64.8. dev-env.* pins both. Latest release
-checked 2026-10-21 = v0.64.8 -- WATCH for the next archive/stdlib tag
-(io.read_at_into is on stdlib main 9bad232, NOT in v0.64.8).
+TOOLCHAIN: **v0.64.9 RELEASED 2026-10-22 -- ADOPT AT SESSION START**
+(compiler tag v0.64.9 `ffde5aa...`, SHA256SUMS `51c45a61...`; stdlib tag
+stdlib-v0.64.9 `aa8b656`, `io.read_at_into` confirmed; xiom-std 0.64.9
+live). Current pins are still v0.64.8 (Windows
+%LOCALAPPDATA%\xiom-0.64.8 exe `ee3ee902...`; WSL
+~/.local/share/xiom-0.64.8 bin `7c5b3482...`). Download/verify the v0.64.9
+archives, update dev-env.*, merge feat/read-at-into-open, then run the full
+battery. Lane follow-up: **1M A/B with XIOM_FAST_EXIT=1**, A6 exact verify,
+m1157 BOM (C-ORBIT-15), C-ORBIT-14 via_let=3.
 FRESHNESS: at start and after any pin move run the battery (suite x2 both,
 crash x2 both, probes x2 both, fuzz, hybrid x2 both) and relay reds.
 
@@ -2140,7 +2143,13 @@ stdlib release `-3`, packages 0.3.0 `-4`, all-lanes ops `-5`, **C-ORBIT-14
 let/var match Vec truncation `-1136`**, **C-ORBIT-15 BOM catalog `-1157`**,
 packages interop co-run `-1154`.
 
-TASK ORDER:
+TASK ORDER (item 0 first):
+0. **ADOPT v0.64.9** -- download/verify both archives (tag v0.64.9,
+   SHA256SUMS `51c45a61...`), update `dev-env.*`, merge
+   `feat/read-at-into-open` (stdlib-v0.64.9 has `io.read_at_into`), run
+   the full battery; then the lane follow-ups: **1M A/B with
+   `XIOM_FAST_EXIT=1`**, A6 exact verify, m1157 BOM (C-ORBIT-15),
+   C-ORBIT-14 `via_let=3`; fill the v0.64.9 check row. Mandatory before ST2.
 1. **ST2 Station single-node server core** (ST1 done): harden the session
    loop, graceful shutdown/handle discipline, and add the station crash
    harness (`scripts/station_crash_test.{ps1,sh}`: kill mid-commit -> restart
