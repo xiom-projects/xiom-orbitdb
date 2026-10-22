@@ -428,12 +428,18 @@ Scoreboard changelog:
   pin held at v0.64.8 (v0.64.9 archive blockers `-1410/-1414-stdlib`).
   Functional battery green: suite 166/166 x2 Win + x2 WSL, block crash 8/8
   x2 Win + x2 WSL, db crash 25/25 x2 Win, station 169/169 x2 Win, fuzz,
-  io-primitives 30/30 x2, mvcc 36/36 x2. 200k soak: exact verify, 558.2 MB
-  peak, 733 ms engine, but 733 s wall under sibling-lane load (not a clean
-  perf delta; 1M rerun pending a quiet host). Hybrid full is blocked by
-  xvector's missing `xiom.metrics` 0.2.0 (`REL-20261022-1750-orbitdb`).
-  **No score change (82.5)**: the 1M A6 row and hybrid/battery re-run are
-  the remaining gates; the compiler archive hold keeps v0.64.8.
+  io-primitives 30/30 x2, mvcc 36/36 x2. **1M soak PASS** on the same pin:
+  1,000,000 keys, exact 1,004-sample verify, 32,260 nodes, **peak
+  2,451.2 MB** under the 4 GB cap (new best; previous 2,494.7 MB), engine
+  6.11 s; process wall 6,110 s under sibling-lane load (quiet baseline
+  880 s), so the teardown number is not a clean signal. 200k: exact verify,
+  558.2 MB peak, 733 ms engine, 733 s wall under the same load. **v0.64.9
+  was WITHDRAWN from adoption** (`REL-20261022-1826-compiler`); production
+  remains v0.64.8 and the hold rows are v0.65.0 acceptance input. Hybrid
+  full is blocked by xvector's missing `xiom.metrics` 0.2.0
+  (`REL-20261022-1750-orbitdb`).
+  **No score change (82.5)**: A5 is already OK; hybrid and the quiet-host
+  wall remain, and the compiler stays v0.64.8.
 ## A. Correctness & data structures (20)
 
 | # | Item | Pts | Status | Evidence / gate |
@@ -442,7 +448,7 @@ Scoreboard changelog:
 | A2 | B-tree delete borrow/merge invariants (all key counts valid, uniform leaf depth) | 4 | OK | `probe_btree_churn` structural validator; 20k ops x orders 3/4/5/6 + seed matrix (order-3 empty-chain regime fixed 2026-10-10: predecessor/successor OOB, fill_child merge, min/max; reproducer order 3 / keyspace 16 / seed 777) |
 | A3 | Byte-packed tuple codec with strict decode + budget | 4 | OK | `probe_tuple_codec` KAT/extremes/rejects; suite 99/99 |
 | A4 | Free-space map hardening (best-fit, invariants, model soak) | 4 | OK | `probe_fsm` (use/release/find vs model, invariant checks, 50k ops x 256 pages) + suite best-fit/clamp tests |
-| A5 | Node-per-page B-tree | 4 | OK | durable node pages + incremental generation-committed flush; **v2 pager (M1.1b A1-A6, 2026-10-21)**: lazy load, bounded clock cache, dirty spill, deferred-free GC; **1M soak PASS: 2,494.7 MB peak under a 4 GB cap with a 65,536-frame cache (default 256), exact 1,004-sample verify**. Exit-time teardown 880 s tracked under m375 |
+| A5 | Node-per-page B-tree | 4 | OK | durable node pages + incremental generation-committed flush; **v2 pager (M1.1b A1-A6, 2026-10-21; re-run 2026-10-22)**: lazy load, bounded clock cache, dirty spill, deferred-free GC; **1M soak PASS: 2,451.2 MB peak under a 4 GB cap with a 65,536-frame cache (default 256), exact 1,004-sample verify** (stdlib-v0.64.9 + read_at_into branch; previous 2,494.7 MB). Exit-time teardown 880 s quiet / 6,110 s under sibling-lane load, tracked under m375 (v0.65.0 `XIOM_FAST_EXIT`) |
 | | *Partial credit:* CRC32C integrity aids A3/A5 | +0 | -- | counted in B |
 
 ## B. Durability & crash safety (20)

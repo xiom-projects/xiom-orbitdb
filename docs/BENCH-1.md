@@ -366,8 +366,14 @@ ORBITDB_SOAK_KEYS=15000 ORBITDB_SOAK_FIRST=5000 ORBITDB_SOAK_CHUNK=5000 \
   block-store scan is `io.read_at_into` into a reused page buffer (no
   per-block Vec); the wall number is teardown under host load, not a
   regression signal. Rerun on a quiet host before recording a perf delta.
-  The 1M attempt under the same load was killed by the 30-min tool cap
-  during exit; the A6 row above remains the last clean 1M result.
+- **2026-10-22 1M on the same pin (host-contended):** 1,000,000 keys,
+  order 64, 65,536-frame cache, 4 GB cap: **PASS**, exact 1,004-sample
+  verify, 32,260 nodes / 32,341 blocks, **peak 2,451.2 MB** (new best;
+  previous 2,494.7 MB), engine work 6.11 s. Process wall **6,110 s** while
+  sibling lanes were compiling (quiet baseline 880 s); the wall is
+  teardown-dominated and not a clean perf signal. `XIOM_FAST_EXIT` (m375)
+  remains the teardown fix and is v0.65.0 acceptance input after the
+  v0.64.9 withdrawal.
 
 **m375 minimal repro (2026-10-20):** `tests/probes/probe_mem_read.xi` isolates
 the pager hot path (64 MiB file, rotating 4 KiB reads):
