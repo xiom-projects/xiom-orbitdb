@@ -120,6 +120,8 @@ pub fn block_store_open(path: Str) -> BlockStore {
   if size <= 0 { return bs; }
   let total = size / block_size();
   bs.block_count = total;
+  // One page buffer for the whole scan (m375 fallback: no per-block Vec).
+  var rbuf = Vec[UInt8].new();
 
   // Header slots: pick the highest valid generation; a corrupt slot is
   // simply not a candidate (the other one wins).
@@ -128,25 +130,19 @@ pub fn block_store_open(path: Str) -> BlockStore {
   var h_a = empty_header();
   var h_b = empty_header();
   if total >= 1 {
-    match byteio_read_at(path, 0, block_size()) {
-      Some(bytes) => {
-        match block_decode_header(&bytes) {
-          Some(h) => { h_a = h; gen_a = h.committed_generation; }
-          None => {}
-        }
+    if byteio_read_at_into(path, 0, &mut rbuf, block_size()) {
+      match block_decode_header_bytes(&rbuf) {
+        Some(h) => { h_a = h; gen_a = h.committed_generation; }
+        None => {}
       }
-      None => {}
     }
   }
   if total >= 2 {
-    match byteio_read_at(path, block_size(), block_size()) {
-      Some(bytes) => {
-        match block_decode_header(&bytes) {
-          Some(h) => { h_b = h; gen_b = h.committed_generation; }
-          None => {}
-        }
+    if byteio_read_at_into(path, block_size(), &mut rbuf, block_size()) {
+      match block_decode_header_bytes(&rbuf) {
+        Some(h) => { h_b = h; gen_b = h.committed_generation; }
+        None => {}
       }
-      None => {}
     }
   }
   if gen_a < 0 && gen_b < 0 { return bs; }
@@ -163,20 +159,17 @@ pub fn block_store_open(path: Str) -> BlockStore {
   // above the committed generation stay invisible.
   var i: Int = 2;
   while i < total {
-    match byteio_read_at(path, i * block_size(), block_size()) {
-      Some(bytes) => {
-        if !block_kind_is_free(&bytes) {
-          match block_decode_page(&bytes) {
-            Some(p) => {
-              if p.generation <= bs.header.committed_generation {
-                dir_set(&mut bs, p.page_id, i, p.generation);
-              }
+    if byteio_read_at_into(path, i * block_size(), &mut rbuf, block_size()) {
+      if !block_kind_is_free_bytes(&rbuf) {
+        match block_decode_page_meta_bytes(&rbuf) {
+          Some(meta) => {
+            if meta.0 <= bs.header.committed_generation {
+              dir_set(&mut bs, meta.1, i, meta.0);
             }
-            None => {}
           }
+          None => {}
         }
       }
-      None => {}
     }
     i = i + 1;
   }
