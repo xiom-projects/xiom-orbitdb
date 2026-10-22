@@ -418,6 +418,24 @@ the v0.64.6 verdicts.
   co-run filed `REL-20261021-1154-orbitdb` (packages). Next: ST2 server core
   + crash harness; **ST1 did not touch `src/`**.
 
+**Updated:** 2026-10-22 (package-store reinstall + two consumer-path findings):
+  the Windows package store was found short (pulse wipe notice
+  `REL-20261022-2058-pulse`): our `xiom.btree 0.1.1` / `xiom.wal 0.1.0` /
+  `xiom.vectors 0.1.0` were MISSING (pulse/website set intact). Reinstalled
+  additively with the v0.64.8 pkg installer (also metrics 0.2.0 / rate
+  0.2.0 / http 0.1.8 verified present). **Two findings for the split owner:**
+  1. `tests/pkg/probe_compose_collision.xi` now FAILS C001: unresolved
+  `db.engine.btree_insert` / `db.engine.btree_delete` at
+  `@db.engine.core.db_file_apply_record` (v0.64.8 strict C001; previously a
+  silent auto-stub). Main suite is green (166/166 x2), so this is a
+  composition/resolver difference in the pkg manifest (source-roots
+  `../../src` + registry xiom.btree dep) -- investigate; may be the
+  registry `xiom.btree` module tree vs our `xiom.db.index.btree`.
+  2. `tests/hybrid/probe_hybrid.xi` compile TIMED OUT at 300 s (exit 124;
+  compiled binary produced). Likely host contention + the larger split
+  tree -- rerun with TimeoutSec 600 before treating as a regression.
+  State: parallel session has stdlib-v0.64.9 + read_at_into adopted, battery
+  166/166 x2 both + 1M soak PASS (2,451.2 MB), compiler v0.64.9 still HOLD.
 **Updated:** 2026-10-22 (stdlib-v0.64.9 + read_at_into branch ADOPTED; compiler
   archive still HOLD):
   - **Merged `feat/read-at-into-open`** (`27a8212`, 4 storage files:
