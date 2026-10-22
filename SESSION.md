@@ -418,6 +418,22 @@ the v0.64.6 verdicts.
   co-run filed `REL-20261021-1154-orbitdb` (packages). Next: ST2 server core
   + crash harness; **ST1 did not touch `src/`**.
 
+**Updated:** 2026-10-22 (v0.64.9 RELEASED -- orbitdb follow-ups; adoption
+  queued): compiler v0.64.9 (tag `v0.64.9` on `2bcf58db5`; 11 assets;
+  SHA256SUMS `51c45a61...`) + stdlib-v0.64.9 (`aa8b656`) + registry
+  `xiom-std 0.64.9` (`6f0d3b15...`) are LIVE. **Our follow-up rows
+  (v0.64.9 check): m375 1M A/B with `XIOM_FAST_EXIT=1`, A6 exact verify,
+  m1157 BOM.** In this cut: m375 opt-in `XIOM_FAST_EXIT` (`b51ce6ec2`),
+  2045 part 2 boxed Option/Result Str payloads, m1157 BOM catalog,
+  m1731/m1703/m1326/m1520/1550/m365/m1511/m1531/XVC-C-22. **`io.read_at_into`
+  IS in stdlib-v0.64.9 (`9bad232` is an ancestor) -- the A6 fallback can
+  land at this adoption** (branch `feat/read-at-into-open`, `b3707b3`).
+  Adoption NOT started here: no v0.64.9 extract locally yet, and the
+  parallel session owns the active cycle (ST1 ORBITWIRE v1 landed, A6 1M
+  PASS at 2,494.7MB, G-START green, readiness 82.5, C-ORBIT-14/15 found on
+  main). Next: download/extract v0.64.9 both platforms, re-point
+  `dev-env.*`, merge the fallback branch, suite x2 both, run the m375 1M
+  A/B + A6 verify + BOM repro, fill the v0.64.9 check row.
 **Updated:** 2026-10-21 (SESSION WRAP -- context window full; owner
   request): **A6 1M PASS / G-START GREEN.** 1M keys with
   `ORBITDB_PAGER_CAPACITY=65536` under the 4 GB cap: exact 1,004-sample
