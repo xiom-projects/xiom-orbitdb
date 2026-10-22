@@ -418,6 +418,25 @@ the v0.64.6 verdicts.
   co-run filed `REL-20261021-1154-orbitdb` (packages). Next: ST2 server core
   + crash harness; **ST1 did not touch `src/`**.
 
+**Updated:** 2026-10-22 (v0.64.9 COMPILER ARCHIVE HOLD -- do not adopt yet):
+  The v0.64.9 compiler archives are **not green**. The stdlib lane reproduced
+  two high-severity release-only failures on the official Windows/Linux
+  archives (digests match the release): 1451/m372
+  `p_nested_generic_ptr_read` prints 0/0, and the tuple-returning 1550
+  `p_iter_enumerate_tuple` gives `em[1].0=0`; both pass on the debug build and
+  both fixes are ancestors of the tag. `--release`/`--opt-level 0..3` flips
+  the debug build to the same failures; the official default behaves like the
+  failing mode. Blockers: `REL-20261022-1410-stdlib`,
+  `REL-20261022-1414-stdlib` (stdlib -> compiler, open); the stdlib lane asks
+  to hold the release announcement. ORBITDB **holds the compiler pin at
+  v0.64.8** and re-tests on the fixed archive/patch. The stdlib **package**
+  stdlib-v0.64.9 (`aa8b656`) is unaffected (it pins compiler v0.64.8) and
+  contains `io.read_at_into` (9bad232), so `feat/read-at-into-open` can be
+  verified on compiler v0.64.8 + stdlib-v0.64.9; the compiler archive hold is
+  separate. Hold note filed to all: `REL-20261022-1501-orbitdb`. Queued m375
+  `XIOM_FAST_EXIT=1` 1M A/B and m1157/C-ORBIT-14 re-tests wait for the fixed
+  archive.
+
 **Updated:** 2026-10-22 (v0.64.9 RELEASED -- orbitdb follow-ups; adoption
   queued): compiler v0.64.9 (tag `v0.64.9` on `2bcf58db5`; 11 assets;
   SHA256SUMS `51c45a61...`) + stdlib-v0.64.9 (`aa8b656`) + registry
@@ -2098,7 +2117,8 @@ Ops rules:
 ```
 You are the ORBITDB session for E:\xiom-projects\xiom-orbitdb -- embedded XIOM
 database engine (Satellite = registry tier, Station = server/HTTP tier). Read
-SESSION.md first (the top Updated entry = the 2026-10-21 ST1 entry), then
+SESSION.md first (the top Updated entry = the 2026-10-22 v0.64.9
+compiler-archive HOLD -- read that before anything release-related), then
 README/SPEC/ARCHITECTURE and docs/ (REFERENCE-MATRIX, BENCH-1, TWO-TIER,
 PRODUCTION-READINESS, RUNBOOK, checklists/m1-1b-pager). Consumer lane: never
 edit E:\xiom-lang\stdlib, E:\xiom-lang\xiom, E:\xiom-packages\packages. Repo
@@ -2113,15 +2133,18 @@ RELAYS: E:\xiom-lang\xiom-relays. `git pull --ff-only` currently errors
 never edit another lane's item (file a new one). Re-create the 3h doorbell
 cron (session-scoped) if this is a fresh session.
 
-TOOLCHAIN: **v0.64.9 RELEASED 2026-10-22 -- ADOPT AT SESSION START**
-(compiler tag v0.64.9 `ffde5aa...`, SHA256SUMS `51c45a61...`; stdlib tag
-stdlib-v0.64.9 `aa8b656`, `io.read_at_into` confirmed; xiom-std 0.64.9
-live). Current pins are still v0.64.8 (Windows
-%LOCALAPPDATA%\xiom-0.64.8 exe `ee3ee902...`; WSL
-~/.local/share/xiom-0.64.8 bin `7c5b3482...`). Download/verify the v0.64.9
-archives, update dev-env.*, merge feat/read-at-into-open, then run the full
-battery. Lane follow-up: **1M A/B with XIOM_FAST_EXIT=1**, A6 exact verify,
-m1157 BOM (C-ORBIT-15), C-ORBIT-14 via_let=3.
+TOOLCHAIN: **v0.64.9 released 2026-10-22, COMPILER ARCHIVE ON HOLD** -- do
+**not** adopt the published compiler archive: its official Windows/Linux
+builds fail 1451/m372 and the tuple-returning 1550 probe
+(`REL-20261022-1410-stdlib`, `-1414-stdlib`; release-mode codegen). Pins stay
+v0.64.8 (Windows %LOCALAPPDATA%\xiom-0.64.8 exe `ee3ee902...`; WSL
+~/.local/share/xiom-0.64.8 bin `7c5b3482...`). The stdlib **package**
+stdlib-v0.64.9 (`aa8b656`, `io.read_at_into` confirmed, xiom-std 0.64.9 live)
+is unaffected and pins compiler v0.64.8; use it for the read_at_into branch.
+Re-test the fixed compiler archive/patch (1451/1550 + our repros) before any
+compiler pin move. Lane follow-up after the fix: **1M A/B with
+XIOM_FAST_EXIT=1**, A6 exact verify, m1157 BOM (C-ORBIT-15), C-ORBIT-14
+via_let=3. Hold note: `REL-20261022-1501-orbitdb`.
 FRESHNESS: at start and after any pin move run the battery (suite x2 both,
 crash x2 both, probes x2 both, fuzz, hybrid x2 both) and relay reds.
 
@@ -2136,20 +2159,30 @@ done. Suite 166/166 x2 both, crash 25/25 x2 both, probes/fuzz/hybrid green.
 **Station:** `station/` + frozen `station/docs/ORBITWIRE.md`; station suites
 **169/169 x2 Win + x2 WSL** (protocol 33/session 28/loopback 108); runners
 `scripts/station*.{ps1,sh}`; WSL ext4 copies `station/`. m375 remaining:
-880 s exit-reclaim at 1M + default-cache thrash (wishlist filed). Branch
-feat/read-at-into-open (b3707b3) waits for a stdlib release. Relays filed
+880 s exit-reclaim at 1M + default-cache thrash (wishlist filed); v0.64.9's
+`XIOM_FAST_EXIT` is the intended fix but is held with the compiler archive.
+Branch feat/read-at-into-open (b3707b3) is unblocked on stdlib-v0.64.9
+(`io.read_at_into`) but should be verified on compiler v0.64.8 + stdlib-
+v0.64.9 while the compiler archive is held. Relays filed
 2026-10-21: global Vec.pop `REL-20261021-1122-orbitdb`, m375 wishlist `-2`,
 stdlib release `-3`, packages 0.3.0 `-4`, all-lanes ops `-5`, **C-ORBIT-14
 let/var match Vec truncation `-1136`**, **C-ORBIT-15 BOM catalog `-1157`**,
 packages interop co-run `-1154`.
 
 TASK ORDER (item 0 first):
-0. **ADOPT v0.64.9** -- download/verify both archives (tag v0.64.9,
-   SHA256SUMS `51c45a61...`), update `dev-env.*`, merge
-   `feat/read-at-into-open` (stdlib-v0.64.9 has `io.read_at_into`), run
-   the full battery; then the lane follow-ups: **1M A/B with
-   `XIOM_FAST_EXIT=1`**, A6 exact verify, m1157 BOM (C-ORBIT-15),
-   C-ORBIT-14 `via_let=3`; fill the v0.64.9 check row. Mandatory before ST2.
+0. **v0.64.9 compiler archive: HOLD, then adopt only after the fix.**
+   Do NOT download/re-point `dev-env.*` to the published v0.64.9 compiler
+   archive: its official Windows/Linux builds fail 1451/m372 and the
+   tuple-returning 1550 probe (`REL-20261022-1410-stdlib`, `-1414-stdlib`;
+   both open). First re-check those blockers and the archive digests on the
+   fixed archive/patch; run `p_nested_generic_ptr_read`,
+   `p_iter_enumerate_tuple`, `docs/repro/vec-match-binding`, and
+   `docs/repro/utf8-bom-module`; only then update `dev-env.*`. The stdlib
+   side is unblocked: stdlib-v0.64.9 has `io.read_at_into` and pins compiler
+   v0.64.8, so `feat/read-at-into-open` can be merged and the battery run on
+   compiler v0.64.8 + stdlib-v0.64.9 first. After the fixed compiler
+   archive: full battery, 1M A/B with `XIOM_FAST_EXIT=1`, A6 exact verify,
+   m1157/C-ORBIT-14 re-tests, v0.64.9 check row. Mandatory before ST2.
 1. **ST2 Station single-node server core** (ST1 done): harden the session
    loop, graceful shutdown/handle discipline, and add the station crash
    harness (`scripts/station_crash_test.{ps1,sh}`: kill mid-commit -> restart
