@@ -418,6 +418,57 @@ the v0.64.6 verdicts.
   co-run filed `REL-20261021-1154-orbitdb` (packages). Next: ST2 server core
   + crash harness; **ST1 did not touch `src/`**.
 
+**Updated:** 2026-10-23 (SESSION WRAP -- context full; release hold, stdlib-
+  v0.64.9 + read_at_into, 1M/hybrid green, ST2 crash harness):
+  - **Toolchain:** compiler **v0.64.8 production** (Latest); **v0.64.9
+    WITHDRAWN** (pre-release/audit only; nested enum patterns, m372/1550,
+    m1511 port.args; v0.65.0 production gate). stdlib-v0.64.9 (`aa8b656`,
+    archive sha `eab0b80d...`) is installed lane-local (Windows
+    `%LOCALAPPDATA%\xiom-stdlib-0.64.9`, WSL
+    `~/.local/share/xiom-stdlib-0.64.9`) and is the `dev-env.*` default
+    (explicit `XIOM_STDLIB` wins); it pins compiler v0.64.8 and supplies
+    `io.read_at_into`. `feat/read-at-into-open` merged (`27a8212`,
+    `333dd3f`); stdlib relay `REL-20261021-1122-orbitdb-3` verified.
+  - **Engine battery green on that pin:** suite **166/166 x2 Win + x2 WSL**;
+    block crash **8/8 x2 both**; db crash **25/25 x2 Win**; fuzz 4 seeds;
+    station **169/169 x2 Win**; io-primitives **30/30 x2**; mvcc **36/36
+    x2**; hybrid **full 36/36 x2 both + crash 5/5 x2 both** (after the
+    package-store restore installed `xiom.metrics` 0.2.0).
+  - **A6 1M:** **PASS** -- exact **1,004-sample verify**, 32,260 nodes /
+    32,341 blocks, **peak 2,451.2 MB** under the 4 GB cap (new best;
+    previous 2,494.7 MB), engine 6.11 s; process wall **6,110 s** under
+    sibling-lane load (quiet baseline 880 s; teardown-dominated, not a clean
+    signal). 200k: 558.2 MB / 0.733 s engine / 733 s wall under load.
+    `XIOM_FAST_EXIT` (m375) is **v0.65.0 acceptance input**; v0.64.9 is
+    withdrawn.
+  - **Station ST1:** ORBITWIRE v1 frozen (`station/docs/ORBITWIRE.md`);
+    169/169 x2 both; runners `scripts/station*.{ps1,sh}`.
+  - **Station ST2 crash harness:** `scripts/station_crash_test.{ps1,sh}` +
+    `station/tests/station_crash_client.xi`; **11/11 x2 Win + x2 WSL**:
+    uncommitted BEGIN+PUT discarded, auto-commit PUT replayed from WAL,
+    post-recovery commit survives a second hard kill; M3 lock reacquired
+    after `kill -9`; `ORBITDB_STATION_PORT_FILE` + listen-line flush.
+    **No engine `src/` touched.** Remaining ST2: session-loop hardening +
+    explicit graceful stop/SIGINT; then ST3.
+  - **Compiler findings:** C-ORBIT-14 fixed on main `478e06f8b`; C-ORBIT-15
+    (BOM catalog) fixed on main `18415ede2`; both postdate v0.64.8, so the
+    declare-then-assign workaround and BOM-free sources stay until v0.65.0.
+    Repro bundles `docs/repro/vec-match-binding/` and
+    `docs/repro/utf8-bom-module/` are the re-test gate.
+  - **Relays:** v0.64.9 hold `REL-20261022-1501-orbitdb` closed as
+    **withdrawn (not green)**; hybrid block `REL-20261022-1750-orbitdb`
+    verified; packages interop `REL-20261021-1154-orbitdb` acked; C-ORBIT-14
+    `-1136`, C-ORBIT-15 `-1157`, stdlib `-3` (verified), m375 `-2`,
+    packages 0.3.0 `-4`, all-lanes ops `-5`. v0.65.0 acceptance rows queued:
+    1451/1550 + C-ORBIT-14/15 repros, m1157 BOM, m375 `XIOM_FAST_EXIT` 1M
+    A/B.
+  - **Git:** HEAD `cafb099` (ST2 crash harness); tree clean. Concurrent
+    sessions have been committing in this worktree -- always check
+    `git status`/`git log` before editing; do not clobber their SESSION
+    entries.
+  - **Next-session prompt:** [`NEXT-SESSION-PROMPT.md`](NEXT-SESSION-PROMPT.md)
+    (the inline section 5 is now a pointer). Context-full wrap.
+
 **Updated:** 2026-10-23 (ST2 station crash harness GREEN x2 both):
   `scripts/station_crash_test.{ps1,sh}` + `station/tests/station_crash_client.xi`
   hard-kill the hello-station at deterministic points and restart on the same
@@ -2210,120 +2261,7 @@ Ops rules:
 
 ## 5. Paste prompt for the next ORBITDB session
 
-```
-You are the ORBITDB session for E:\xiom-projects\xiom-orbitdb -- embedded XIOM
-database engine (Satellite = registry tier, Station = server/HTTP tier). Read
-SESSION.md first (the top Updated entry = the 2026-10-22 stdlib-v0.64.9 +
-read_at_into adoption; the compiler archive is still HOLD -- read both before
-anything release-related), then
-README/SPEC/ARCHITECTURE and docs/ (REFERENCE-MATRIX, BENCH-1, TWO-TIER,
-PRODUCTION-READINESS, RUNBOOK, checklists/m1-1b-pager). Consumer lane: never
-edit E:\xiom-lang\stdlib, E:\xiom-lang\xiom, E:\xiom-packages\packages. Repo
-PRIVATE; no code pushes without owner approval. Identity
-"Lefteris Notas <lefterisnotas@gmail.com>"; conventional commits + -s; docs
-coupled in the same commit.
-
-RELAYS: E:\xiom-lang\xiom-relays. `git pull --ff-only` currently errors
-"Cannot fast-forward to multiple branches" -> use
-`git fetch origin && git merge --ff-only origin/main`, then
-`python tools/relay.py view --lane orbitdb` and process items to this lane;
-never edit another lane's item (file a new one). Re-create the 3h doorbell
-cron (session-scoped) if this is a fresh session.
-
-TOOLCHAIN: **v0.64.9 WITHDRAWN from adoption 2026-10-22T18:30Z
-(`REL-20261022-1826-compiler`)** -- production remains **v0.64.8**; the
-GitHub v0.64.9 release is pre-release for audit only. The compiler lane
-opened the **v0.65.0 production gate** (P0 nested enum patterns /
-safe substitution / release-compiler parity / m1511 port.args / C07, then
-P1 hardening + P2 MCU); our v0.64.9 acceptance rows are the input. Do not
-adopt or deploy v0.64.9; the hold `REL-20261022-1501-orbitdb` is CLOSED as WITHDRAWN (not green).
-Compiler pin stays v0.64.8 (Windows %LOCALAPPDATA%\xiom-0.64.8 exe
-`ee3ee902...`; WSL ~/.local/share/xiom-0.64.8 bin `7c5b3482...`).
-stdlib-v0.64.9 (`aa8b656`, `io.read_at_into`) remains published, pins
-compiler v0.64.8, and is our lane-local default (`dev-env.*`; Windows
-%LOCALAPPDATA%\xiom-stdlib-0.64.9, WSL ~/.local/share/xiom-stdlib-0.64.9);
-v0.65.0 will pin stdlib-v0.65.0. Re-test the v0.65.0 archive (1451/1550 +
-our repros, 1M A/B with `XIOM_FAST_EXIT=1`, A6 exact verify, m1157,
-C-ORBIT-14 via_let=3) before any compiler pin move.
-FRESHNESS: at start and after any pin move run the battery (suite x2 both,
-crash x2 both, probes x2 both, fuzz, hybrid x2 both) and relay reds.
-
-STATE (2026-10-21, after ST1): **A6 1M soak PASS / G-START GREEN / ST1
-ORBITWIRE v1 GREEN.** 1M keys with ORBITDB_PAGER_CAPACITY=65536 under the
-4 GB cap: exact 1,004-sample verify, 32,260 nodes, peak 2,494.7 MB; 200k
-607 MB/151 s. Readiness 82.5 (A5 OK; Station is a separate tier, ST1 is a
-spike -- no Satellite score change). Write-path fallback fixed the v0.64.8
-R2/R3 regression (R2 update 1,409; R3 1,786; BENCH-1 4f). Admin phase 1+2 +
-backup/restore in admin/ (Pulse 0.3.1). M3 shard lock + threads decision
-done. Suite 166/166 x2 both, crash 25/25 x2 both, probes/fuzz green.
-**Station:** `station/` + frozen `station/docs/ORBITWIRE.md`; station suites
-**169/169 x2 Win + x2 WSL** (protocol 33/session 28/loopback 108); runners
-`scripts/station*.{ps1,sh}`; WSL ext4 copies `station/`. m375 remaining:
-880 s exit-reclaim at 1M + default-cache thrash (wishlist filed); v0.64.9's
-`XIOM_FAST_EXIT` is the intended fix but is held with the compiler archive.
-**stdlib-v0.64.9 adopted (dev-env default) and `feat/read-at-into-open`
-merged (`27a8212`); functional battery green** (suite 166/166 x2 Win + x2
-WSL, block crash 8/8 x2 Win + x2 WSL, db crash 25/25 x2 Win, fuzz, station
-169/169 x2 Win, io-primitives 30/30 x2, mvcc 36/36 x2). 200k soak: exact
-verify / 558.2 MB peak / 733 ms engine / **733 s wall under host
-contention** (quiet baseline 151 s). **1M soak PASS:** 1,000,000 keys,
-exact **1,004-sample verify**, 32,260 nodes, **peak 2,451.2 MB** (new best),
-engine 6.11 s, wall **6,110 s** under the same load (quiet baseline 880 s);
-the wall is not a clean signal. **Hybrid full 36/36 + crash 5/5 GREEN x2
-Windows + x2 WSL** after the package-store reinstall (xiom.metrics 0.2.0);
-`REL-20261022-1750-orbitdb` verified. **ST2 station crash harness 11/11 x2
-Win + x2 WSL green** (`scripts/station_crash_test.*`, uncommitted discarded /
-committed WAL replay / second-kill durability); ST2 remaining is loop
-hardening + explicit graceful stop. Relays filed
-2026-10-21: global Vec.pop `REL-20261021-1122-orbitdb`, m375 wishlist `-2`,
-stdlib release `-3`, packages 0.3.0 `-4`, all-lanes ops `-5`, **C-ORBIT-14
-let/var match Vec truncation `-1136`**, **C-ORBIT-15 BOM catalog `-1157`**,
-packages interop co-run `-1154`.
-
-TASK ORDER (item 0 first):
-0. **v0.64.9 compiler: WITHDRAWN -- do not adopt.** Production stays
-   v0.64.8; the GitHub release is pre-release for audit. The compiler lane
-   opened the **v0.65.0 gate** (`docs/RELEASE_GATE_v0.65.0.md`): P0 nested
-   enum patterns / safe type-arg substitution / release-compiler parity /
-   m1511 port.args / C07, then P1 + P2 MCU. Our v0.64.9 rows and hold
-   (`REL-20261022-1501-orbitdb`) are acceptance input. **Done:** stdlib-
-   v0.64.9 is the lane default and `feat/read-at-into-open` is merged
-   (`27a8212`); functional battery green; **1M soak PASS (2,451.2 MB peak,
-   exact 1,004, 6,110 s wall under host load); hybrid full 36/36 + crash
-   5/5 x2 both green** after the metrics package restore. Remaining:
-   quiet-host wall measurement. Re-test the v0.65.0 archive when cut (1451/
-   1550 + our repros, 1M A/B with `XIOM_FAST_EXIT=1`, A6 exact verify,
-   m1157, C-ORBIT-14 `via_let=3`) before any compiler pin move. **ST2 may
-   proceed on v0.64.8 while the v0.65.0 gate runs.**
-1. **ST2 Station single-node server core** (ST1 done): **crash harness landed**
-   (`scripts/station_crash_test.{ps1,sh}` + `station/tests/station_crash_client.xi`;
-   11/11 x2 Win + x2 WSL) and **RUNBOOK 7** has run/kill/recover + port-file
-   discovery. Remaining: session-loop hardening + explicit graceful
-   stop/SIGINT, then close the ST2 gate. Do not share a DBFile across
-   threads. ST3 (reader snapshots + mixed reader/writer) follows; admin
-   phase 3 attaches over ORBITWIRE after ST2/ST3.
-2. **m375 follow-up**: if a compiler release lands, re-run the 1M soak
-   (BENCH section 7) and check exit teardown + default-cache thrash; update
-   the wishlist/relays.
-3. **read_at_into release [DONE 2026-10-22]**: stdlib-v0.64.9 is adopted
-   (dev-env default, archive sha `eab0b80d...`) and
-   `feat/read-at-into-open` is merged (`27a8212`); functional battery green.
-   The 1M soak rerun on a quiet host is the only remaining perf evidence.
-4. **Station ST3+**: reader snapshots via engine pins, mixed reader/writer
-   harness, then replication/sharding/ops (ST4-ST7); admin phase 3 attaches
-   over ORBITWIRE. Package 0.3.0 candidate is filed to packages (hold
-   publish for owner approval + final battery).
-5. **Satellite P-rc**: hardware power-loss matrix (owner/hardware), then
-   release notes + the 0.3.0 publish; README/SPEC tier label.
-6. Hygiene: RAM-cap every app/soak (scripts/run_capped.*, 4 GB default,
-   admin 2 GB); WSL battery via scripts/wsl_ext4.sh; never run crash/hybrid
-   concurrently; call db_file_close before deleting/renaming a DB file
-   (held fd); set ORBITDB_PAGER_CAPACITY for large DBs (default 256); use
-   fresh paths for the hybrid full probe; relay fetch+merge.
-
-Known API additions: db_file_open_locked_checked[_cfg]/db_file_unlock/
-db_file_is_locked, db_file_range_pairs, db_file_close, admin /api/backup.
-Station API (new): station/src/{protocol,session,dispatch,server}.xi +
-hello_station.xi; frozen spec station/docs/ORBITWIRE.md; runners
-scripts/station*.{ps1,sh}; station suites 169 checks x2 both.
-```
+The current, self-contained paste prompt is in
+[`NEXT-SESSION-PROMPT.md`](NEXT-SESSION-PROMPT.md) (written at the 2026-10-23
+context-full wrap). The previous inline block is superseded; use the file as
+the single source for the next kickoff.
