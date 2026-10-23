@@ -62,20 +62,25 @@ Env knobs:
 | `ORBITDB_STATION_ORDER` | `4` | B-tree order (typed row budget) |
 | `ORBITDB_STATION_PAGE_FORMAT` | `2` | v2 byte blocks |
 | `ORBITDB_STATION_TOKEN` | empty | shared token; empty = AUTH not required |
+| `ORBITDB_STATION_PORT_FILE` | empty | optional path to write the actual bound port atomically (harness/service discovery) |
 
 ## Test
 
 ```powershell
 .\scripts\station_suite.ps1          # every station/tests/*_suite.xi, x2
+.\scripts\station_crash_test.ps1     # hard-kill/restart recovery, 11 checks
 ```
 
 ```bash
 scripts/station_suite.sh             # WSL
 scripts/wsl_ext4.sh ./scripts/station_suite.sh   # ext4 copy (9p workaround)
+scripts/wsl_ext4.sh bash ./scripts/station_crash_test.sh
 ```
 
 The runner executes each suite twice and requires identical pass/total with
-zero failures. Current evidence: **169/169 x2 Windows + 169/169 x2 WSL**.
+zero failures. Current evidence: **169/169 x2 Windows + 169/169 x2 WSL**;
+crash harness **11/11 x2 Windows + x2 WSL** (uncommitted txn discarded,
+committed WAL replay, post-recovery commit survives a second kill).
 
 ## Protocol in one paragraph
 
@@ -106,8 +111,11 @@ One transaction window exists per shard; the owning session is tracked by
 - [x] op set + state machine + error taxonomy + limits/backpressure
 - [x] hello-station over loopback TCP composing the engine through the actor
 - [x] conformance suites x2 both platforms (169 checks)
-- [ ] ST2: single-node server core, session loop hardening, crash harness
-      (kill mid-commit -> restart -> replay -> qverify), RUNBOOK section
+- [x] ST2 crash harness: `scripts/station_crash_test.{ps1,sh}` +
+      `station/tests/station_crash_client.xi` (hard kill -> restart -> replay
+      -> ORBITWIRE verify; 11 checks x2 both)
+- [ ] ST2 remaining: session-loop hardening, graceful stop, crash-safe
+      single-node core hardening (ST2 gate)
 - [ ] ST3: reader snapshots + thread-per-connection vs process-per-shard
       decision, mixed reader/writer harness
 - [ ] ST4+: replication, sharding, ops (TLS/users), admin attach over

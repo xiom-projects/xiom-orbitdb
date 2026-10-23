@@ -418,6 +418,19 @@ the v0.64.6 verdicts.
   co-run filed `REL-20261021-1154-orbitdb` (packages). Next: ST2 server core
   + crash harness; **ST1 did not touch `src/`**.
 
+**Updated:** 2026-10-23 (ST2 station crash harness GREEN x2 both):
+  `scripts/station_crash_test.{ps1,sh}` + `station/tests/station_crash_client.xi`
+  hard-kill the hello-station at deterministic points and restart on the same
+  DB file: uncommitted BEGIN+PUT is discarded, an auto-commit PUT replays from
+  the WAL, and a post-recovery commit survives a second kill. **11 checks x2
+  Windows + x2 WSL GREEN.** The M3 `.lock` left by `kill -9` is released by
+  the OS and the restart reacquires it. Station adds
+  `ORBITDB_STATION_PORT_FILE` (atomic bound-port file) and flushes the listen
+  line before the loop; `wsl_ext4.sh` creates `out/` for relative DB paths.
+  **No engine `src/` files touched.** ST2 remaining: session-loop hardening +
+  explicit graceful stop/SIGINT, then ST3. Docs: RUNBOOK 7, station README,
+  two-tier checklist.
+
 **Updated:** 2026-10-23 (hybrid unblocked -- full + crash GREEN x2 both):
   The package-store reinstall (`202ee1f`; `xiom.metrics` 0.2.0 now present)
   removed the only hybrid block. Hybrid **full** probe: 36/36 checks GREEN
@@ -2258,7 +2271,10 @@ exact **1,004-sample verify**, 32,260 nodes, **peak 2,451.2 MB** (new best),
 engine 6.11 s, wall **6,110 s** under the same load (quiet baseline 880 s);
 the wall is not a clean signal. **Hybrid full 36/36 + crash 5/5 GREEN x2
 Windows + x2 WSL** after the package-store reinstall (xiom.metrics 0.2.0);
-`REL-20261022-1750-orbitdb` verified. Relays filed
+`REL-20261022-1750-orbitdb` verified. **ST2 station crash harness 11/11 x2
+Win + x2 WSL green** (`scripts/station_crash_test.*`, uncommitted discarded /
+committed WAL replay / second-kill durability); ST2 remaining is loop
+hardening + explicit graceful stop. Relays filed
 2026-10-21: global Vec.pop `REL-20261021-1122-orbitdb`, m375 wishlist `-2`,
 stdlib release `-3`, packages 0.3.0 `-4`, all-lanes ops `-5`, **C-ORBIT-14
 let/var match Vec truncation `-1136`**, **C-ORBIT-15 BOM catalog `-1157`**,
@@ -2279,12 +2295,11 @@ TASK ORDER (item 0 first):
    1550 + our repros, 1M A/B with `XIOM_FAST_EXIT=1`, A6 exact verify,
    m1157, C-ORBIT-14 `via_let=3`) before any compiler pin move. **ST2 may
    proceed on v0.64.8 while the v0.65.0 gate runs.**
-1. **ST2 Station single-node server core** (ST1 done): harden the session
-   loop, graceful shutdown/handle discipline, and add the station crash
-   harness (`scripts/station_crash_test.{ps1,sh}`: kill mid-commit -> restart
-   -> replay -> qverify) mirroring the engine harness style (delete-sharing
-   polls, unique `-o` binaries). Add the RUNBOOK station recovery recipe and
-   station suite/crash evidence x2 both. Do not share a DBFile across
+1. **ST2 Station single-node server core** (ST1 done): **crash harness landed**
+   (`scripts/station_crash_test.{ps1,sh}` + `station/tests/station_crash_client.xi`;
+   11/11 x2 Win + x2 WSL) and **RUNBOOK 7** has run/kill/recover + port-file
+   discovery. Remaining: session-loop hardening + explicit graceful
+   stop/SIGINT, then close the ST2 gate. Do not share a DBFile across
    threads. ST3 (reader snapshots + mixed reader/writer) follows; admin
    phase 3 attaches over ORBITWIRE after ST2/ST3.
 2. **m375 follow-up**: if a compiler release lands, re-run the 1M soak

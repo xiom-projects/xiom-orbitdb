@@ -95,13 +95,20 @@
 
 ## ST2 -- single-node server core
 
-- [ ] `station/src/`: acceptor loop, per-connection session, executor over
-      public engine APIs (`db_file_*`), graceful shutdown + handle discipline
-- [ ] Kill-safety: station crash harness `scripts/station_crash_test.{ps1,sh}`
+- [~] `station/src/`: acceptor loop, per-connection session, executor over
+      public engine APIs (`db_file_*`) -- **landed in ST1** (server.xi /
+      session.xi / dispatch.xi); graceful shutdown on CLOSE/EOF and process
+      exit works, an explicit stop flag/signal handler remains.
+- [x] Kill-safety: station crash harness `scripts/station_crash_test.{ps1,sh}`
       (kill mid-commit -> restart -> replay -> qverify), mirroring the engine
-      harness style (delete-sharing polls; unique `-o` binaries)
-- [ ] Crash harness x2 Win + x2 WSL; suite x2 both; zero engine files touched
-- [ ] `docs/RUNBOOK.md` station section (run/kill/recover recipes)
+      harness style (delete-sharing polls; unique `-o` binaries). Client:
+      `station/tests/station_crash_client.xi`; port discovery via
+      `ORBITDB_STATION_PORT_FILE`.
+- [x] Crash harness x2 Win + x2 WSL (**11/11 x2 both**); suite x2 both; zero
+      engine files touched (only `station/` + scripts).
+- [x] `docs/RUNBOOK.md` station section (run/kill/recover recipes)
+- [ ] Session-loop hardening + explicit graceful stop (SIGINT/stop flag) and
+      any single-node core gaps before the ST2 gate closes.
 
 ## ST3 -- concurrency (readers + writer path)
 

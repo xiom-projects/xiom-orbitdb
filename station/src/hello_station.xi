@@ -45,6 +45,14 @@ pub fn main() -> Int {
   io.println("orbitdb-station: ORBITWIRE v" + PROTO_VERSION.to_str() +
              " listening on " + srv.host + ":" + srv.port.to_str() +
              " db=" + db);
+  // Redirected stdout is block-buffered on Windows; flush the listen line
+  // before entering the loop so harnesses can discover the bound port. An
+  // optional port file gives service-discovery tools a race-free handle.
+  io.flush_stdout();
+  let port_file = env.var_or("ORBITDB_STATION_PORT_FILE", "");
+  if port_file.len() > 0 {
+    let _ = io.write_file(port_file, srv.port.to_str());
+  }
   server_run(&mut srv);
   server_shutdown(&mut srv);
   return 0;

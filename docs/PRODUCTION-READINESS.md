@@ -441,6 +441,16 @@ Scoreboard changelog:
   `REL-20261022-1750-orbitdb` verified.
   **No score change (82.5)**: A5 is already OK; the quiet-host wall and the
   v0.65.0 acceptance remain, and the compiler stays v0.64.8.
+
+- 2026-10-23 (ST2 Station crash harness): `scripts/station_crash_test.{ps1,sh}`
+  + `station/tests/station_crash_client.xi` hard-kill the hello-station and
+  restart on the same DB: uncommitted BEGIN+PUT discarded, auto-commit PUT
+  replayed from the WAL, post-recovery commit survives a second kill.
+  **11/11 checks x2 Windows + x2 WSL GREEN.** The station writes an atomic
+  `ORBITDB_STATION_PORT_FILE` and flushes the listen line; the M3 lock is
+  reacquired after `kill -9`. No engine `src/` change. **No Satellite score
+  change (82.5)**: Station is a separate tier; ST2 loop hardening / graceful
+  stop and ST3 remain.
 ## A. Correctness & data structures (20)
 
 | # | Item | Pts | Status | Evidence / gate |

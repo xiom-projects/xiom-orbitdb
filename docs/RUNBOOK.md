@@ -238,21 +238,33 @@ engine and speaks ORBITWIRE over TCP (not HTTP; admin stays on PULSE).
 .\scripts\station.ps1 -Database data\app.wal -Port 9000
 .\scripts\station.ps1 -Token s3cret            # require AUTH
 .\scripts\station_suite.ps1                    # all station suites, twice
+.\scripts\station_crash_test.ps1               # hard-kill/restart recovery
 ```
 
 ```bash
 scripts/station.sh
 TOKEN=s3cret scripts/station.sh
 scripts/wsl_ext4.sh ./scripts/station_suite.sh  # WSL ext4 copy
+scripts/wsl_ext4.sh bash ./scripts/station_crash_test.sh
 ```
 
 - **It owns the DB while it runs.** `db_file_open_locked_checked_cfg` takes
   the M3 shard lock; a second Station on the same file fails fast. Stop with
   Ctrl+C (WAL durable; advisory lock released by exit). There is no
   read-only/cross-process reader mode yet (ST2/ST3).
+- **Crash/restart:** `scripts/station_crash_test.{ps1,sh}` starts the
+  hello-station, drives the ORBITWIRE client to BEGIN+PUT (or an
+  auto-commit PUT), hard-kills the server, restarts on the same DB and
+  verifies with the client: uncommitted work is discarded, committed work
+  replays from the WAL, and a post-recovery commit survives a second kill.
+  **11 checks x2 Windows + x2 WSL.** A hard kill leaves the advisory
+  `.lock` file; the OS releases the lock and the restart reacquires it
+  (validated). The harness discovers the actual bound port through
+  `ORBITDB_STATION_PORT_FILE` (fixed base ports 17990/17991, fallback safe).
 - **Env:** `ORBITDB_STATION_DB`, `_BIND` (127.0.0.1), `_PORT` (7767; `0` ->
   first free 17867+), `_ORDER` (4), `_PAGE_FORMAT` (2), `_TOKEN` (empty =
-  AUTH off). Large DBs: set `ORBITDB_PAGER_CAPACITY` (default 256).
+  AUTH off), `_PORT_FILE` (optional atomic bound-port file for harnesses /
+  service discovery). Large DBs: set `ORBITDB_PAGER_CAPACITY` (default 256).
 - **RAM cap:** `scripts/station.ps1` runs under `scripts/run_capped.ps1`
   (4 GB default); the WSL twin polls VmRSS.
 - **Protocol:** `station/docs/ORBITWIRE.md` (frozen v1; frame KAT, field
