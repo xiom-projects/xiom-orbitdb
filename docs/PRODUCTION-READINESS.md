@@ -435,11 +435,12 @@ Scoreboard changelog:
   880 s), so the teardown number is not a clean signal. 200k: exact verify,
   558.2 MB peak, 733 ms engine, 733 s wall under the same load. **v0.64.9
   was WITHDRAWN from adoption** (`REL-20261022-1826-compiler`); production
-  remains v0.64.8 and the hold rows are v0.65.0 acceptance input. Hybrid
-  full is blocked by xvector's missing `xiom.metrics` 0.2.0
-  (`REL-20261022-1750-orbitdb`).
-  **No score change (82.5)**: A5 is already OK; hybrid and the quiet-host
-  wall remain, and the compiler stays v0.64.8.
+  remains v0.64.8 and the hold rows are v0.65.0 acceptance input. **Hybrid
+  is GREEN after the package-store restore** (xiom.metrics 0.2.0): full
+  36/36 x2 Windows + x2 WSL, crash 5/5 x2 both, 100% join integrity;
+  `REL-20261022-1750-orbitdb` verified.
+  **No score change (82.5)**: A5 is already OK; the quiet-host wall and the
+  v0.65.0 acceptance remain, and the compiler stays v0.64.8.
 ## A. Correctness & data structures (20)
 
 | # | Item | Pts | Status | Evidence / gate |

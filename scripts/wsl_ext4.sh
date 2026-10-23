@@ -37,6 +37,9 @@ mkdir -p "$DST"
 cp -r "$SRC/src" "$SRC/tests" "$SRC/scripts" "$SRC/admin" "$SRC/station" "$SRC/docs" "$SRC/package.xi" "$DST/"
 # Hybrid manifest: ../../../xiom-xvector from tests/hybrid -> ~/.cache/xiom-xvector
 ln -sfn "$XVEC" "$HOME/.cache/xiom-xvector"
+# Relative DB paths in probes (hybrid/soak) need out/ in the ext4 copy; the
+# 9p source tree is not used, so create it here.
+mkdir -p "$DST/out"
 
 LOG="${ORBITDB_WSL_LOG:-$HOME/.cache/orbitdb-lane-last.log}"
 cd "$DST" || exit 1

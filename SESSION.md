@@ -418,6 +418,21 @@ the v0.64.6 verdicts.
   co-run filed `REL-20261021-1154-orbitdb` (packages). Next: ST2 server core
   + crash harness; **ST1 did not touch `src/`**.
 
+**Updated:** 2026-10-23 (hybrid unblocked -- full + crash GREEN x2 both):
+  The package-store reinstall (`202ee1f`; `xiom.metrics` 0.2.0 now present)
+  removed the only hybrid block. Hybrid **full** probe: 36/36 checks GREEN
+  x2 Windows + x2 WSL (ingest, crash-between, delete pipeline, repair, join
+  integrity, top-k, edges, duplicate ids, dim mismatch/reset, persist,
+  reopen, WAL prefix, torn tail); hybrid **crash**: 5/5 GREEN x2 Windows +
+  x2 WSL (100% join integrity after repair; second verify idempotent).
+  `REL-20261022-1750-orbitdb` verified. WSL needs `out/` for the relative DB
+  paths (harness note: `mkdir -p out` before the probe; create it in the
+  ext4 cache). No ORBITDB code change; the stdlib-v0.64.9 + read_at_into
+  battery is now fully green except the quiet-host 1M wall. Cross-lane:
+  btree/wal/vectors were reinstalled; `probe_compose_collision` C001
+  `btree_insert/delete` unresolved is a package-composition finding for the
+  split owner, not this lane.
+
 **Updated:** 2026-10-22 (package-store reinstall + two consumer-path findings):
   the Windows package store was found short (pulse wipe notice
   `REL-20261022-2058-pulse`): our `xiom.btree 0.1.1` / `xiom.wal 0.1.0` /
@@ -2237,11 +2252,13 @@ done. Suite 166/166 x2 both, crash 25/25 x2 both, probes/fuzz green.
 merged (`27a8212`); functional battery green** (suite 166/166 x2 Win + x2
 WSL, block crash 8/8 x2 Win + x2 WSL, db crash 25/25 x2 Win, fuzz, station
 169/169 x2 Win, io-primitives 30/30 x2, mvcc 36/36 x2). 200k soak: exact
-verify / 558.2 MB peak / 733 ms engine but **733 s wall under host
-contention** (quiet baseline 151 s) -- not a clean perf number; 1M rerun
-pending a quiet host. **Hybrid full is blocked** by xvector's missing
-`xiom.metrics` 0.2.0 package (`REL-20261022-1750-orbitdb`), not by this
-branch. Relays filed
+verify / 558.2 MB peak / 733 ms engine / **733 s wall under host
+contention** (quiet baseline 151 s). **1M soak PASS:** 1,000,000 keys,
+exact **1,004-sample verify**, 32,260 nodes, **peak 2,451.2 MB** (new best),
+engine 6.11 s, wall **6,110 s** under the same load (quiet baseline 880 s);
+the wall is not a clean signal. **Hybrid full 36/36 + crash 5/5 GREEN x2
+Windows + x2 WSL** after the package-store reinstall (xiom.metrics 0.2.0);
+`REL-20261022-1750-orbitdb` verified. Relays filed
 2026-10-21: global Vec.pop `REL-20261021-1122-orbitdb`, m375 wishlist `-2`,
 stdlib release `-3`, packages 0.3.0 `-4`, all-lanes ops `-5`, **C-ORBIT-14
 let/var match Vec truncation `-1136`**, **C-ORBIT-15 BOM catalog `-1157`**,
@@ -2255,9 +2272,9 @@ TASK ORDER (item 0 first):
    m1511 port.args / C07, then P1 + P2 MCU. Our v0.64.9 rows and hold
    (`REL-20261022-1501-orbitdb`) are acceptance input. **Done:** stdlib-
    v0.64.9 is the lane default and `feat/read-at-into-open` is merged
-   (`27a8212`); functional battery green; 1M soak PASS (2,451.2 MB peak,
-   exact 1,004, 6,110 s wall under host load). Remaining: hybrid full after
-   xvector installs `xiom.metrics` 0.2.0 (`REL-20261022-1750-orbitdb`);
+   (`27a8212`); functional battery green; **1M soak PASS (2,451.2 MB peak,
+   exact 1,004, 6,110 s wall under host load); hybrid full 36/36 + crash
+   5/5 x2 both green** after the metrics package restore. Remaining:
    quiet-host wall measurement. Re-test the v0.65.0 archive when cut (1451/
    1550 + our repros, 1M A/B with `XIOM_FAST_EXIT=1`, A6 exact verify,
    m1157, C-ORBIT-14 `via_let=3`) before any compiler pin move. **ST2 may
