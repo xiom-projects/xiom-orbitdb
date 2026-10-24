@@ -48,14 +48,15 @@ TOOLCHAIN (2026-10-23):
   v2 block-store scan uses `io.read_at_into` into a reused page buffer.
 - FRESHNESS: at start and after any pin move run the battery (suite x2 both,
   crash x2 both, probes x2 both, fuzz, hybrid x2 both) and relay reds.
-- **v0.65.0 acceptance is the next action** (the archive is out): verify
+- **v0.65.0 acceptance is the next action after the owner-approved pause
+  ends** (all lanes paused through the 04:00-13:00 Greek double-charge
+  window; bindings resumes 10:05Z). The archive is out and production, but
+  resumption/adoption is deferred to the pause end: verify
   version/checksums, run 1451/1550 + our repros, 1M A/B with
   `XIOM_FAST_EXIT=1`, A6 exact verify, m1157 BOM, C-ORBIT-14 `via_let=3`,
-  then fill `release-checks/compiler-v0.65.0.md`, close the hold rows, and
-  bump the compiler/stdlib pins. Cross-lane advisory: bindings reports an
-  owner-approved pause through the 04:00-13:00 Greek double-charge window
-  (resume 10:05Z); confirm with the owner/compiler lane before adopting
-  during it.
+  then fill `release-checks/compiler-compiler-v0.65.0.md`, close the hold
+  rows, and bump the compiler/stdlib pins. Production slot stays v0.64.8
+  until then (no split-brain).
 
 STATE (2026-10-23 wrap): **A6 1M PASS / G-START GREEN / ST1 ORBITWIRE GREEN /
 stdlib-v0.64.9 + read_at_into adopted / ST2 crash harness GREEN.**
@@ -98,8 +99,10 @@ TASK ORDER (item 0 first):
    docs/repro/vec-match-binding, docs/repro/utf8-bom-module on the new
    archive; then full battery + 1M A/B with XIOM_FAST_EXIT=1 + A6 exact
    verify + m1157 + C-ORBIT-14 via_let=3; fill
-   release-checks/compiler-v0.65.0.md and close the holds; only then bump
-   dev-env.*. ST2/ST3 may proceed on v0.64.8 while the acceptance runs.
+   release-checks/compiler-compiler-v0.65.0.md and close the holds; only
+   then bump dev-env.*. ST2/ST3 may proceed on v0.64.8 while the acceptance
+   runs. **The lane is under the owner-approved 04:00-13:00 Greek pause;
+   resume adoption after it (bindings 10:05Z).**
 1. **ST2 Station single-node server core (remaining):** session-loop
    hardening + explicit graceful stop/SIGINT (check stdlib signal support;
    if absent, add a stop flag/control path or document the limitation),
