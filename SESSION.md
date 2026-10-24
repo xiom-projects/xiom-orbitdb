@@ -427,7 +427,9 @@ the v0.64.6 verdicts.
   `lib/xiom/io/io.xi` has `read_at_into`. **dev-env pins intentionally
   remain v0.64.8** until the acceptance battery passes. Next: run the
   acceptance from these extracts (set `XIOM_COMPILER` to the new exe/bin;
-  do not commit a pin bump until green).**Updated:** 2026-10-24 (v0.65.0 RELEASED -- acceptance is task 0; pins not
+  do not commit a pin bump until green).
+
+**Updated:** 2026-10-24 (v0.65.0 RELEASED -- acceptance is task 0; pins not
   bumped yet):
   **v0.65.0 is out** (compiler tag `f527d5a` on `a0dc452dc`, 11 assets +
   SHA256SUMS; stdlib-v0.65.0 `3eb9c05`; xiom-std 0.65.0 live; relay
