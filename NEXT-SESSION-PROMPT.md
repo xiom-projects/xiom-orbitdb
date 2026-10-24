@@ -94,6 +94,10 @@ TASK ORDER (item 0 first):
    Release: tag `v0.65.0` (`f527d5a`) on `a0dc452dc`; 11 assets +
    SHA256SUMS re-verified; stdlib-v0.65.0 (`3eb9c05`); xiom-std 0.65.0
    (sha `c3629878...`); e2e 2646/2646 on debug AND release compilers.
+   **Extracts ready:** Windows `%LOCALAPPDATA%\xiom-0.65.0` (exe
+   `545f5699...`) and WSL `~/.local/share/xiom-0.65.0` (bin
+   `30870486...`), both `--version` 0.65.0, win/linux zips matched
+   SHA256SUMS; dev-env pins still v0.64.8 until green.
    Do not adopt v0.64.9. Verify the v0.65.0 archive + SHA256SUMS; run
    p_nested_generic_ptr_read, p_iter_enumerate_tuple,
    docs/repro/vec-match-binding, docs/repro/utf8-bom-module on the new

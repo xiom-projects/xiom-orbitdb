@@ -418,7 +418,16 @@ the v0.64.6 verdicts.
   co-run filed `REL-20261021-1154-orbitdb` (packages). Next: ST2 server core
   + crash harness; **ST1 did not touch `src/`**.
 
-**Updated:** 2026-10-24 (v0.65.0 RELEASED -- acceptance is task 0; pins not
+**Updated:** 2026-10-24 (v0.65.0 extracts READY -- acceptance next; pins
+  unchanged): both official archives downloaded and **SHA256SUMS-verified**
+  (Windows zip `ff4abb4a...`, Linux x64 `48a58dd7...`); extracted to
+  **Windows `%LOCALAPPDATA%\xiom-0.65.0`** (exe sha `545f5699...`) and
+  **WSL `~/.local/share/xiom-0.65.0`** (bin sha `30870486...`). Both
+  `--version` = 0.65.0; bundled `lib/package.xi` = 0.65.0 and
+  `lib/xiom/io/io.xi` has `read_at_into`. **dev-env pins intentionally
+  remain v0.64.8** until the acceptance battery passes. Next: run the
+  acceptance from these extracts (set `XIOM_COMPILER` to the new exe/bin;
+  do not commit a pin bump until green).**Updated:** 2026-10-24 (v0.65.0 RELEASED -- acceptance is task 0; pins not
   bumped yet):
   **v0.65.0 is out** (compiler tag `f527d5a` on `a0dc452dc`, 11 assets +
   SHA256SUMS; stdlib-v0.65.0 `3eb9c05`; xiom-std 0.65.0 live; relay
