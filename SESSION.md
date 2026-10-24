@@ -418,6 +418,39 @@ the v0.64.6 verdicts.
   co-run filed `REL-20261021-1154-orbitdb` (packages). Next: ST2 server core
   + crash harness; **ST1 did not touch `src/`**.
 
+**Updated:** 2026-10-24 (v0.65.0 RELEASED -- acceptance is task 0; pins not
+  bumped yet):
+  **v0.65.0 is out** (compiler tag `f527d5a` on `a0dc452dc`, 11 assets +
+  SHA256SUMS; stdlib-v0.65.0 `3eb9c05`; xiom-std 0.65.0 live; relay
+  `REL-20261023-2346-compiler`). v0.64.9 remains withdrawn; **v0.64.8 is
+  superseded** but the lane pins stay v0.64.8 until acceptance. Compiler
+  lane reports full e2e 2646/2646 (4 ignored) on **both** debug and release,
+  release parity x2, MCU QEMU, and the C07 runtime helper. **Do not bump
+  `dev-env.*` yet.** First run the acceptance: archive version/checksums,
+  1451/1550 + nested patterns, C-ORBIT-14/15 repros, m1157 BOM, m375
+  `XIOM_FAST_EXIT=1` 1M A/B + A6 exact verify, full battery; then fill
+  `release-checks/compiler-v0.65.0.md`, close the v0.64.9 hold rows, and
+  bump the compiler/stdlib pins. Cross-lane note: bindings reports an
+  owner-approved pause through the 04:00-13:00 Greek double-charge window
+  (resume 10:05Z); confirm with the owner/compiler lane before adopting
+  during it. Context-full wrap follows; next session starts at v0.65.0
+  acceptance.
+
+**Updated:** 2026-10-24 (v0.65.0 RELEASED -- production toolchain; lane under owner pause):
+  compiler **v0.65.0** (tag `f527d5a` on `a0dc452dc`; 11 assets + SHA256SUMS
+  re-verified; e2e 2646/2646 on BOTH debug and release; run 40041016248) +
+  stdlib-v0.65.0 (`3eb9c05`, COMPILER_VERSION v0.64.8) + registry
+  `xiom-std 0.65.0` (`c3629878...`) are LIVE; **v0.64.9 remains withdrawn,
+  v0.64.8 is superseded**. **Owner-approved PAUSE**: all lanes paused through
+  the 04:00-13:00 Greek double-charge window (bindings resumes 10:05Z) --
+  adoption/re-verification is DEFERRED to the pause end. **Our resume tasks:**
+  verify the v0.65.0 archive + SHA256SUMS, swap the pin with a versioned
+  backup, re-run the full battery + hybrid, the m375 1M A/B with
+  `XIOM_FAST_EXIT=1`, A6 exact verify, m1157 BOM regression, fill our row in
+  `release-checks/compiler-compiler-v0.65.0.md`, close the remaining paired
+  rows (`REL-20261020-1807-orbitdb-2`, `-2102`), and keep the stdlib pin in
+  lockstep. Production slot stays v0.64.8 until the pause ends (no
+  split-brain). Relays `3948877`.
 **Updated:** 2026-10-23 (SESSION WRAP -- context full; release hold, stdlib-
   v0.64.9 + read_at_into, 1M/hybrid green, ST2 crash harness):
   - **Toolchain:** compiler **v0.64.8 production** (Latest); **v0.64.9
