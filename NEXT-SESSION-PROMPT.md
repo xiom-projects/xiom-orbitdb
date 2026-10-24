@@ -32,6 +32,12 @@ TOOLCHAIN (2026-10-23):
   parity, then P1 hardening + P2 MCU). Do not adopt/deploy it. The v0.64.9
   acceptance rows stay as v0.65.0 input; our hold -1501 is closed as
   withdrawn (not green).
+- **v0.65.0 is RELEASED (2026-10-23T23:45Z) and is the production target**
+  (tag `f527d5a` on `a0dc452dc`; 11 assets + SHA256SUMS; stdlib-v0.65.0
+  `3eb9c05`; xiom-std 0.65.0). v0.64.8 is superseded but the lane pins stay
+  v0.64.8 **until the acceptance below is green**. Compiler lane: full e2e
+  2646/2646 on debug+release, release parity x2, MCU QEMU, C07 runtime
+  helper. Relay `REL-20261023-2346-compiler`.
 - **stdlib-v0.64.9 is adopted lane-locally** (`aa8b656`; archive
   `xiom-std-0.64.9.tar.gz` sha256 `eab0b80d0019479c17fee091a70ebee4d001ae018eb8e291c08db157c358c269`):
   Windows %LOCALAPPDATA%\xiom-stdlib-0.64.9, WSL
@@ -42,9 +48,14 @@ TOOLCHAIN (2026-10-23):
   v2 block-store scan uses `io.read_at_into` into a reused page buffer.
 - FRESHNESS: at start and after any pin move run the battery (suite x2 both,
   crash x2 both, probes x2 both, fuzz, hybrid x2 both) and relay reds.
-- Re-test the v0.65.0 archive when cut (1451/1550 + our repros, 1M A/B with
-  `XIOM_FAST_EXIT=1`, A6 exact verify, m1157 BOM, C-ORBIT-14 `via_let=3`)
-  before any compiler pin move.
+- **v0.65.0 acceptance is the next action** (the archive is out): verify
+  version/checksums, run 1451/1550 + our repros, 1M A/B with
+  `XIOM_FAST_EXIT=1`, A6 exact verify, m1157 BOM, C-ORBIT-14 `via_let=3`,
+  then fill `release-checks/compiler-v0.65.0.md`, close the hold rows, and
+  bump the compiler/stdlib pins. Cross-lane advisory: bindings reports an
+  owner-approved pause through the 04:00-13:00 Greek double-charge window
+  (resume 10:05Z); confirm with the owner/compiler lane before adopting
+  during it.
 
 STATE (2026-10-23 wrap): **A6 1M PASS / G-START GREEN / ST1 ORBITWIRE GREEN /
 stdlib-v0.64.9 + read_at_into adopted / ST2 crash harness GREEN.**
@@ -78,13 +89,17 @@ stdlib-v0.64.9 + read_at_into adopted / ST2 crash harness GREEN.**
   (acked), m375 `-2`, packages 0.3.0 `-4`, all-lanes ops `-5`.
 
 TASK ORDER (item 0 first):
-0. **v0.65.0 compiler acceptance -- only when the archive is cut.** Do not
-   adopt v0.64.9. Re-check the v0.65.0 gate/blockers; run
+0. **v0.65.0 compiler acceptance -- the archive is OUT (2026-10-23T23:45Z).**
+   Release: tag `v0.65.0` (`f527d5a`) on `a0dc452dc`; 11 assets +
+   SHA256SUMS re-verified; stdlib-v0.65.0 (`3eb9c05`); xiom-std 0.65.0
+   (sha `c3629878...`); e2e 2646/2646 on debug AND release compilers.
+   Do not adopt v0.64.9. Verify the v0.65.0 archive + SHA256SUMS; run
    p_nested_generic_ptr_read, p_iter_enumerate_tuple,
    docs/repro/vec-match-binding, docs/repro/utf8-bom-module on the new
    archive; then full battery + 1M A/B with XIOM_FAST_EXIT=1 + A6 exact
-   verify + m1157 + C-ORBIT-14 via_let=3; only then bump dev-env.*.
-   ST2/ST3 may proceed on v0.64.8 while the gate runs.
+   verify + m1157 + C-ORBIT-14 via_let=3; fill
+   release-checks/compiler-v0.65.0.md and close the holds; only then bump
+   dev-env.*. ST2/ST3 may proceed on v0.64.8 while the acceptance runs.
 1. **ST2 Station single-node server core (remaining):** session-loop
    hardening + explicit graceful stop/SIGINT (check stdlib signal support;
    if absent, add a stop flag/control path or document the limitation),

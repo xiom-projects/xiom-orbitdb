@@ -451,6 +451,18 @@ the v0.64.6 verdicts.
   rows (`REL-20261020-1807-orbitdb-2`, `-2102`), and keep the stdlib pin in
   lockstep. Production slot stays v0.64.8 until the pause ends (no
   split-brain). Relays `3948877`.
+**Updated:** 2026-10-24 (v0.65.0 RELEASED -- adoption is task 0 after the
+  lane pause): compiler tag `v0.65.0` (`f527d5a`) on `a0dc452dc`, 11 assets
+  + SHA256SUMS re-verified; stdlib-v0.65.0 (`3eb9c05`); xiom-std 0.65.0
+  (sha `c3629878...`); e2e **2646/2646 on debug AND release compilers**.
+  v0.64.9 remains withdrawn; v0.64.8 is superseded. Reporter duties: verify
+  archive + SHA256SUMS, run 1451/true-1550/nested patterns, m1157 BOM,
+  **m375 1M A/B with `XIOM_FAST_EXIT=1`** + A6 exact, C-ORBIT-14
+  `via_let=3`; fill `release-checks/compiler-v0.65.0.md`; bump `dev-env.*`
+  only after green. Lanes are paused through the 04:00-13:00 Greek
+  double-charge window (resume ~10:05Z) -- confirm before starting; ST2/ST3
+  can continue on v0.64.8 meanwhile. `NEXT-SESSION-PROMPT.md` task 0 carries
+  the steps.
 **Updated:** 2026-10-23 (SESSION WRAP -- context full; release hold, stdlib-
   v0.64.9 + read_at_into, 1M/hybrid green, ST2 crash harness):
   - **Toolchain:** compiler **v0.64.8 production** (Latest); **v0.64.9
