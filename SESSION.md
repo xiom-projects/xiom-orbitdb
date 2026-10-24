@@ -418,7 +418,17 @@ the v0.64.6 verdicts.
   co-run filed `REL-20261021-1154-orbitdb` (packages). Next: ST2 server core
   + crash harness; **ST1 did not touch `src/`**.
 
-**Updated:** 2026-10-24 (v0.65.0 extracts READY -- acceptance next; pins
+**Updated:** 2026-10-24 (v0.65.0 BLOCKER PROBES GREEN): ran the held
+  acceptance blockers on the extracted Windows **v0.65.0** (exe
+  `545f5699...`, bundled stdlib, `XIOM_STDLIB` unset):
+  `p_nested_generic_ptr_read` **42/42 rc 0**;
+  `p_iter_enumerate_tuple` **"enumerate tuple ok" rc 0**;
+  C-ORBIT-14 `vec-match-binding` **via_let=3 / via_var=3 / direct_len=3
+  rc 0**; C-ORBIT-15 BOM `utf8-bom-module` **v=7 rc 0**. The release fixes
+  the 1451/1550 family and both ORBITDB compiler holds. **Pins still
+  v0.64.8**; remaining acceptance: full battery x2 both, m1157, **m375 1M
+  A/B with `XIOM_FAST_EXIT=1`** + A6 exact, `release-checks/compiler-v0.65.0.md`,
+  then the pin bump.**Updated:** 2026-10-24 (v0.65.0 extracts READY -- acceptance next; pins
   unchanged): both official archives downloaded and **SHA256SUMS-verified**
   (Windows zip `ff4abb4a...`, Linux x64 `48a58dd7...`); extracted to
   **Windows `%LOCALAPPDATA%\xiom-0.65.0`** (exe sha `545f5699...`) and
